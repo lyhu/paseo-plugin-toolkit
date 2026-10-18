@@ -1,0 +1,48 @@
+{
+  "name": "paseo-plugin-toolkit",
+  "version": "0.1.0",
+  "description": "Workspace tools for Paseo",
+  "license": "MIT",
+  "files": [
+    "paseo-plugin.json",
+    "OVERVIEW.md",
+    "README.md",
+    "README_zh.md",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "LICENSE.chat-view",
+    "LICENSE.compact-agent-activity",
+    "LICENSE.mermaid"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "lint": "oxlint .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check ."
+  },
+  "dependencies": {
+    "@getpaseo/client": "0.10.3",
+    "@getpaseo/protocol": "0.10.3",
+    "prismjs": "^1.30.0"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.10.3",
+    "@tanstack/react-query": "^5.90.0",
+    "@types/node": "^22.20.5",
+    "@types/prismjs": "^1.26.6",
+    "@types/react": "~19.1.0",
+    "oxfmt": "0.46.0",
+    "oxlint": "1.61.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-web": "0.21.2",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.7",
+    "zod": "^4.6.5"
+  }
+}

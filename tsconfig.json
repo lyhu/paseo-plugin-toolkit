@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "types": ["react", "node"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "index.client.tsx",
+    "index.server.ts",
+    "client/**/*.ts",
+    "client/**/*.tsx",
+    "server/**/*.ts",
+    "shared/**/*.ts"
+  ],
+  "exclude": [
+    "client/chat-view/**/*.test.ts",
+    "server/chat-view/**/*.test.ts",
+    "shared/chat-view/**/*.test.ts"
+  ]
+}

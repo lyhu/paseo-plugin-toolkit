@@ -1,0 +1,305 @@
+import { describe, expect, it } from "vitest";
+import { parseFlowchart } from "./flowchart";
+import {
+  assignLayers,
+  fitScale,
+  layoutFlowchart,
+  layoutSequence,
+  measureNode,
+  overflowsAfterFit,
+} from "./layout";
+
+const chart = (source: string) => parseFlowchart(source)!;
+
+describe("measureNode", () => {
+  it("grows a node to fit its longest line", () => {
+    const narrow = measureNode({ id: "A", label: "A", shape: "rect" });
+    const wide = measureNode({ id: "B", label: "a much longer label", shape: "rect" });
+    expect(wide.width).toBeGreaterThan(narrow.width);
+  });
+
+  it("grows taller for a multi-line label", () => {
+    const one = measureNode({ id: "A", label: "one", shape: "rect" });
+    const two = measureNode({ id: "A", label: "one\ntwo", shape: "rect" });
+    expect(two.height).toBeGreaterThan(one.height);
+  });
+
+  it("keeps a circle square so the label fits inside it", () => {
+    const circle = measureNode({ id: "A", label: "hello", shape: "circle" });
+    expect(circle.width).toBe(circle.height);
+  });
+});
+
+describe("assignLayers", () => {
+  it("puts a chain on successive layers", () => {
+    const graph = chart("flowchart TD\n A --> B --> C");
+    const layers = assignLayers(graph.nodes, graph.edges);
+    expect([layers.get("A"), layers.get("B"), layers.get("C")]).toEqual([0, 1, 2]);
+  });
+
+  it("uses the longest path, not the first one found", () => {
+    // A -> C directly, and A -> B -> C. C belongs below B.
+    const graph = chart("flowchart TD\n A --> C\n A --> B\n B --> C");
+    const layers = assignLayers(graph.nodes, graph.edges);
+    expect(layers.get("C")).toBe(2);
+  });
+
+  it("terminates on a cycle instead of recursing forever", () => {
+    const graph = chart("flowchart TD\n A --> B\n B --> C\n C --> A");
+    const layers = assignLayers(graph.nodes, graph.edges);
+    expect(layers.size).toBe(3);
+    expect(Math.max(...layers.values())).toBeLessThan(3);
+  });
+
+  it("puts two independent roots on the same layer", () => {
+    const graph = chart("flowchart TD\n A --> C\n B --> C");
+    const layers = assignLayers(graph.nodes, graph.edges);
+    expect(layers.get("A")).toBe(layers.get("B"));
+  });
+});
+
+describe("layoutFlowchart", () => {
+  it("stacks layers downward for TD", () => {
+    const layout = layoutFlowchart(chart("flowchart TD\n A --> B"));
+    const [a, b] = ["A", "B"].map((id) => layout.nodes.find((node) => node.id === id)!);
+    expect(b.y).toBeGreaterThan(a.y);
+    expect(Math.abs(a.x - b.x)).toBeLessThan(1);
+  });
+
+  it("wraps a subgraph's members in one padded box with a title strip", () => {
+    const layout = layoutFlowchart(
+      chart("flowchart TD\n subgraph g[Group]\n  A\n  B\n end\n A --> B"),
+    );
+    const [box] = layout.subgraphs;
+    const members = layout.nodes.filter((node) => box.members.includes(node.id));
+    const left = Math.min(...members.map((node) => node.x));
+    const right = Math.max(...members.map((node) => node.x + node.width));
+    const top = Math.min(...members.map((node) => node.y));
+    const bottom = Math.max(...members.map((node) => node.y + node.height));
+    expect(box.title).toBe("Group");
+    expect(box.x).toBeLessThan(left);
+    expect(box.x + box.width).toBeGreaterThan(right);
+    expect(box.y + box.height).toBeGreaterThan(bottom);
+    // The title strip sits above the topmost member, not on top of it.
+    expect(box.y).toBeLessThan(top - 12);
+    // Nodes and edges stay in front: every node sits inside the canvas.
+    expect(Math.min(...layout.nodes.map((node) => node.x))).toBeGreaterThanOrEqual(0);
+    expect(Math.min(...layout.nodes.map((node) => node.y))).toBeGreaterThanOrEqual(0);
+  });
+
+  it("shifts everything when a box's padding crosses the origin", () => {
+    const layout = layoutFlowchart(chart("flowchart LR\n subgraph g[Group]\n  A\n end\n A --> B"));
+    expect(Math.min(...layout.nodes.map((node) => node.x))).toBeGreaterThanOrEqual(0);
+    expect(Math.min(...layout.nodes.map((node) => node.y))).toBeGreaterThanOrEqual(0);
+    expect(Math.min(...layout.subgraphs.map((box) => box.x))).toBeGreaterThanOrEqual(0);
+    // The canvas grows to hold the box instead of clipping it.
+    for (const box of layout.subgraphs) {
+      expect(box.x + box.width).toBeLessThanOrEqual(layout.width);
+      expect(box.y + box.height).toBeLessThanOrEqual(layout.height);
+    }
+  });
+
+  it("routes a layer-skipping edge through a lane inside the canvas for TD", () => {
+    const layout = layoutFlowchart(chart("flowchart TD\n A --> B\n B --> C\n A --> C"));
+    for (const edge of layout.edges) {
+      for (const segment of edge.segments) {
+        expect(segment.x).toBeGreaterThanOrEqual(0);
+        expect(segment.x + segment.width).toBeLessThanOrEqual(layout.width);
+        expect(segment.y + segment.height).toBeLessThanOrEqual(layout.height);
+      }
+    }
+  });
+
+  it("stacks layers rightward for LR", () => {
+    const layout = layoutFlowchart(chart("flowchart LR\n A --> B"));
+    const [a, b] = ["A", "B"].map((id) => layout.nodes.find((node) => node.id === id)!);
+    expect(b.x).toBeGreaterThan(a.x);
+  });
+
+  it("flips the flow for BT", () => {
+    const layout = layoutFlowchart(chart("flowchart BT\n A --> B"));
+    const [a, b] = ["A", "B"].map((id) => layout.nodes.find((node) => node.id === id)!);
+    expect(b.y).toBeLessThan(a.y);
+  });
+
+  it("never overlaps two nodes on the same layer", () => {
+    const layout = layoutFlowchart(chart("flowchart TD\n R --> A\n R --> B\n R --> C"));
+    const row = layout.nodes
+      .filter((node) => node.layer === 1)
+      .sort((left, right) => left.x - right.x);
+    for (let index = 1; index < row.length; index += 1) {
+      expect(row[index].x).toBeGreaterThanOrEqual(row[index - 1].x + row[index - 1].width);
+    }
+  });
+
+  it("reports a canvas large enough to hold every node", () => {
+    const layout = layoutFlowchart(chart("flowchart TD\n R --> A\n R --> B\n A --> C"));
+    for (const node of layout.nodes) {
+      expect(node.x + node.width).toBeLessThanOrEqual(layout.width + 0.001);
+      expect(node.y + node.height).toBeLessThanOrEqual(layout.height + 0.001);
+    }
+  });
+
+  it("routes an edge with segments and points the arrow along the flow", () => {
+    const layout = layoutFlowchart(chart("flowchart TD\n A --> B"));
+    const edge = layout.edges[0];
+    expect(edge.segments).toHaveLength(3);
+    expect(edge.arrowAt?.direction).toBe("down");
+  });
+
+  it("gives a line no arrowhead", () => {
+    expect(layoutFlowchart(chart("flowchart TD\n A --- B")).edges[0].arrowAt).toBeNull();
+  });
+
+  it("places an edge label between its endpoints", () => {
+    const layout = layoutFlowchart(chart("flowchart TD\n A -->|yes| B"));
+    const [a, b] = ["A", "B"].map((id) => layout.nodes.find((node) => node.id === id)!);
+    const label = layout.edges[0].labelAt!;
+    expect(label.y).toBeGreaterThan(a.y);
+    expect(label.y).toBeLessThan(b.y + b.height);
+  });
+
+  it("survives an edge pointing at a node that was never defined", () => {
+    const layout = layoutFlowchart({
+      direction: "TD",
+      nodes: [],
+      edges: [{ from: "A", to: "B", label: null, style: "solid", arrow: true }],
+      subgraphs: [],
+      skipped: [],
+    });
+    expect(layout.edges[0].segments).toEqual([]);
+  });
+});
+
+describe("layoutSequence", () => {
+  const people = [
+    { id: "U", label: "User", actor: false },
+    { id: "S", label: "Payment gateway", actor: true },
+  ];
+
+  it("sizes each column to its own label", () => {
+    const layout = layoutSequence(people, 2);
+    expect(layout.columns[1].width).toBeGreaterThan(layout.columns[0].width);
+  });
+
+  it("never overlaps two columns", () => {
+    const layout = layoutSequence(people, 1);
+    const [first, second] = layout.columns;
+    expect(second.centerX - second.width / 2).toBeGreaterThan(first.centerX + first.width / 2);
+  });
+
+  it("stacks one row per event below the header", () => {
+    const layout = layoutSequence(people, 3);
+    expect(layout.rows).toHaveLength(3);
+    expect(layout.rows[0].y).toBeGreaterThanOrEqual(layout.headerHeight);
+    expect(layout.rows[2].y).toBeGreaterThan(layout.rows[1].y);
+  });
+
+  it("reports a canvas that contains the last column and row", () => {
+    const layout = layoutSequence(people, 2);
+    const last = layout.columns[layout.columns.length - 1];
+    expect(last.centerX + last.width / 2).toBeLessThanOrEqual(layout.width + 0.001);
+    expect(layout.height).toBeGreaterThan(layout.rows[1].y);
+  });
+
+  it("handles a diagram with no events yet", () => {
+    expect(layoutSequence(people, 0).rows).toEqual([]);
+  });
+});
+
+describe("diamond geometry", () => {
+  it("gives a diamond a square box, so its rotated corners reach the edges", () => {
+    const box = measureNode({ id: "A", label: "Has mermaid?", shape: "diamond" });
+    expect(box.width).toBe(box.height);
+  });
+
+  it("keeps the box wide enough for the label across the diagonal", () => {
+    const plain = measureNode({ id: "A", label: "Has mermaid?", shape: "rect" });
+    const diamond = measureNode({ id: "A", label: "Has mermaid?", shape: "diamond" });
+    expect(diamond.width).toBeGreaterThan(plain.width);
+  });
+});
+
+describe("fitScale", () => {
+  it("shrinks a wide diagram to the width it was given", () => {
+    expect(fitScale(900, 1200)).toBeCloseTo(0.75);
+  });
+
+  it("grows a small diagram so it does not sit lost in a wide row", () => {
+    expect(fitScale(900, 300)).toBe(1.3);
+  });
+
+  it("never shrinks past the point where labels stop being readable", () => {
+    expect(fitScale(100, 2000)).toBe(0.55);
+  });
+
+  it("leaves the drawing alone before the container has been measured", () => {
+    expect(fitScale(0, 800)).toBe(1);
+    expect(fitScale(600, 0)).toBe(1);
+  });
+
+  it("reports the case where scrolling is still needed after shrinking", () => {
+    expect(overflowsAfterFit(100, 2000)).toBe(true);
+  });
+
+  it("reports no overflow once the diagram fits", () => {
+    expect(overflowsAfterFit(900, 1200)).toBe(false);
+    expect(overflowsAfterFit(900, 300)).toBe(false);
+  });
+
+  it("scrolls again once the reader zooms a fitted drawing past the row", () => {
+    expect(overflowsAfterFit(900, 1200, 1)).toBe(false);
+    expect(overflowsAfterFit(900, 1200, 1.25)).toBe(true);
+    expect(overflowsAfterFit(100, 2000, 0.5)).toBe(true);
+  });
+});
+
+describe("edges that skip a layer", () => {
+  // Cached? --> Response jumps two layers past Query database and Write cache.
+  const source = `flowchart LR
+    Req([Request]) --> Auth{Authorized?}
+    Auth --> Cache{Cached?}
+    Cache -->|miss| Query[[Query database]]
+    Cache -->|hit| Serve((Response))
+    Query --> Store(Write cache)
+    Store --> Serve`;
+
+  const layout = layoutFlowchart(parseFlowchart(source)!);
+  const long = layout.edges.find((edge) => edge.from === "Cache" && edge.to === "Serve")!;
+  const boxes = layout.nodes.filter((node) => node.id !== "Cache" && node.id !== "Serve");
+
+  it("routes the long edge with five segments rather than three", () => {
+    expect(long.segments).toHaveLength(5);
+    const direct = layout.edges.find((edge) => edge.from === "Query" && edge.to === "Store")!;
+    expect(direct.segments).toHaveLength(3);
+  });
+
+  it("keeps every segment of the long edge out of the boxes it skips", () => {
+    for (const segment of long.segments) {
+      for (const box of boxes) {
+        const overlaps =
+          segment.x < box.x + box.width &&
+          segment.x + segment.width > box.x &&
+          segment.y < box.y + box.height &&
+          segment.y + segment.height > box.y;
+        expect(overlaps, `${long.from}->${long.to} crosses ${box.id}`).toBe(false);
+      }
+    }
+  });
+
+  it("grows the canvas so the lane is inside it", () => {
+    const lowest = Math.max(...long.segments.map((segment) => segment.y + segment.height));
+    expect(lowest).toBeLessThanOrEqual(layout.height);
+  });
+
+  it("still points the arrow into the target", () => {
+    const target = layout.nodes.find((node) => node.id === "Serve")!;
+    expect(long.arrowAt?.direction).toBe("right");
+    expect(long.arrowAt?.x).toBeCloseTo(target.x);
+  });
+
+  it("puts the label on the lane, clear of the nodes", () => {
+    expect(long.label).toBe("hit");
+    for (const box of boxes) expect(long.labelAt!.y).toBeGreaterThan(box.y + box.height);
+  });
+});

@@ -1,0 +1,304 @@
+import type { SupportedLocale } from "./chat-view/i18n";
+
+const english: Record<string, string> = {
+  "Toolkit 模型": "Toolkit models",
+  "Toolkit 模型设置": "Toolkit model settings",
+  快捷提问: "Quick questions",
+  维护快捷提问: "Manage quick questions",
+  设置快捷提问: "Quick question settings",
+  "快捷提问 ·": "Quick questions ·",
+  当前工作空间的话术库: "Questions for this workspace",
+  已保存: "Saved",
+  保存修改: "Save changes",
+  "正在保存…": "Saving…",
+  "＋ 手动添加": "＋ Add manually",
+  从工作区对话总结: "Summarize workspace history",
+  模型设置: "Model settings",
+  收起模型设置: "Hide model settings",
+  "快捷提问已保存，各设备将同步更新。": "Quick questions saved and synced across devices.",
+  "总结提示词已保存。": "Summary prompt saved.",
+  "已加入 {0} 条，跳过 {1} 条重复话术。请保存。":
+    "Added {0}; skipped {1} duplicates. Save your changes.",
+  重试保存: "Retry save",
+  "其他设备已更新。当前草稿仍保留，请复制需要的内容后载入最新版本。":
+    "Another device updated these settings. Copy any draft changes before loading the latest version.",
+  放弃草稿并载入最新版本: "Discard draft and load latest",
+  "尚未配置 Toolkit 模型，暂时无法从历史生成问题。":
+    "Configure a Toolkit model to summarize history.",
+  配置模型: "Configure model",
+  添加快捷提问: "Add quick question",
+  取消: "Cancel",
+  "例如：检查当前服务器集群的健康状态": "Example: Check the health of the server cluster",
+  添加到问题库: "Add to questions",
+  "主机已停用快捷提问，可在 Toolkit 功能设置中启用。":
+    "Quick questions are disabled for this host. Enable them in Toolkit feature settings.",
+  "话术不能为空，且每条不超过 8000 字符。": "Each question must contain 1–8,000 characters.",
+  还没有快捷提问: "No quick questions yet",
+  "点击上方“手动添加”，或者从工作区对话中总结候选问题。":
+    "Add a question manually or summarize workspace history.",
+  "来自历史总结 · 约 {0} 次": "From history · about {0} times",
+  手动添加: "Added manually",
+  快捷提问话术: "Quick question text",
+  上移: "Move up",
+  下移: "Move down",
+  "模型：{0}": "Model: {0}",
+  总结模型: "Summary model",
+  快捷入口已启用: "Workspace shortcut enabled",
+  快捷入口已停用: "Workspace shortcut disabled",
+  "已从草稿移除，请保存修改。": "Removed from draft. Save your changes.",
+  总结提示词: "Summary prompt",
+  收起提示词: "Hide prompt",
+  总结提示词内容: "Summary prompt content",
+  "总结提示词不能为空，且不超过 8000 字符。": "The summary prompt must contain 1–8,000 characters.",
+  "保存后用于下一次总结；JSON 格式和来源校验由插件固定。":
+    "Saved changes apply to the next summary. JSON format and source validation are fixed by the plugin.",
+  保存提示词: "Save prompt",
+  还原默认: "Restore defaults",
+  编辑: "Edit",
+  完成编辑: "Done editing",
+  删除: "Delete",
+  取消删除: "Cancel deletion",
+  确认删除: "Confirm deletion",
+  "{0}第 {1} 条": "{0} question {1}",
+  "删除第 {0} 条": "Delete question {0}",
+  "取消删除第 {0} 条": "Cancel deleting question {0}",
+  "确认删除第 {0} 条": "Confirm deleting question {0}",
+  "确认删除第 {0} 条（{1} 秒后可用）": "Confirm deleting question {0} (available in {1}s)",
+  "{0} 秒后可确认删除": "Confirm deletion in {0}s",
+  搜索问题: "Search questions",
+  正在读取问题: "Loading questions",
+  "正在读取快捷提问…": "Loading quick questions…",
+  重试读取: "Retry loading",
+  重试: "Retry",
+  已停用: "Disabled",
+  "直接发送：{0}": "Send now: {0}",
+  无匹配结果: "No matches",
+  暂无问题: "No questions yet",
+  编辑问题: "Edit question",
+  发送编辑后的问题: "Send edited question",
+  "从当前工作空间（含归档）最近的用户提问中提炼最多 20 条候选。":
+    "Generate up to 20 candidates from recent user questions in this workspace, including archived conversations.",
+  最近: "Latest",
+  历史条数: "History limit",
+  条用户提问: "user questions",
+  "保存中…": "Saving…",
+  保存设置: "Save settings",
+  "历史条数必须为正整数。": "The history limit must be a positive integer.",
+  "尚未配置总结模型。": "No summary model configured.",
+  开始总结: "Start summary",
+  重试总结: "Retry summary",
+  重新开始: "Start again",
+  重新总结: "Summarize again",
+  "重试总结（含失败对话）": "Retry summary, including failed conversations",
+  "正在启动…": "Starting…",
+  "正在取消…": "Canceling…",
+  取消总结: "Cancel summary",
+  读取历史: "Reading history",
+  分批总结: "Summarizing batches",
+  合并候选: "Merging candidates",
+  候选问题已就绪: "Candidates ready",
+  总结失败: "Summary failed",
+  总结已取消: "Summary canceled",
+  查看详情: "Show details",
+  查看进度: "Show progress",
+  查看候选: "Show candidates",
+  收起: "Hide",
+  "任务状态读取失败：": "Could not load task status: ",
+  重试读取进度: "Retry loading progress",
+  "点击“重试总结”将重新读取历史并生成候选，已保存的问题不受影响。":
+    "Retry reads history again and generates new candidates. Saved questions are kept.",
+  "用户提问和必要的相邻助手文本会发送到已配置的模型服务；频次为分批归并后的估算值。":
+    "User questions and nearby assistant context are sent to the configured model service. Frequencies are estimates after batch merging.",
+  当前阶段: "Current stage",
+  "· 读取成功": "· Read",
+  "个对话 · 用户提问": "conversations · User questions",
+  "条 · 失败": "questions · Failed",
+  个: "conversations",
+  "未读取：": "Could not read: ",
+  收起执行详情: "Hide execution details",
+  展开执行详情: "Show execution details",
+  "最近 100 条记录 · 新记录在前": "Latest 100 events · newest first",
+  "候选已加入问题库，请点击顶部“保存修改”。": "Candidates added. Click Save changes at the top.",
+  "暂无候选提问，可重新总结或手动添加。":
+    "No candidates. Summarize again or add questions manually.",
+  "选择前 N 条": "Select top N",
+  加入所选: "Add selected",
+  条: "questions",
+  选择: "Select",
+  取消选择: "Deselect",
+  "{0}第 {1} 条 · 约 {2} 次": "{0} question {1} · about {2} times",
+  "候选问题 {0}": "Candidate question {0}",
+  候选问题: "Candidate question",
+  "添加第 {0} 条到快捷提问": "Add question {0} to quick questions",
+  "{0}原始对话（{1}）": "{0} source conversations ({1})",
+  查看: "Show",
+  "从候选中移除第 {0} 条": "Remove candidate {0}",
+  "打开原始对话 {0}": "Open source conversation {0}",
+  主机默认: "Host default",
+  工作区独立配置: "Workspace override",
+  "主机默认（所有工作区）": "Host default (all workspaces)",
+  当前工作区单独配置: "Workspace override",
+  "历史总结和增强共用。当前使用：": "Shared by summary and enhancement. Using: ",
+  模型连接: "Model connection",
+  收起设置: "Hide settings",
+  "API 地址，例如 https://api.example.com/v1": "API URL, e.g. https://api.example.com/v1",
+  "API Key 已保存，留空保留": "API key saved; leave blank to keep",
+  "API Key（可选）": "API key (optional)",
+  模型名称: "Model name",
+  获取模型列表: "Fetch models",
+  "正在获取…": "Fetching…",
+  选择模型: "Choose a model",
+  测试连接: "Test connection",
+  "正在测试…": "Testing…",
+  "个模型 · 也可手动填写": " models · or enter a name manually",
+  收起列表: "Hide list",
+  搜索模型: "Search models",
+  "选择模型 {0}": "Choose model {0}",
+  "无匹配模型，可手动填写。": "No matching models. Enter a model name manually.",
+  "连接正常 ·": "Connected ·",
+  "ms · JSON 测试通过": "ms · JSON test passed",
+  重试保存模型: "Retry saving model",
+  保存模型配置: "Save model configuration",
+  "将清除凭据 · 撤销": "Key will be cleared · Undo",
+  清除已保存凭据: "Clear saved key",
+  "正在读取模型配置…": "Loading model configuration…",
+  重试读取模型配置: "Retry loading model configuration",
+  "模型配置已更新，当前草稿保留。": "Model configuration changed. Your draft is kept.",
+  载入最新模型配置: "Load latest model configuration",
+  "模型配置已保存。": "Model configuration saved.",
+  "已恢复使用主机默认模型。": "Restored the host default model.",
+  "正在恢复…": "Restoring…",
+  恢复使用主机默认模型: "Use host default model",
+  "请选择工作区。": "Select a workspace.",
+  "候选任务已更新或尚未完成，请刷新后重试。":
+    "The candidate task changed or is not finished. Refresh and retry.",
+  "共读取 {0} 条用户提问，选用最近 {1} 条参与总结":
+    "Read {0} user questions; using the latest {1} for this summary",
+  "其他设备已更新此工作空间。请重新加载后再保存；当前编辑内容仍保留。":
+    "Another device updated this workspace. Reload before saving; your draft is kept.",
+  "历史分页没有前进，请重试。": "History pagination did not advance. Retry loading.",
+  "历史读取不完整，请重试。": "History is incomplete. Retry loading.",
+  "合并第 {0} 轮第 {1}/{2} 组格式校验失败：{3} 正在自动重试 1/1":
+    "Merge round {0}, group {1}/{2} failed validation: {3} Retrying 1/1",
+  "存在重复话术，请合并后保存。": "Duplicate questions found. Merge them before saving.",
+  "工作区模型配置需要指定工作区。": "Select a workspace for a model override.",
+  "工作空间不存在或已不可用。": "The workspace no longer exists or is unavailable.",
+  已取消总结: "Summary canceled",
+  "已读取 {0}：{1} 条用户提问": "Read {0}: {1} user questions",
+  "当前对话已不可用，请重新打开。": "This conversation is unavailable. Open it again.",
+  "快捷提问已停用，请先在功能设置或当前工作区启用。":
+    "Quick questions are disabled. Enable them in feature settings or this workspace.",
+  "快捷提问数据无法读取，请检查主机上的 toolkit 数据文件。":
+    "Could not read quick questions. Check the Toolkit data file on this host.",
+  "总结失败，请重试。": "Summary failed. Please retry.",
+  "总结完成：生成 {0} 条候选，读取失败 {1} 个对话":
+    "Summary complete: {0} candidates; {1} conversations could not be read",
+  "总结已取消，已保存的快捷提问不受影响": "Summary canceled. Saved quick questions are kept",
+  "总结服务请求失败（HTTP {0}），请检查连接配置或稍后重试。":
+    "Summary request failed (HTTP {0}). Check the connection or retry later.",
+  "找到 {0} 个对话，开始读取历史": "Found {0} conversations; reading history",
+  提供商不可用或历史无法恢复: "The provider is unavailable or history could not be restored",
+  "服务未返回 JSON，请检查 API 地址。": "The service did not return JSON. Check the API URL.",
+  "服务返回的模型列表格式不正确，可手动填写模型名称。":
+    "The model list format is invalid. Enter a model name manually.",
+  "模型候选引用了输入中不存在的来源，请重试总结。":
+    "A candidate referenced an unknown source. Retry the summary.",
+  "模型响应缺少有效的 candidates、text 或 sourceIds 字段，请重试总结。":
+    "The response is missing valid candidates, text or sourceIds fields. Retry the summary.",
+  "模型已连接，但未返回要求的 JSON 测试结果。请检查模型是否支持 JSON 输出。":
+    "The model connected but did not return the required JSON test result. Check JSON output support.",
+  "模型服务请求失败（HTTP {0}），请检查地址、API Key 和模型。":
+    "Model request failed (HTTP {0}). Check the URL, API key and model.",
+  "模型服务连接超时（20 秒），请重试。":
+    "The model connection timed out after 20 seconds. Please retry.",
+  "模型未返回文本，请检查模型是否支持 Chat Completions。":
+    "The model returned no text. Check Chat Completions support.",
+  "模型未返回有效文本，请检查模型配置。":
+    "The model returned no valid text. Check the model configuration.",
+  "模型输出超出长度限制，请重试总结。":
+    "Model output exceeded the length limit. Retry the summary.",
+  "模型返回的内容不是有效 JSON，请重试总结。":
+    "The model returned invalid JSON. Retry the summary.",
+  "模型配置已在其他页面更新，请重新加载后保存；当前草稿仍保留。":
+    "Model configuration changed on another page. Reload before saving; your draft is kept.",
+  "正在使用 {0} 总结第 {1}/{2} 批（{3} 条提问）":
+    "Using {0} to summarize batch {1}/{2} ({3} questions)",
+  "正在合并第 {0} 轮 · {1}/{2} 组（{3} 条候选）":
+    "Merging round {0} · group {1}/{2} ({3} candidates)",
+  正在启动总结: "Starting summary",
+  "正在查找当前工作空间的对话（包含归档），选取最近 {0} 条用户提问":
+    "Finding workspace conversations, including archived ones, for the latest {0} user questions",
+  "正在读取 {0}/{1}：{2}": "Reading {0}/{1}: {2}",
+  "此工作空间正在总结，请等待或取消当前任务。":
+    "A summary is already running for this workspace. Wait or cancel it.",
+  "没有可总结的用户提问。请检查历史读取结果后重试。":
+    "No user questions to summarize. Check history loading and retry.",
+  "第 {0}/{1} 批总结完成": "Batch {0}/{1} complete",
+  "第 {0}/{1} 批格式校验失败：{2} 正在自动重试 1/1":
+    "Batch {0}/{1} failed validation: {2} Retrying 1/1",
+  "请使用不含凭据的 HTTP(S) API 地址。": "Use an HTTP(S) API URL without embedded credentials.",
+  "请先保存总结模型的 API 地址和模型名称。": "Save the summary model API URL and model name first.",
+  "请等待对话空闲后发送。": "Wait until the conversation is idle before sending.",
+  "读取失败：{0} · {1}": "Could not read {0} · {1}",
+  "问题标识重复，请重新加载。": "Duplicate question IDs. Please reload.",
+  "{0}（已自动重试 1 次）": "{0} (retried once automatically)",
+  "Toolkit 功能设置无法读取。": "Could not load Toolkit feature settings.",
+  "当前阶段 {0}/{1} · 读取成功 {2} 个对话 · 用户提问 {3} 条 · 失败 {4} 个":
+    "Stage {0}/{1} · Read {2} conversations · {3} user questions · {4} failed",
+};
+export type TranslationValues = Record<string, string | number>;
+function render(template: string, values: TranslationValues) {
+  return template.replace(/\{(\d+)\}/g, (match, key: string) => String(values[key] ?? match));
+}
+function escape(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function matcher(template: string) {
+  const keys: string[] = [];
+  let pattern = "";
+  let previous = 0;
+  for (const match of template.matchAll(/\{(\d+)\}/g)) {
+    pattern += escape(template.slice(previous, match.index)) + "([\\s\\S]+?)";
+    keys.push(match[1]);
+    previous = match.index! + match[0].length;
+  }
+  pattern += escape(template.slice(previous));
+  return { expression: new RegExp(`^${pattern}$`), keys };
+}
+const entries = Object.entries(english);
+const reverse = new Map(entries.map(([source, translation]) => [translation, source]));
+const patterns = entries
+  .filter(([source]) => /\{\d+\}/.test(source))
+  .map(([source, translation]) => ({
+    source,
+    translation,
+    zh: matcher(source),
+    en: matcher(translation),
+  }));
+export function translate(
+  locale: SupportedLocale,
+  source: string,
+  values?: TranslationValues,
+): string {
+  const canonical = english[source] !== undefined ? source : reverse.get(source);
+  if (canonical !== undefined)
+    return render(locale === "en-US" ? english[canonical] : canonical, values ?? {});
+  if (values) return render(source, values);
+  for (const entry of patterns) {
+    for (const language of ["zh", "en"] as const) {
+      const match = entry[language].expression.exec(source);
+      if (!match) continue;
+      const captured = Object.fromEntries(
+        entry[language].keys.map((key, i) => [key, match[i + 1]]),
+      );
+      if (entry.source.includes("格式校验失败")) {
+        const key = entry.source.startsWith("合并") ? "3" : "2";
+        captured[key] = translate(locale, captured[key]);
+      }
+      if (entry.source === "{0}（已自动重试 1 次）")
+        captured["0"] = translate(locale, captured["0"]);
+      return render(locale === "en-US" ? entry.translation : entry.source, captured);
+    }
+  }
+  return source;
+}

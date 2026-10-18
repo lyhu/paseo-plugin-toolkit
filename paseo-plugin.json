@@ -1,0 +1,7 @@
+{
+  "id": "toolkit",
+  "requirements": {
+    "paseo": ">=0.10.3 <0.12.0"
+  },
+  "build": [["npm", "ci", "--omit=dev", "--ignore-scripts"]]
+}
