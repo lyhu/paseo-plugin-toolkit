@@ -194,9 +194,9 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   ]);
   const defaults = activitySettings.schema.parse({});
   expect(defaults.language).toBe("zh-CN");
-  expect(quickPills).toHaveBeenCalledOnce();
+  expect(quickPills).toHaveBeenCalledTimes(1);
   page.props.onSettingsChange({ ...defaults, quickQuestionsEnabled: false });
-  expect(quickRemove).toHaveBeenCalledOnce();
+  expect(quickRemove).toHaveBeenCalledTimes(1);
   page.props.onSettingsChange(defaults);
   expect(quickPills).toHaveBeenCalledTimes(2);
   page.props.onSettingsChange({ ...defaults, stickyEnabled: false });

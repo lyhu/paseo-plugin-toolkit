@@ -7,6 +7,8 @@
 
 export interface Element {
   parentElement: Element | null;
+  nextElementSibling: Element | null;
+  previousElementSibling: Element | null;
   textContent: string | null;
   isConnected: boolean;
   clientWidth: number;
@@ -32,9 +34,11 @@ export interface Element {
     top: number;
     bottom: number;
     left: number;
+    right: number;
     width: number;
     height: number;
   };
+  contains(other: unknown): boolean;
   appendChild(element: Element): void;
   insertBefore(element: Element, before: Element | null): void;
   addEventListener(name: string, callback: (event: unknown) => void): void;
@@ -46,16 +50,18 @@ export interface Document {
   body: Element;
   createElement(tag: string): Element;
   createElementNS(namespace: string, tag: string): Element;
-  addEventListener(name: string, callback: () => void, capture?: boolean): void;
-  removeEventListener(name: string, callback: () => void, capture?: boolean): void;
+  addEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;
+  removeEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;
 }
 
 export interface Window {
+  innerWidth: number;
+  innerHeight: number;
   requestAnimationFrame(callback: () => void): number;
   cancelAnimationFrame(id: number): void;
   getComputedStyle(element: Element): Record<string, string>;
-  addEventListener(name: string, callback: () => void): void;
-  removeEventListener(name: string, callback: () => void): void;
+  addEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;
+  removeEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;
 }
 
 export interface MutationObserverApi {

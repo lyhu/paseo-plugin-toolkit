@@ -91,6 +91,7 @@ Click the **Quick questions** button above the chat composer to open the popover
 - Real-time search across the workspace question library.
 - Click the row's send icon to send immediately, or select a question to edit and refine it in the composer popover before sending.
 - Sending is allowed only when the conversation is idle.
+- While composing a new agent, the same button appears beside **Import session** above the draft composer. Selecting a question fills the draft, where you can edit it before sending. This draft entry requires Paseo 0.12 or later. Filling the draft requires the web or desktop app.
 
 Click the **settings icon** in the top-right corner of the popover (or navigate via Command Center) to open the workspace maintenance panel:
 

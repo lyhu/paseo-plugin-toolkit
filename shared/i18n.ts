@@ -72,6 +72,12 @@ const english: Record<string, string> = {
   重试: "Retry",
   已停用: "Disabled",
   "直接发送：{0}": "Send now: {0}",
+  "填入输入框：{0}": "Insert into composer: {0}",
+  填入输入框: "Insert into composer",
+  "选择问题后会填入输入框，发送前仍可编辑。":
+    "Choosing a question fills the composer; edit it before sending.",
+  "无法写入输入框，已复制到剪贴板。": "Could not write to the composer. Copied to the clipboard.",
+  "无法写入输入框。": "Could not write to the composer.",
   无匹配结果: "No matches",
   暂无问题: "No questions yet",
   编辑问题: "Edit question",

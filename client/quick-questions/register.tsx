@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { tr } from "../i18n";
 import type { PaseoAgent } from "@getpaseo/client";
 import type {
@@ -6,12 +7,14 @@ import type {
   PluginClientContext,
 } from "@getpaseo/plugin/client";
 import { subscribeLocale } from "../chat-view/locale";
+import { createDraftPill } from "./draft-pill";
 import { QuickQuestionsPanel } from "./panel";
 import { QuickQuestionsPopover } from "./popover";
 
 export function registerQuickQuestions(client: PluginClientContext) {
   const pills = new Map<string, { workspaceId: string; registration: PluginButtonRegistration }>();
   const agents = new Map<string, PaseoAgent>();
+  const draftPill = Platform.OS === "web" ? createDraftPill(client) : null;
   let enabled = false;
   let stopped = false;
   let generation = 0;
@@ -118,6 +121,7 @@ export function registerQuickQuestions(client: PluginClientContext) {
     unsubscribeLocale();
     stopped = true;
     generation += 1;
+    draftPill?.dispose();
     for (const pill of pills.values()) pill.registration.remove();
     pills.clear();
     agents.clear();
@@ -129,6 +133,7 @@ export function registerQuickQuestions(client: PluginClientContext) {
     setEnabled(next: boolean) {
       if (stopped || next === enabled) return;
       enabled = next;
+      draftPill?.setEnabled(next);
       for (const agent of agents.values()) register(agent);
     },
     dispose,

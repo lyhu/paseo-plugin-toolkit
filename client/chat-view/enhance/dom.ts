@@ -19,7 +19,11 @@ export interface ComposerAccess {
  * restoring the composer goes through the one stable attribute it renders: `data-composer-input`.
  */
 export function getComposerAccess(): ComposerAccess | undefined {
-  const input = findComposerInput();
+  return createComposerAccess(findComposerInput());
+}
+
+/** Wraps a composer input the caller already resolved, for features that target one pane. */
+export function createComposerAccess(input: Element | undefined): ComposerAccess | undefined {
   if (!input) return undefined;
   return {
     read: () => input.value ?? "",

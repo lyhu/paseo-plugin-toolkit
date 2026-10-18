@@ -3,8 +3,9 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useAgent, useRpc, type PluginButtonContentProps } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { sendQuestion } from "../../shared/quick-questions/contracts";
+import { getDraftComposerAccess } from "./draft-composer";
 import { useQuestions } from "./queries";
 import { Label, Surface, useColors } from "./ui";
 
@@ -24,9 +25,11 @@ export function QuickQuestionsPopover(
 }
 function Content(props: PluginButtonContentProps & { openMaintenance(): void }) {
   const colors = useColors();
+  const toast = useToast();
   const query = useQuestions(props.host.id, props.workspaceId);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [search, setSearch] = useState("");
+  const isDraft = props.context === "workspace";
   const agentId = props.context === "agent" ? props.agentId : "";
   const status = useAgent(agentId, (agent) => agent.status);
   const send = useRpc(sendQuestion);
@@ -34,11 +37,20 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
     mutationFn: (text: string) => send({ workspaceId: props.workspaceId, agentId, text }),
     onSuccess: () => props.close(),
   });
-  const canSend =
-    status === "idle" &&
-    !mutation.isPending &&
-    query.data?.enabled === true &&
-    query.data.featureEnabled;
+  const available = query.data?.enabled === true && query.data.featureEnabled;
+  const canSend = !isDraft && status === "idle" && !mutation.isPending && available;
+  const canFill = isDraft && !mutation.isPending && available;
+  function fillDraft(text: string) {
+    const access = getDraftComposerAccess(props.workspaceId);
+    if (access?.write(text)) {
+      props.close();
+      return;
+    }
+    void copyText(text).then(
+      () => toast.error(tr("无法写入输入框，已复制到剪贴板。")),
+      () => toast.error(tr("无法写入输入框。")),
+    );
+  }
   const questions =
     query.data?.questions.filter((q) =>
       q.text.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
@@ -76,6 +88,7 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
         </View>
         <IconButton icon="Settings2" label={tr("设置快捷提问")} onPress={props.openMaintenance} />
       </View>
+      {isDraft && <Label muted>{tr("选择问题后会填入输入框，发送前仍可编辑。")}</Label>}
       {query.isPending && (
         <ActivityIndicator
           size="small"
@@ -142,11 +155,15 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
                 </Text>
               </Pressable>
               <IconButton
-                icon="Send"
-                label={tr("直接发送：{0}", { "0": q.text })}
-                disabled={!canSend}
-                pending={mutation.isPending && mutation.variables === q.text}
-                onPress={() => mutation.mutate(q.text)}
+                icon={isDraft ? "CornerDownLeft" : "Send"}
+                label={
+                  isDraft
+                    ? tr("填入输入框：{0}", { "0": q.text })
+                    : tr("直接发送：{0}", { "0": q.text })
+                }
+                disabled={isDraft ? !canFill : !canSend}
+                pending={!isDraft && mutation.isPending && mutation.variables === q.text}
+                onPress={() => (isDraft ? fillDraft(q.text) : mutation.mutate(q.text))}
               />
             </View>
           ))}
@@ -190,12 +207,12 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
             }}
           />
           <IconButton
-            icon="ArrowUp"
-            label={tr("发送编辑后的问题")}
+            icon={isDraft ? "CornerDownLeft" : "ArrowUp"}
+            label={isDraft ? tr("填入输入框") : tr("发送编辑后的问题")}
             primary
-            disabled={!canSend || !draft.text.trim()}
-            pending={mutation.isPending && mutation.variables === draft.text}
-            onPress={() => mutation.mutate(draft.text)}
+            disabled={(isDraft ? !canFill : !canSend) || !draft.text.trim()}
+            pending={!isDraft && mutation.isPending && mutation.variables === draft.text}
+            onPress={() => (isDraft ? fillDraft(draft.text) : mutation.mutate(draft.text))}
           />
         </View>
       )}
