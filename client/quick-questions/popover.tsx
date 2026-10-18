@@ -131,9 +131,10 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
           contentContainerStyle={{ gap: 2 }}
           keyboardShouldPersistTaps="handled"
         >
-          {questions.map((q) => (
+          {questions.map((q, index) => (
             <QuestionRow
               key={q.id}
+              ordinal={index + 1}
               text={q.text}
               canSend={canSend}
               canEdit={canEdit}
@@ -155,6 +156,7 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
 }
 
 function QuestionRow({
+  ordinal,
   text,
   canSend,
   canEdit,
@@ -162,6 +164,7 @@ function QuestionRow({
   onSend,
   onEdit,
 }: {
+  ordinal: number;
   text: string;
   canSend: boolean;
   canEdit: boolean;
@@ -204,7 +207,7 @@ function QuestionRow({
         }}
       >
         <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 14, lineHeight: 20 }}>
-          {text}
+          {ordinal}. {text}
         </Text>
       </Pressable>
       <IconButton

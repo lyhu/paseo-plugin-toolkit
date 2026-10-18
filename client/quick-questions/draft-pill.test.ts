@@ -316,6 +316,15 @@ it("renders no search field in the popover", async () => {
   expect(findByTestId(popover, "toolkit-quick-questions-search")).toBeUndefined();
 });
 
+it("numbers the questions in the list", async () => {
+  const { body, row } = setup([{ owns: true }]);
+  await vi.advanceTimersByTimeAsync(0);
+  const popover = await openPopover(row, body);
+  const send = findByTestId(popover, "toolkit-quick-questions-send")!;
+
+  expect(send.children[0]?.textContent).toBe("1. 如何部署 170？");
+});
+
 it("shows the interaction hint as tooltips on the row and edit button", async () => {
   const { body, row } = setup([{ owns: true }]);
   await vi.advanceTimersByTimeAsync(0);

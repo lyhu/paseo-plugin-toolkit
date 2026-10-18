@@ -472,10 +472,12 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       listElement.appendChild(empty);
       return;
     }
-    for (const question of questions) listElement.appendChild(questionRow(question));
+    for (const [index, question] of questions.entries()) {
+      listElement.appendChild(questionRow(question, index + 1));
+    }
   }
 
-  function questionRow(question: Question): Element {
+  function questionRow(question: Question, ordinal: number): Element {
     const row = document.createElement("div");
     row.setAttribute("data-testid", "toolkit-quick-questions-item");
     Object.assign(row.style, {
@@ -512,7 +514,7 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       lineHeight: "20px",
     });
     const text = document.createElement("span");
-    text.textContent = question.text;
+    text.textContent = `${ordinal}. ${question.text}`;
     Object.assign(text.style, {
       flex: "1",
       minWidth: "0",
