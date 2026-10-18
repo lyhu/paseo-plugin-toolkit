@@ -24,6 +24,11 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   });
   const save = vi.fn(async () => true);
   const savedValues = activitySettings.schema.parse({ palette: "soft", displayMode: "detailed" });
+  const enabledValues = {
+    ...activitySettings.schema.parse({}),
+    mermaidEnabled: true,
+    compactActivityEnabled: true,
+  };
   const switches: Array<{
     label: string;
     value: boolean;
@@ -110,7 +115,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     addSettingsScreen,
     rpc: vi.fn(async () => ({
       status: "ready",
-      values: activitySettings.schema.parse({}),
+      values: enabledValues,
       revision: "1",
     })),
     paseo: {
@@ -166,7 +171,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   expect(markup).toContain("Mermaid 图表");
   expect(markup).not.toContain("API Key");
   expect(actions.some((entry) => entry.label === "Toolkit 模型设置")).toBe(true);
-  expect(switches.map((entry) => entry.value)).toEqual([true, true, true, true, true, false]);
+  expect(switches.map((entry) => entry.value)).toEqual([true, false, false, true, true, false]);
   for (const [index, key] of [
     "quickQuestionsEnabled",
     "mermaidEnabled",
@@ -175,8 +180,9 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     "readonlyMessagesEnabled",
     "enhanceEnabled",
   ].entries()) {
-    switches[index]!.onValueChange(false);
-    expect(save).toHaveBeenLastCalledWith({ ...savedValues, [key]: false }, "saved-revision");
+    const next = !switches[index]!.value;
+    switches[index]!.onValueChange(next);
+    expect(save).toHaveBeenLastCalledWith({ ...savedValues, [key]: next }, "saved-revision");
   }
   savedValues.compactActivityEnabled = false;
   selections.length = 0;
@@ -195,37 +201,37 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   const defaults = activitySettings.schema.parse({});
   expect(defaults.language).toBe("zh-CN");
   expect(quickPills).toHaveBeenCalledTimes(1);
-  page.props.onSettingsChange({ ...defaults, quickQuestionsEnabled: false });
+  page.props.onSettingsChange({ ...enabledValues, quickQuestionsEnabled: false });
   expect(quickRemove).toHaveBeenCalledTimes(1);
-  page.props.onSettingsChange(defaults);
+  page.props.onSettingsChange(enabledValues);
   expect(quickPills).toHaveBeenCalledTimes(2);
-  page.props.onSettingsChange({ ...defaults, stickyEnabled: false });
+  page.props.onSettingsChange({ ...enabledValues, stickyEnabled: false });
   expect(remove).toHaveBeenCalledOnce();
-  page.props.onSettingsChange({ ...defaults, stickyEnabled: false });
+  page.props.onSettingsChange({ ...enabledValues, stickyEnabled: false });
   expect(remove).toHaveBeenCalledOnce();
-  page.props.onSettingsChange(defaults);
+  page.props.onSettingsChange(enabledValues);
   expect(addComposerPill).toHaveBeenCalledTimes(2);
-  page.props.onSettingsChange({ ...defaults, enhanceEnabled: true });
+  page.props.onSettingsChange({ ...enabledValues, enhanceEnabled: true });
   expect(addComposerPill).toHaveBeenCalledTimes(3);
   expect(addComposerPill.mock.calls[2]![0].id).toBe("enhance-active");
   expect(addSlashCommand).toHaveBeenCalledOnce();
-  page.props.onSettingsChange({ ...defaults, enhanceEnabled: false });
+  page.props.onSettingsChange({ ...enabledValues, enhanceEnabled: false });
   expect(addComposerPill).toHaveBeenCalledTimes(3);
-  page.props.onSettingsChange({ ...defaults, mermaidEnabled: false });
+  page.props.onSettingsChange({ ...enabledValues, mermaidEnabled: false });
   expect(removedTransformers).toEqual(["mermaid-assistant"]);
   page.props.onSettingsChange({
-    ...defaults,
+    ...enabledValues,
     mermaidEnabled: false,
     compactActivityEnabled: false,
   });
   expect(removedTransformers).toEqual(["mermaid-assistant", "reasoning", "tool-calls"]);
-  page.props.onSettingsChange(defaults);
+  page.props.onSettingsChange(enabledValues);
   expect(addTimelineTransformer).toHaveBeenCalledTimes(6);
   // Everything registered in the old language is registered again in the new one: the settings
   // screen's title, the composer pill and the slash command.
   const pillsBefore = addComposerPill.mock.calls.length;
   const commandsBefore = addSlashCommand.mock.calls.length;
-  page.props.onSettingsChange({ ...defaults, language: "en-US" });
+  page.props.onSettingsChange({ ...enabledValues, language: "en-US" });
   expect(addSettingsScreen).toHaveBeenCalledTimes(4);
   expect(addSettingsScreen.mock.calls[2]![0].title).toBe("Toolkit models");
   expect(addSettingsScreen.mock.calls[3]![0].title).toBe("Settings");

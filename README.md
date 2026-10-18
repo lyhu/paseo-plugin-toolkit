@@ -10,8 +10,8 @@
 | ------------------ | ---------------------------------------------------------------------------------------- | ---------------------- |
 | Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions | On                     |
 | Sticky questions   | Keeps the active user question visible above the composer while scrolling                | On                     |
-| Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows              | On                     |
-| Mermaid            | Renders supported diagram code blocks as interactive diagrams in assistant responses     | On                     |
+| Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows              | Off                    |
+| Mermaid            | Renders supported diagram code blocks as interactive diagrams in assistant responses     | Off                    |
 | Read-only messages | Hides sent-message revert actions in the web UI to avoid accidental branch overwrites    | On                     |
 | Prompt enhancement | Expands brief user drafts into structured prompts using project context                  | Off                    |
 | Shared models      | Configures host-default and workspace-override models for summaries and enhancement      | Requires configuration |

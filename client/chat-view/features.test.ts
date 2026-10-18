@@ -28,6 +28,7 @@ vi.mock("./activity/dom", () => ({
 vi.mock("./mermaid/registration", () => ({ registerMermaid: vi.fn(() => vi.fn()) }));
 vi.mock("./readonly/dom", () => ({ setupReadonlyStyles: () => vi.fn() }));
 const defaults = activitySettings.schema.parse({});
+const enabled = { ...defaults, mermaidEnabled: true, compactActivityEnabled: true };
 const disabled = {
   ...defaults,
   mermaidEnabled: false,
@@ -60,7 +61,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it("preserves existing palette and display mode while defaulting new feature switches on", () => {
+it("preserves existing palette and display mode while defaulting opt-in features off", () => {
   expect(activitySettings.schema.parse({ palette: "soft", displayMode: "detailed" })).toEqual({
     ...defaults,
     palette: "soft",
@@ -68,8 +69,8 @@ it("preserves existing palette and display mode while defaulting new feature swi
   });
   expect(defaults).toMatchObject({
     displayMode: "folded",
-    mermaidEnabled: true,
-    compactActivityEnabled: true,
+    mermaidEnabled: false,
+    compactActivityEnabled: false,
     stickyEnabled: true,
     readonlyMessagesEnabled: true,
   });
@@ -90,13 +91,13 @@ it("honors persisted disabled switches before registering any transformers", asy
 it("removes contributions when disabled and does not duplicate unchanged registrations", async () => {
   const { client, controller: controls, remove } = setup();
   await Promise.resolve();
-  controls.apply(defaults);
-  controls.apply(defaults);
+  controls.apply(enabled);
+  controls.apply(enabled);
   expect(registerMermaid).toHaveBeenCalledOnce();
   expect(client.addTimelineTransformer).toHaveBeenCalledTimes(2);
   controls.apply(disabled);
   expect(remove).toHaveBeenCalledTimes(4);
-  controls.apply(defaults);
+  controls.apply(enabled);
   expect(registerMermaid).toHaveBeenCalledTimes(2);
   expect(client.addTimelineTransformer).toHaveBeenCalledTimes(4);
 });
@@ -111,7 +112,7 @@ it("does not let an old initial read overwrite a newer change from the settings 
     ),
   );
   controls.apply(disabled);
-  resolve(ready());
+  resolve(ready(enabled));
   await Promise.resolve();
   expect(registerMermaid).not.toHaveBeenCalled();
   expect(client.addTimelineTransformer).not.toHaveBeenCalled();
@@ -119,7 +120,7 @@ it("does not let an old initial read overwrite a newer change from the settings 
 it("refreshes changes from another client and stops refreshing after cleanup", async () => {
   const rpc = vi
     .fn(async () => ready())
-    .mockResolvedValueOnce(ready())
+    .mockResolvedValueOnce(ready(enabled))
     .mockResolvedValueOnce(ready(disabled));
   const { controller: controls, remove } = setup(rpc);
   await Promise.resolve();

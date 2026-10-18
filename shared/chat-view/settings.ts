@@ -19,8 +19,8 @@ export const activitySettings = defineSettings({
   version: 5,
   schema: z.object({
     quickQuestionsEnabled: z.boolean().default(true),
-    mermaidEnabled: z.boolean().default(true),
-    compactActivityEnabled: z.boolean().default(true),
+    mermaidEnabled: z.boolean().default(false),
+    compactActivityEnabled: z.boolean().default(false),
     stickyEnabled: z.boolean().default(true),
     readonlyMessagesEnabled: z.boolean().default(true),
     // Off until a model endpoint is configured: an unconfigured button must not look actionable.
