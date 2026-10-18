@@ -2,6 +2,7 @@ import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import {
   createReasoningData,
   createToolCallData,
+  projectTimelineItem,
 } from "../../../shared/chat-view/activity/timeline";
 import type {
   ReasoningItemData,
@@ -178,17 +179,6 @@ export interface ActivityEntry {
   seqEnd: number;
 }
 
-/**
- * Identity must stay stable while streaming text grows: it becomes the React key of the rendered
- * activity row, so embedding the reasoning text would remount the subtree on every token and
- * restart reveal state, scroll anchoring and measured row heights.
- */
-export function activityIdentity(item: AgentTimelineItem, timestamp: string): string {
-  return item.type === "tool_call"
-    ? `tool:${item.callId}`
-    : `${item.type}:${Date.parse(timestamp)}`;
-}
-
 /** Fold contiguous activity only: never move details across a visible message. */
 export function buildActivityGroups(entries: readonly ActivityEntry[]) {
   const groups = new Map<string, { group: TurnGroup; isLeader: boolean; itemId: string }>();
@@ -208,9 +198,9 @@ export function buildActivityGroups(entries: readonly ActivityEntry[]) {
   ordered.sort((a, b) => a.seqStart - b.seqStart);
   const identityCounts = new Map<string, number>();
   for (const entry of ordered) {
-    if (entry.item.type !== "reasoning") continue;
-    const identity = activityIdentity(entry.item, entry.timestamp);
-    identityCounts.set(identity, (identityCounts.get(identity) ?? 0) + 1);
+    const projection = projectTimelineItem(entry.item, entry.timestamp);
+    if (projection.kind !== "activity" || projection.item.type !== "reasoning") continue;
+    identityCounts.set(projection.key, (identityCounts.get(projection.key) ?? 0) + 1);
   }
   let activeCount = 0;
   const seal = (finished: boolean) => {
@@ -222,45 +212,25 @@ export function buildActivityGroups(entries: readonly ActivityEntry[]) {
   for (const entry of ordered) {
     const { item, timestamp } = entry;
     const startedAt = Date.parse(timestamp);
-    // Visible messages end contiguous activity, so folded details never cross native prose.
-    if (item.type === "user_message") {
+    const projection = projectTimelineItem(item, timestamp);
+    // Visible prose and one-off items end contiguous activity, so details never cross them.
+    if (projection.kind !== "activity") {
       seal(true);
       group = undefined;
       continue;
     }
-    if (item.type === "assistant_message") {
-      seal(true);
-      group = undefined;
-      continue;
-    }
-    const speak =
-      item.type === "tool_call" &&
-      item.name === "speak" &&
-      item.detail.type === "unknown" &&
-      typeof item.detail.input === "string" &&
-      item.detail.input.trim();
-    if (speak) {
-      seal(true);
-      group = undefined;
-      continue;
-    }
-    if (item.type !== "reasoning" && item.type !== "tool_call") {
-      seal(true);
-      group = undefined;
-      continue;
-    }
-    const identity = activityIdentity(item, timestamp);
+    const identity = projection.key;
     // Sequence positions keep thought identities stable even when provider timestamps collide.
-    const id = item.type === "reasoning" ? `${identity}:${entry.seqStart}` : identity;
+    const id = projection.item.type === "reasoning" ? `${identity}:${entry.seqStart}` : identity;
     const lookup = (identityCounts.get(identity) ?? 0) > 1 ? id : identity;
     if (!group) group = createActivityGroup(entry.seqStart, id, startedAt);
     const groupItem: GroupItemData = {
       id,
-      type: item.type,
+      type: projection.item.type,
       timestamp: startedAt,
-      ...(item.type === "reasoning"
-        ? { reasoningData: createReasoningData(item, "complete") }
-        : { toolCallData: createToolCallData(item) }),
+      ...(projection.item.type === "reasoning"
+        ? { reasoningData: createReasoningData(projection.item, "complete") }
+        : { toolCallData: createToolCallData(projection.item) }),
     };
     group.items.push(groupItem);
     if (accumulateItemStats(group, groupItem)) activeCount++;

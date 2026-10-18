@@ -1,7 +1,16 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { localeSchema, messages, resolveLocale, t } from "./i18n";
+import {
+  LocalizedError,
+  decodeLocalizedMessage,
+  localeSchema,
+  localized,
+  localizedMessageSchema,
+  messages,
+  resolveLocale,
+  t,
+} from "./i18n";
 
 type Key = keyof (typeof messages)["zh-CN"];
 
@@ -71,6 +80,30 @@ describe("shared/i18n", () => {
       (key) => !text.includes(`"${key}"`),
     );
     expect(dead).toEqual([]);
+  });
+
+  it("round-trips typed messages through the RPC error string", () => {
+    const message = localized("quickQuestions.error.http", { status: 401 });
+    expect(localizedMessageSchema.parse(message)).toEqual(message);
+    const retried = new LocalizedError(
+      "quickQuestions.error.formatInvalidJson",
+      undefined,
+      "quickQuestions.error.retriedOnce",
+    );
+    expect(decodeLocalizedMessage(retried.message)).toEqual({
+      key: "quickQuestions.error.formatInvalidJson",
+      suffix: "quickQuestions.error.retriedOnce",
+    });
+    expect(
+      decodeLocalizedMessage(
+        `Request failed: ${retried.message} requestType=plugin.rpc.invoke.request code=handler_error`,
+      ),
+    ).toEqual({
+      key: "quickQuestions.error.formatInvalidJson",
+      suffix: "quickQuestions.error.retriedOnce",
+    });
+    expect(decodeLocalizedMessage("普通文字")).toBeUndefined();
+    expect(decodeLocalizedMessage("toolkit:error:not json")).toBeUndefined();
   });
 
   it("accepts only the locales it can render", () => {

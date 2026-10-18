@@ -12,6 +12,7 @@ import {
 import { createStorage, publicWorkspace } from "./storage";
 import { createJobs } from "./jobs";
 import type { ModelStore } from "../models/storage";
+import { LocalizedError } from "../../shared/chat-view/i18n";
 
 export function registerQuickQuestions(
   server: PluginServerContext,
@@ -42,7 +43,7 @@ export function registerQuickQuestions(
   });
   server.handle(startSummary, async ({ workspaceId }, { paseo }) => {
     const workspace = await paseo.workspaces.ref(workspaceId).refresh();
-    if (!workspace) throw new Error("工作空间不存在或已不可用。");
+    if (!workspace) throw new LocalizedError("quickQuestions.error.workspaceUnavailable");
     const settings = storage.read(workspaceId);
     return jobs.start(
       paseo,
@@ -59,13 +60,13 @@ export function registerQuickQuestions(
   server.handle(cancelSummary, ({ workspaceId }) => ({ canceled: jobs.cancel(workspaceId) }));
   server.handle(sendQuestion, async ({ workspaceId, agentId, text }, { paseo }) => {
     if (!(await readFeatures()).quickQuestionsEnabled || !storage.read(workspaceId).enabled)
-      throw new Error("快捷提问已停用，请先在功能设置或当前工作区启用。");
+      throw new LocalizedError("quickQuestions.error.featureDisabled");
     const agent = paseo.agents.ref(agentId);
     const result = await agent.refresh();
     if (!result || result.agent.workspaceId !== workspaceId)
-      throw new Error("当前对话已不可用，请重新打开。");
+      throw new LocalizedError("quickQuestions.error.conversationUnavailable");
     if (result.agent.status !== "idle" || result.agent.archivedAt)
-      throw new Error("请等待对话空闲后发送。");
+      throw new LocalizedError("quickQuestions.error.waitIdle");
     await agent.send(text);
     return { sent: true };
   });

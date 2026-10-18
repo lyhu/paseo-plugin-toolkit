@@ -54,12 +54,70 @@ export function getActivityExpansionState(
   return isStreaming || (userExpanded !== null ? userExpanded : isLatest);
 }
 
-export function getReasoningExpansionState(
-  isStreaming: boolean,
-  isLatest: boolean,
-  userExpanded: boolean | null,
-): boolean {
-  return getActivityExpansionState(isStreaming, isLatest, userExpanded);
+function timestampMillis(timestamp: string | number | Date): number {
+  if (timestamp instanceof Date) return timestamp.getTime();
+  return typeof timestamp === "number" ? timestamp : Date.parse(timestamp);
+}
+
+/** Stable while streaming: it never embeds the growing reasoning text. */
+export function activityKey(
+  item: Extract<AgentTimelineItem, { type: "reasoning" | "tool_call" }>,
+  timestamp: string | number | Date,
+): string {
+  return item.type === "tool_call"
+    ? `tool:${item.callId}`
+    : `reasoning:${timestampMillis(timestamp)}`;
+}
+
+/** The same identities for already-created row data, used by history and disclosure state. */
+export function activityDataKey(
+  data: ReasoningItemData | ToolCallItemData,
+  timestamp: string | number | Date,
+): string {
+  return "name" in data
+    ? `tool:${data.callId ?? timestampMillis(timestamp)}`
+    : `reasoning:${timestampMillis(timestamp)}`;
+}
+
+/** A speak tool call is user-visible prose rendered natively, so it never joins a folded group. */
+export function isSpeakToolCall(
+  item: AgentTimelineItem,
+): item is Extract<AgentTimelineItem, { type: "tool_call" }> {
+  return (
+    item.type === "tool_call" &&
+    item.name === "speak" &&
+    item.detail.type === "unknown" &&
+    typeof item.detail.input === "string" &&
+    item.detail.input.trim().length > 0
+  );
+}
+
+export type TimelineProjection =
+  | {
+      kind: "activity";
+      key: string;
+      item: Extract<AgentTimelineItem, { type: "reasoning" | "tool_call" }>;
+    }
+  | { kind: "prose"; key: string }
+  | { kind: "separator"; key: string };
+
+/**
+ * The one folding policy: visible messages end a group, speak and other item kinds break it, and
+ * only reasoning and tool calls join it.
+ */
+export function projectTimelineItem(
+  item: AgentTimelineItem,
+  timestamp: string | number | Date,
+): TimelineProjection {
+  if (item.type === "reasoning" || (item.type === "tool_call" && !isSpeakToolCall(item)))
+    return { kind: "activity", key: activityKey(item, timestamp), item };
+  const key =
+    item.type === "tool_call"
+      ? `tool:${item.callId}`
+      : `${item.type}:${timestampMillis(timestamp)}`;
+  if (item.type === "user_message" || item.type === "assistant_message")
+    return { kind: "prose", key };
+  return { kind: "separator", key };
 }
 
 export function createReasoningData(
@@ -94,15 +152,6 @@ export function createToolCallData(
     status: item.status,
     detail: toJsonValue(item.detail),
     ...(errorText ? { errorText } : {}),
-    presentation: {
-      category: presentation.category,
-      icon: presentation.icon,
-      label: presentation.label,
-      ...(presentation.summary ? { summary: presentation.summary } : {}),
-      ...(presentation.filePath ? { filePath: presentation.filePath } : {}),
-      ...(presentation.fileIcon ? { fileIcon: presentation.fileIcon } : {}),
-      ...(presentation.language ? { language: presentation.language } : {}),
-      ...(presentation.diffStats ? { diffStats: presentation.diffStats } : {}),
-    },
+    presentation,
   };
 }

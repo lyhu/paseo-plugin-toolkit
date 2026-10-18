@@ -1,3 +1,6 @@
+import { compactText } from "./text";
+import { asRecord, fieldString, toolLeaf, toolOutputText, type JsonRecord } from "./tool-output";
+
 export type ExaToolKind = "search" | "fetch" | "agent" | "research-guide" | "schema-templates";
 
 export interface ExaSearchResult {
@@ -7,8 +10,6 @@ export interface ExaSearchResult {
   author?: string;
   highlights?: string;
 }
-
-type JsonRecord = Record<string, unknown>;
 
 const EXA_TOOL_LABELS: Readonly<Record<ExaToolKind, string>> = {
   search: "Exa Web Search",
@@ -25,34 +26,6 @@ const EXA_TOOL_ICONS: Readonly<Record<ExaToolKind, string>> = {
   "research-guide": "BookOpen",
   "schema-templates": "Braces",
 };
-
-function asRecord(value: unknown): JsonRecord | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : null;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
-
-function fieldString(record: JsonRecord | null, ...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = stringValue(record?.[key]);
-    if (value) return value;
-  }
-  return undefined;
-}
-
-function toolLeaf(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .split(/__|[.:/]/)
-      .at(-1) ?? ""
-  );
-}
 
 export function exaToolKind(name: string): ExaToolKind | null {
   const normalized = name.trim().toLowerCase();
@@ -97,29 +70,10 @@ export function exaToolSummary(kind: ExaToolKind, input: unknown): string | unde
         ? fieldString(record, "url")
         : (fieldString(record, "prompt") ?? fieldString(record, "query"));
   if (!value) return undefined;
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 180 ? `${normalized.slice(0, 179)}…` : normalized;
+  return compactText(value);
 }
 
-function textParts(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  const record = asRecord(value);
-  if (!record) return [];
-  if (record.structuredContent !== undefined) {
-    const structuredText = textParts(record.structuredContent);
-    if (structuredText.length > 0) return structuredText;
-  }
-  if (typeof record.text === "string") return [record.text];
-  if (Array.isArray(record.content)) {
-    return record.content.flatMap((part) => textParts(part));
-  }
-  return [];
-}
-
-export function exaOutputText(value: unknown): string | undefined {
-  const text = textParts(value).filter(Boolean).join("\n\n").trim();
-  return text || undefined;
-}
+export const exaOutputText = toolOutputText;
 
 function resultFromRecord(record: JsonRecord): ExaSearchResult | null {
   const title = fieldString(record, "title", "name");

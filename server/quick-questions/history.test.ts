@@ -104,15 +104,17 @@ describe("history collection", () => {
     const refetch = vi
       .fn<PaseoAgentTimelineHandle["refetch"]>()
       .mockResolvedValue({ ...page([]), staleCursor: true });
-    await expect(readHistory({ refetch }, "a", new AbortController().signal)).rejects.toThrow(
-      "历史读取不完整",
+    await expect(readHistory({ refetch }, "a", new AbortController().signal)).rejects.toMatchObject(
+      { key: "quickQuestions.error.historyIncomplete" },
     );
   });
   it("stops canceled reads before fetching another page", async () => {
     const controller = new AbortController();
     controller.abort();
     const refetch = vi.fn<PaseoAgentTimelineHandle["refetch"]>();
-    await expect(readHistory({ refetch }, "a", controller.signal)).rejects.toThrow("已取消");
+    await expect(readHistory({ refetch }, "a", controller.signal)).rejects.toMatchObject({
+      key: "quickQuestions.error.canceled",
+    });
     expect(refetch).not.toHaveBeenCalled();
   });
 });

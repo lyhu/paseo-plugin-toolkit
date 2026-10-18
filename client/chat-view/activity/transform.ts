@@ -2,6 +2,7 @@ import type { PluginTimelineTransformerContribution } from "@getpaseo/plugin/cli
 import {
   createReasoningData,
   createToolCallData,
+  isSpeakToolCall,
   REASONING_RENDERER_KIND,
   REASONING_RENDERER_VERSION,
   TOOL_CALL_RENDERER_KIND,
@@ -23,13 +24,7 @@ export const transformReasoning: PluginTimelineTransformerContribution<"reasonin
 export const transformToolCall: PluginTimelineTransformerContribution<"tool_call">["transform"] = ({
   item,
 }) => {
-  if (
-    item.name === "speak" &&
-    item.detail?.type === "unknown" &&
-    typeof item.detail.input === "string" &&
-    item.detail.input.trim()
-  )
-    return undefined;
+  if (isSpeakToolCall(item)) return undefined;
   return {
     items: [
       {

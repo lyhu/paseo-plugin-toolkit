@@ -1,4 +1,4 @@
-import type { SupportedLocale } from "./chat-view/i18n";
+import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./chat-view/i18n";
 
 const english: Record<string, string> = {
   "Toolkit 模型": "Toolkit models",
@@ -250,55 +250,22 @@ export type TranslationValues = Record<string, string | number>;
 function render(template: string, values: TranslationValues) {
   return template.replace(/\{(\d+)\}/g, (match, key: string) => String(values[key] ?? match));
 }
-function escape(text: string) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function matcher(template: string) {
-  const keys: string[] = [];
-  let pattern = "";
-  let previous = 0;
-  for (const match of template.matchAll(/\{(\d+)\}/g)) {
-    pattern += escape(template.slice(previous, match.index)) + "([\\s\\S]+?)";
-    keys.push(match[1]);
-    previous = match.index! + match[0].length;
-  }
-  pattern += escape(template.slice(previous));
-  return { expression: new RegExp(`^${pattern}$`), keys };
-}
-const entries = Object.entries(english);
-const reverse = new Map(entries.map(([source, translation]) => [translation, source]));
-const patterns = entries
-  .filter(([source]) => /\{\d+\}/.test(source))
-  .map(([source, translation]) => ({
-    source,
-    translation,
-    zh: matcher(source),
-    en: matcher(translation),
-  }));
+const reverse = new Map(
+  Object.entries(english).map(([source, translation]) => [translation, source]),
+);
+/**
+ * Renders client literals and typed server messages. Untyped text passes through unchanged:
+ * the reverse matcher that guessed at prose was removed when server messages became data.
+ */
 export function translate(
   locale: SupportedLocale,
   source: string,
   values?: TranslationValues,
 ): string {
+  const message = decodeLocalizedMessage(source);
+  if (message) return renderMessage(locale, message);
   const canonical = english[source] !== undefined ? source : reverse.get(source);
   if (canonical !== undefined)
     return render(locale === "en-US" ? english[canonical] : canonical, values ?? {});
-  if (values) return render(source, values);
-  for (const entry of patterns) {
-    for (const language of ["zh", "en"] as const) {
-      const match = entry[language].expression.exec(source);
-      if (!match) continue;
-      const captured = Object.fromEntries(
-        entry[language].keys.map((key, i) => [key, match[i + 1]]),
-      );
-      if (entry.source.includes("格式校验失败")) {
-        const key = entry.source.startsWith("合并") ? "3" : "2";
-        captured[key] = translate(locale, captured[key]);
-      }
-      if (entry.source === "{0}（已自动重试 1 次）")
-        captured["0"] = translate(locale, captured["0"]);
-      return render(locale === "en-US" ? entry.translation : entry.source, captured);
-    }
-  }
-  return source;
+  return values ? render(source, values) : source;
 }

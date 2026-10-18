@@ -115,12 +115,72 @@ export const messages = {
     "enhance.failure.timeout": "模型调用超时（{ms}ms）",
     "enhance.failure.truncatedOutput": "模型输出被长度上限截断，请调小输入后重试",
     "enhance.failure.emptyResponse": "模型返回空内容",
+    "enhance.failure.invalidResponse": "模型返回了无法解析的响应",
     "enhance.probe.ok": "连接成功",
     "enhance.probe.incomplete": "请填写完整的 API 地址、API 密钥与模型名",
     "enhance.probe.timeout": "连接超时：{detail}",
     "enhance.probe.unauthorized": "密钥被拒绝：{detail}",
     "enhance.probe.notFound": "地址不存在：{detail}",
     "enhance.probe.modelUnavailable": "模型不可用：{detail}",
+
+    // 快捷提问与模型（服务端消息，跨 RPC 以 key + params 传递）
+    "quickQuestions.error.duplicateQuestions": "存在重复话术，请合并后保存。",
+    "quickQuestions.error.duplicateIds": "问题标识重复，请重新加载。",
+    "quickQuestions.error.read": "快捷提问数据无法读取，请检查主机上的 toolkit 数据文件。",
+    "quickQuestions.error.stale":
+      "其他设备已更新此工作空间。请重新加载后再保存；当前编辑内容仍保留。",
+    "quickQuestions.error.featureDisabled": "快捷提问已停用，请先在功能设置或当前工作区启用。",
+    "quickQuestions.error.conversationUnavailable": "当前对话已不可用，请重新打开。",
+    "quickQuestions.error.waitIdle": "请等待对话空闲后发送。",
+    "quickQuestions.error.workspaceUnavailable": "工作空间不存在或已不可用。",
+    "quickQuestions.error.summaryRunning": "此工作空间正在总结，请等待或取消当前任务。",
+    "quickQuestions.error.noQuestions": "没有可总结的用户提问。请检查历史读取结果后重试。",
+    "quickQuestions.error.candidateStale": "候选任务已更新或尚未完成，请刷新后重试。",
+    "quickQuestions.error.modelNotConfigured": "请先保存总结模型的 API 地址和模型名称。",
+    "quickQuestions.error.canceled": "已取消总结",
+    "quickQuestions.error.summaryFailed": "总结失败：{detail}",
+    "quickQuestions.error.historyReadFailed": "读取历史失败：{detail}",
+    "quickQuestions.error.historyIncomplete": "历史读取不完整，请重试。",
+    "quickQuestions.error.historyNoProgress": "历史分页没有前进，请重试。",
+    "quickQuestions.error.formatMissingFields":
+      "模型响应缺少有效的 candidates、text 或 sourceIds 字段，请重试总结。",
+    "quickQuestions.error.formatUnknownSource": "模型候选引用了输入中不存在的来源，请重试总结。",
+    "quickQuestions.error.formatTruncated": "模型输出超出长度限制，请重试总结。",
+    "quickQuestions.error.formatEmpty": "模型未返回文本，请检查模型是否支持 Chat Completions。",
+    "quickQuestions.error.formatInvalidJson": "模型返回的内容不是有效 JSON，请重试总结。",
+    "quickQuestions.error.retriedOnce": "（已自动重试 1 次）",
+    "quickQuestions.error.http": "总结服务请求失败（HTTP {status}），请检查连接配置或稍后重试。",
+    "quickQuestions.error.timeout": "总结服务请求超时（90 秒），请重试总结。",
+    "quickQuestions.activity.starting": "正在启动总结",
+    "quickQuestions.activity.finding":
+      "正在查找当前工作空间的对话（包含归档），选取最近 {limit} 条用户提问",
+    "quickQuestions.activity.found": "找到 {count} 个对话，开始读取历史",
+    "quickQuestions.activity.reading": "正在读取 {current}/{total}：{title}",
+    "quickQuestions.activity.read": "已读取 {title}：{count} 条用户提问",
+    "quickQuestions.activity.readFailed": "读取失败：{title}",
+    "quickQuestions.activity.selected": "共读取 {total} 条用户提问，选用最近 {selected} 条参与总结",
+    "quickQuestions.activity.summarizing":
+      "正在使用 {model} 总结第 {current}/{total} 批（{count} 条提问）",
+    "quickQuestions.activity.batchDone": "第 {current}/{total} 批总结完成",
+    "quickQuestions.activity.batchRetry": "第 {current}/{total} 批格式校验失败，正在自动重试 1/1",
+    "quickQuestions.activity.merging":
+      "正在合并第 {round} 轮 · {current}/{total} 组（{count} 条候选）",
+    "quickQuestions.activity.mergeRetry":
+      "合并第 {round} 轮第 {current}/{total} 组格式校验失败，正在自动重试 1/1",
+    "quickQuestions.activity.done": "总结完成：生成 {count} 条候选，读取失败 {failed} 个对话",
+    "quickQuestions.activity.canceled": "总结已取消，已保存的快捷提问不受影响",
+    "models.error.stale": "模型配置已在其他页面更新，请重新加载后保存；当前草稿仍保留。",
+    "models.error.workspaceRequired": "工作区模型配置需要指定工作区。",
+    "models.error.http": "模型服务请求失败（HTTP {status}），请检查地址、API Key 和模型。",
+    "models.error.timeout": "模型服务连接超时（{seconds} 秒），请重试。",
+    "models.error.invalidCatalog": "服务返回的模型列表格式不正确，可手动填写模型名称。",
+    "models.error.invalidResponse": "服务未返回 JSON，请检查 API 地址。",
+    "models.error.emptyResponse": "模型未返回有效文本，请检查模型配置。",
+    "models.error.truncatedOutput": "模型输出被长度上限截断，请重试。",
+    "models.error.probeJson":
+      "模型已连接，但未返回要求的 JSON 测试结果。请检查模型是否支持 JSON 输出。",
+    "models.error.baseUrl": "请使用不含凭据的 HTTP(S) API 地址。",
+    "settings.error.unavailable": "Toolkit 功能设置无法读取。",
 
     // 图表 (Mermaid)
     "mermaid.skipped": "有 {count} 行未绘制：部分子图或样式语法暂不支持。",
@@ -253,12 +313,89 @@ export const messages = {
     "enhance.failure.truncatedOutput":
       "The model output hit the length ceiling; shorten the input and retry",
     "enhance.failure.emptyResponse": "The model returned an empty response",
+    "enhance.failure.invalidResponse": "The model returned an unreadable response",
     "enhance.probe.ok": "Connected",
     "enhance.probe.incomplete": "Fill in the API address, key and model first",
     "enhance.probe.timeout": "Connection timed out: {detail}",
     "enhance.probe.unauthorized": "Key rejected: {detail}",
     "enhance.probe.notFound": "Address not found: {detail}",
     "enhance.probe.modelUnavailable": "Model unavailable: {detail}",
+
+    // Quick questions and models (server messages cross RPC as key + params)
+    "quickQuestions.error.duplicateQuestions":
+      "Duplicate questions found. Merge them before saving.",
+    "quickQuestions.error.duplicateIds": "Duplicate question IDs. Please reload.",
+    "quickQuestions.error.read":
+      "Could not read quick questions. Check the Toolkit data file on this host.",
+    "quickQuestions.error.stale":
+      "Another device updated this workspace. Reload before saving; your draft is kept.",
+    "quickQuestions.error.featureDisabled":
+      "Quick questions are disabled. Enable them in feature settings or this workspace.",
+    "quickQuestions.error.conversationUnavailable":
+      "This conversation is unavailable. Open it again.",
+    "quickQuestions.error.waitIdle": "Wait until the conversation is idle before sending.",
+    "quickQuestions.error.workspaceUnavailable":
+      "The workspace no longer exists or is unavailable.",
+    "quickQuestions.error.summaryRunning":
+      "A summary is already running for this workspace. Wait or cancel it.",
+    "quickQuestions.error.noQuestions":
+      "No user questions to summarize. Check history loading and retry.",
+    "quickQuestions.error.candidateStale":
+      "The candidate task changed or is not finished. Refresh and retry.",
+    "quickQuestions.error.modelNotConfigured":
+      "Save the summary model API URL and model name first.",
+    "quickQuestions.error.canceled": "Summary canceled",
+    "quickQuestions.error.summaryFailed": "Summary failed: {detail}",
+    "quickQuestions.error.historyReadFailed": "Could not read history: {detail}",
+    "quickQuestions.error.historyIncomplete": "History read was incomplete. Retry.",
+    "quickQuestions.error.historyNoProgress": "History pagination did not advance. Retry.",
+    "quickQuestions.error.formatMissingFields":
+      "The response is missing valid candidates, text or sourceIds fields. Retry the summary.",
+    "quickQuestions.error.formatUnknownSource":
+      "A candidate referenced an unknown source. Retry the summary.",
+    "quickQuestions.error.formatTruncated":
+      "Model output exceeded the length limit. Retry the summary.",
+    "quickQuestions.error.formatEmpty":
+      "The model returned no text. Check Chat Completions support.",
+    "quickQuestions.error.formatInvalidJson": "The model returned invalid JSON. Retry the summary.",
+    "quickQuestions.error.retriedOnce": " (retried once automatically)",
+    "quickQuestions.error.http":
+      "Summary request failed (HTTP {status}). Check the connection or retry later.",
+    "quickQuestions.error.timeout": "The summary request timed out after 90 seconds. Retry it.",
+    "quickQuestions.activity.starting": "Starting summary",
+    "quickQuestions.activity.finding":
+      "Finding workspace conversations, including archived ones, for the latest {limit} user questions",
+    "quickQuestions.activity.found": "Found {count} conversations; reading history",
+    "quickQuestions.activity.reading": "Reading {current}/{total}: {title}",
+    "quickQuestions.activity.read": "Read {title}: {count} user questions",
+    "quickQuestions.activity.readFailed": "Could not read {title}",
+    "quickQuestions.activity.selected":
+      "Read {total} user questions; using the latest {selected} for this summary",
+    "quickQuestions.activity.summarizing":
+      "Using {model} to summarize batch {current}/{total} ({count} questions)",
+    "quickQuestions.activity.batchDone": "Batch {current}/{total} complete",
+    "quickQuestions.activity.batchRetry": "Batch {current}/{total} failed validation. Retrying 1/1",
+    "quickQuestions.activity.merging":
+      "Merging round {round} · group {current}/{total} ({count} candidates)",
+    "quickQuestions.activity.mergeRetry":
+      "Merge round {round}, group {current}/{total} failed validation. Retrying 1/1",
+    "quickQuestions.activity.done":
+      "Summary complete: {count} candidates; {failed} conversations could not be read",
+    "quickQuestions.activity.canceled": "Summary canceled. Saved quick questions are kept",
+    "models.error.stale":
+      "Model configuration changed on another page. Reload before saving; your draft is kept.",
+    "models.error.workspaceRequired": "Select a workspace for a model override.",
+    "models.error.http": "Model request failed (HTTP {status}). Check the URL, API key and model.",
+    "models.error.timeout": "The model connection timed out after {seconds} seconds. Please retry.",
+    "models.error.invalidCatalog": "The model list format is invalid. Enter a model name manually.",
+    "models.error.invalidResponse": "The service did not return JSON. Check the API URL.",
+    "models.error.emptyResponse":
+      "The model returned no valid text. Check the model configuration.",
+    "models.error.truncatedOutput": "Model output was truncated by the length limit. Retry.",
+    "models.error.probeJson":
+      "The model connected but did not return the required JSON test result. Check JSON output support.",
+    "models.error.baseUrl": "Use an HTTP(S) API URL without embedded credentials.",
+    "settings.error.unavailable": "Could not load Toolkit feature settings.",
 
     // Mermaid
     "mermaid.skipped":
@@ -277,6 +414,87 @@ export const messages = {
 
 export type TranslationKey = keyof (typeof messages)["zh-CN"];
 export type TranslationParams = Record<string, string | number>;
+
+/** A message that crosses the RPC seam as data and is rendered where the locale is known. */
+export interface LocalizedMessage {
+  key: TranslationKey;
+  params?: TranslationParams;
+  /** Appended without a separator, so the suffix owns its punctuation. */
+  suffix?: TranslationKey;
+}
+
+const translationKeys = Object.keys(messages["zh-CN"]) as [TranslationKey, ...TranslationKey[]];
+export const localizedMessageSchema = z.object({
+  key: z.enum(translationKeys),
+  params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+  suffix: z.enum(translationKeys).optional(),
+});
+
+export function localized(
+  key: TranslationKey,
+  params?: TranslationParams,
+  suffix?: TranslationKey,
+): LocalizedMessage {
+  return { key, params, suffix };
+}
+
+const LOCALIZED_ERROR_PREFIX = "toolkit:error:";
+
+export class LocalizedError extends Error {
+  readonly key: TranslationKey;
+  readonly params?: TranslationParams;
+  readonly suffix?: TranslationKey;
+
+  constructor(key: TranslationKey, params?: TranslationParams, suffix?: TranslationKey) {
+    super(`${LOCALIZED_ERROR_PREFIX}${JSON.stringify({ key, params, suffix })}`);
+    this.name = "LocalizedError";
+    this.key = key;
+    this.params = params;
+    this.suffix = suffix;
+  }
+}
+
+/** Finds the end of the JSON object that starts at `start`, ignoring braces inside strings. */
+function jsonObjectEnd(value: string, start: number): number {
+  if (value[start] !== "{") return -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Decode a message produced by `LocalizedError`, which the host carries as a string. The host may
+ * wrap the message with request context, so search for the marker instead of requiring a prefix.
+ */
+export function decodeLocalizedMessage(value: string): LocalizedMessage | undefined {
+  const marker = value.indexOf(LOCALIZED_ERROR_PREFIX);
+  if (marker < 0) return undefined;
+  const start = marker + LOCALIZED_ERROR_PREFIX.length;
+  const end = jsonObjectEnd(value, start);
+  if (end < 0) return undefined;
+  try {
+    const parsed = localizedMessageSchema.safeParse(JSON.parse(value.slice(start, end)));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * 根据用户偏好与运行环境推导实际应呈现的语言
@@ -310,4 +528,9 @@ export function t(
   return text.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in values ? String(values[name]) : match,
   );
+}
+
+export function renderMessage(locale: SupportedLocale, message: LocalizedMessage): string {
+  const text = t(locale, message.key, message.params);
+  return message.suffix ? `${text}${t(locale, message.suffix)}` : text;
 }

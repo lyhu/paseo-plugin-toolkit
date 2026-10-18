@@ -1,3 +1,6 @@
+import { compactText } from "./text";
+import { asRecord, fieldString, toolLeaf, toolOutputText, toolOutputValue } from "./tool-output";
+
 export type GithubToolKind =
   | "actions-get"
   | "actions-list"
@@ -7,8 +10,6 @@ export type GithubToolKind =
   | "pull-request"
   | "search-code"
   | "search-repositories";
-
-type JsonRecord = Record<string, unknown>;
 
 const GITHUB_TOOL_LABELS: Readonly<Record<GithubToolKind, string>> = {
   "actions-get": "GitHub Actions Details",
@@ -31,34 +32,6 @@ const GITHUB_TOOL_ICONS: Readonly<Record<GithubToolKind, string>> = {
   "search-code": "Code2",
   "search-repositories": "BookMarked",
 };
-
-function asRecord(value: unknown): JsonRecord | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : null;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
-
-function fieldString(record: JsonRecord | null, ...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = stringValue(record?.[key]);
-    if (value) return value;
-  }
-  return undefined;
-}
-
-function toolLeaf(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .split(/__|[.:/]/)
-      .at(-1) ?? ""
-  );
-}
 
 export function githubToolKind(name: string): GithubToolKind | null {
   const normalized = name.trim().toLowerCase();
@@ -86,12 +59,6 @@ export function githubToolLabel(kind: GithubToolKind): string {
 
 export function githubToolIcon(kind: GithubToolKind): string {
   return GITHUB_TOOL_ICONS[kind];
-}
-
-function compactText(value: string, maxLength = 180): string | undefined {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (!normalized) return undefined;
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
 }
 
 export function githubToolSummary(kind: GithubToolKind, input: unknown): string | undefined {
@@ -123,52 +90,5 @@ export function githubToolSummary(kind: GithubToolKind, input: unknown): string 
   }
 }
 
-function parseEmbeddedJson(value: string): unknown {
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    for (const match of value.matchAll(/\{|\[/g)) {
-      const offset = match.index;
-      if (offset === undefined) continue;
-      try {
-        return JSON.parse(value.slice(offset)) as unknown;
-      } catch {
-        continue;
-      }
-    }
-    return undefined;
-  }
-}
-
-export function githubOutputText(value: unknown): string | undefined {
-  if (typeof value === "string") return value.trim() || undefined;
-  const record = asRecord(value);
-  if (!record) return undefined;
-  if (record.structuredContent !== undefined) {
-    return githubOutputText(record.structuredContent);
-  }
-  if (typeof record.text === "string") return record.text.trim() || undefined;
-  if (Array.isArray(record.content)) {
-    const text = record.content
-      .map((part) => asRecord(part)?.text as string | undefined)
-      .filter((part): part is string => Boolean(part))
-      .join("\n\n")
-      .trim();
-    return text || undefined;
-  }
-  return undefined;
-}
-
-export function githubOutputValue(value: unknown): unknown {
-  const record = asRecord(value);
-  if (!record) {
-    if (typeof value === "string") return parseEmbeddedJson(value) ?? value;
-    return value;
-  }
-  if (record.structuredContent !== undefined) return githubOutputValue(record.structuredContent);
-  if (Array.isArray(record.content)) {
-    const text = githubOutputText(record);
-    if (text) return parseEmbeddedJson(text) ?? text;
-  }
-  return value;
-}
+export const githubOutputText = toolOutputText;
+export const githubOutputValue = toolOutputValue;

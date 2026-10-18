@@ -1,5 +1,7 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
+import { publicModelSchema } from "../models/contracts";
+import { localizedMessageSchema } from "../chat-view/i18n";
 
 export const sourceSchema = z.object({ agentId: z.string(), question: z.string() });
 export const questionSchema = z.object({
@@ -10,11 +12,6 @@ export const questionSchema = z.object({
   sources: z.array(sourceSchema).max(3),
 });
 export type Question = z.infer<typeof questionSchema>;
-export const modelSchema = z.object({
-  baseUrl: z.string(),
-  model: z.string(),
-  hasKey: z.boolean(),
-});
 export const DEFAULT_HISTORY_LIMIT = 50;
 export const historyLimitSchema = z.number().int().positive();
 export const summaryPromptSchema = z.string().trim().min(1).max(8000);
@@ -25,7 +22,7 @@ export const workspaceSchema = z.object({
   revision: z.number().int().nonnegative(),
   enabled: z.boolean(),
   questions: z.array(questionSchema),
-  model: modelSchema,
+  model: publicModelSchema,
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
 export const jobSchema = z.object({
@@ -34,14 +31,20 @@ export const jobSchema = z.object({
   completed: z.number(),
   total: z.number(),
   read: z.number(),
-  failed: z.array(z.object({ agentId: z.string(), title: z.string(), reason: z.string() })),
-  activity: z.string(),
+  failed: z.array(
+    z.object({ agentId: z.string(), title: z.string(), reason: localizedMessageSchema }),
+  ),
+  activity: localizedMessageSchema,
   events: z.array(
-    z.object({ at: z.string(), level: z.enum(["info", "success", "error"]), message: z.string() }),
+    z.object({
+      at: z.string(),
+      level: z.enum(["info", "success", "error"]),
+      message: localizedMessageSchema,
+    }),
   ),
   messageCount: z.number(),
   candidates: z.array(questionSchema),
-  error: z.string(),
+  error: localizedMessageSchema.nullable(),
 });
 export type Job = z.infer<typeof jobSchema>;
 export function isWorking(job: Job | null | undefined): boolean {

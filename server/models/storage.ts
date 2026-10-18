@@ -1,17 +1,9 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  writeFileSync,
-  unlinkSync,
-} from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
+import { createRevisionedJsonStore, writePrivateJsonFile } from "../storage/revisioned-json";
 import {
   connectionSchema,
   type ModelConnection,
@@ -19,6 +11,7 @@ import {
   type ModelState,
 } from "../../shared/models/contracts";
 import { activitySettings } from "../../shared/chat-view/settings";
+import { LocalizedError } from "../../shared/chat-view/i18n";
 
 export function paseoHome() {
   return process.env.PASEO_HOME || join(homedir(), ".paseo");
@@ -37,71 +30,92 @@ function hash(workspaceId: string) {
 function publicModel(model: ModelConnection) {
   return { baseUrl: model.baseUrl, model: model.model, hasKey: Boolean(model.apiKey) };
 }
-function writeJson(filename: string, value: unknown) {
-  mkdirSync(join(filename, ".."), { recursive: true, mode: 0o700 });
-  const temporary = `${filename}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporary, JSON.stringify(value, null, 2) + "\n", { mode: 0o600, flag: "wx" });
-    renameSync(temporary, filename);
-    chmodSync(filename, 0o600);
-  } finally {
-    if (existsSync(temporary)) unlinkSync(temporary);
-  }
+function legacyDisplayValues(home: string) {
+  const path = join(home, "plugin-settings", "chat-view", "display.json");
+  return existsSync(path)
+    ? legacyEnvelope.parse(JSON.parse(readFileSync(path, "utf8"))).values
+    : {};
 }
-export function createModelStore(home = paseoHome()) {
+/**
+ * Reads credentials that older versions stored in display settings and question documents, then
+ * writes one host registry. Migration is a one-time, explicit step; the store never reads those
+ * legacy files again.
+ */
+export function migrateLegacyModelSettings(home = paseoHome()) {
   const filename = join(home, "toolkit", "models.json");
-  const legacyPath = join(home, "plugin-settings", "chat-view", "display.json");
-  function legacyValues() {
-    return existsSync(legacyPath)
-      ? legacyEnvelope.parse(JSON.parse(readFileSync(legacyPath, "utf8"))).values
-      : {};
-  }
-  // Seed the shared model from the old enhancement endpoint; preserve different summary models as workspace overrides.
-  if (!existsSync(filename)) {
-    const values = legacyValues();
-    const oldEnhance = connectionSchema.safeParse({
-      baseUrl: values.enhanceBaseUrl,
-      model: values.enhanceModel,
-      apiKey: values.enhanceApiKey,
-    });
-    const configured: Record<string, ModelConnection> = {};
-    const directory = join(home, "toolkit", "quick-questions");
-    if (existsSync(directory))
-      for (const name of readdirSync(directory)
-        .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
-        .sort()) {
-        const raw = z
-          .object({ model: connectionSchema.optional() })
-          .parse(JSON.parse(readFileSync(join(directory, name), "utf8")));
-        if (raw.model?.baseUrl && raw.model.model) configured[name.slice(0, -5)] = raw.model;
-      }
-    const defaultModel =
-      oldEnhance.success && oldEnhance.data.baseUrl && oldEnhance.data.model
-        ? oldEnhance.data
-        : (Object.values(configured)[0] ?? emptyModel);
-    const overrides = Object.fromEntries(
-      Object.entries(configured).filter(
-        ([, model]) => JSON.stringify(model) !== JSON.stringify(defaultModel),
-      ),
-    );
-    writeJson(filename, { revision: 0, defaultModel, overrides });
-  }
+  if (existsSync(filename)) return;
+  const values = legacyDisplayValues(home);
+  const oldEnhance = connectionSchema.safeParse({
+    baseUrl: values.enhanceBaseUrl,
+    model: values.enhanceModel,
+    apiKey: values.enhanceApiKey,
+  });
+  const configured: Record<string, ModelConnection> = {};
+  const directory = join(home, "toolkit", "quick-questions");
+  if (existsSync(directory))
+    for (const name of readdirSync(directory)
+      .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
+      .sort()) {
+      const raw = z
+        .object({ model: connectionSchema.optional() })
+        .parse(JSON.parse(readFileSync(join(directory, name), "utf8")));
+      if (raw.model?.baseUrl && raw.model.model) configured[name.slice(0, -5)] = raw.model;
+    }
+  const defaultModel =
+    oldEnhance.success && oldEnhance.data.baseUrl && oldEnhance.data.model
+      ? oldEnhance.data
+      : (Object.values(configured)[0] ?? emptyModel);
+  if (!defaultModel.baseUrl && !defaultModel.model) return;
+  const overrides = Object.fromEntries(
+    Object.entries(configured).filter(
+      ([, model]) => JSON.stringify(model) !== JSON.stringify(defaultModel),
+    ),
+  );
+  writePrivateJsonFile(filename, { revision: 0, defaultModel, overrides } satisfies Registry);
+}
+
+export function createModelStore(home = paseoHome()) {
+  migrateLegacyModelSettings(home);
+  const filename = join(home, "toolkit", "models.json");
+  const store = createRevisionedJsonStore({
+    filename,
+    schema: registrySchema,
+    create: () => ({ revision: 0, defaultModel: emptyModel, overrides: {} }),
+    concurrencyError: new LocalizedError("models.error.stale").message,
+  });
   const displayPath = join(home, "plugin-settings", "toolkit", `${activitySettings.id}.json`);
   if (!existsSync(displayPath))
-    writeJson(displayPath, {
+    writePrivateJsonFile(displayPath, {
       version: activitySettings.version,
-      values: activitySettings.schema.parse(legacyValues()),
+      values: activitySettings.schema.parse(legacyDisplayValues(home)),
     });
   function read(): Registry {
-    return registrySchema.parse(JSON.parse(readFileSync(filename, "utf8")));
+    return store.read();
   }
   function resolve(workspaceId?: string): ModelConnection {
     const state = read();
     return (workspaceId && state.overrides[hash(workspaceId)]) || state.defaultModel;
   }
   function target(scope: ModelScope, workspaceId?: string): ModelConnection {
-    if (scope === "workspace" && !workspaceId) throw new Error("工作区模型配置需要指定工作区。");
+    if (scope === "workspace" && !workspaceId)
+      throw new LocalizedError("models.error.workspaceRequired");
     return scope === "workspace" ? resolve(workspaceId) : read().defaultModel;
+  }
+  /** Merges an unsaved draft with the stored credential it inherits, if the draft omits one. */
+  function resolveDraft(input: {
+    scope: ModelScope;
+    workspaceId?: string;
+    baseUrl: string;
+    apiKey: string;
+    clearKey: boolean;
+    model?: string;
+  }): ModelConnection {
+    const stored = target(input.scope, input.workspaceId);
+    return {
+      baseUrl: input.baseUrl.trim(),
+      model: input.model?.trim() ?? "",
+      apiKey: input.clearKey ? "" : input.apiKey.trim() || stored.apiKey,
+    };
   }
   function publicState(workspaceId?: string): ModelState {
     const state = read();
@@ -115,16 +129,15 @@ export function createModelStore(home = paseoHome()) {
     };
   }
   function change(revision: number, update: (state: Registry) => void, workspaceId?: string) {
-    const state = read();
-    if (state.revision !== revision)
-      throw new Error("模型配置已在其他页面更新，请重新加载后保存；当前草稿仍保留。");
-    update(state);
-    state.revision += 1;
-    writeJson(filename, registrySchema.parse(state));
+    store.update(revision, (state) => {
+      update(state);
+      return state;
+    });
     return publicState(workspaceId);
   }
   return {
     resolve,
+    resolveDraft,
     target,
     read: publicState,
     save(input: {
@@ -136,12 +149,7 @@ export function createModelStore(home = paseoHome()) {
       apiKey: string;
       clearKey: boolean;
     }) {
-      const current = target(input.scope, input.workspaceId);
-      const model = {
-        baseUrl: input.baseUrl.trim(),
-        model: input.model.trim(),
-        apiKey: input.clearKey ? "" : input.apiKey.trim() || current.apiKey,
-      };
+      const model = resolveDraft(input);
       return change(
         input.revision,
         (state) => {

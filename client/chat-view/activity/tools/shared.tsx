@@ -3,21 +3,17 @@ import React, { useMemo, useState, type ReactNode } from "react";
 import { Pressable, Text, View, type TextStyle } from "react-native";
 import type { ActivityPalette } from "../../../../shared/chat-view/activity/palette";
 import { formatUnknownValue, previewText } from "../../../../shared/chat-view/activity/text";
+import {
+  asRecord,
+  fieldString,
+  stringValue,
+  type JsonRecord,
+} from "../../../../shared/chat-view/activity/tool-output";
 import { useHighlightTokens, type HighlightToken } from "../highlight";
 import type { ActivityStyles, Theme } from "../styles";
 
-type JsonRecord = Record<string, unknown>;
-
 /** Generic value coercers and status colours shared by every tool detail panel. */
-export function asRecord(value: unknown): JsonRecord | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : null;
-}
-
-export function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
+export { asRecord, fieldString, stringValue, type JsonRecord };
 
 /** 先命中的第一个键：同一个字段在宿主载荷里可能写 snake_case 或 camelCase。 */
 export function fieldValue(record: JsonRecord | null, ...keys: string[]): unknown {
@@ -29,14 +25,6 @@ export function fieldValue(record: JsonRecord | null, ...keys: string[]): unknow
 }
 
 /** 下面几个读取器都按同一个规则取值：第一个类型/形状对得上的键，跳过空的与不符的。 */
-export function fieldString(record: JsonRecord | null, ...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = stringValue(record?.[key]);
-    if (value) return value;
-  }
-  return undefined;
-}
-
 export function fieldNumber(record: JsonRecord | null, ...keys: string[]): number | undefined {
   for (const key of keys) {
     const value = record?.[key];

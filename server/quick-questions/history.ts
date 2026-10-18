@@ -1,4 +1,5 @@
 import type { PaseoAgentTimelineHandle, PaseoAgentTimelineRefetchOptions } from "@getpaseo/client";
+import { LocalizedError } from "../../shared/chat-view/i18n";
 import type { Evidence } from "./model";
 
 export interface HistoryQuestion extends Evidence {
@@ -26,14 +27,14 @@ export async function readHistory(
   let before: PaseoAgentTimelineRefetchOptions["cursor"];
   let epoch: string | undefined;
   do {
-    if (signal.aborted) throw new Error("已取消总结");
+    if (signal.aborted) throw new LocalizedError("quickQuestions.error.canceled");
     const page = await timeline.refetch({
       direction: before ? "before" : "tail",
       cursor: before,
       limit: 100,
     });
     if (page.error || page.staleCursor || page.gap || (epoch !== undefined && page.epoch !== epoch))
-      throw new Error("历史读取不完整，请重试。");
+      throw new LocalizedError("quickQuestions.error.historyIncomplete");
     epoch = page.epoch;
     pages.push(
       page.entries.filter(
@@ -42,7 +43,7 @@ export async function readHistory(
     );
     const next = page.hasOlder ? (page.startCursor ?? undefined) : undefined;
     if (page.hasOlder && (!next || next.seq === before?.seq))
-      throw new Error("历史分页没有前进，请重试。");
+      throw new LocalizedError("quickQuestions.error.historyNoProgress");
     before = next;
   } while (before);
   let context = "";

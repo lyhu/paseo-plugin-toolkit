@@ -1,8 +1,6 @@
 import React from "react";
 
-import { exaToolKind } from "../../../../shared/chat-view/activity/exa";
-import { githubToolKind } from "../../../../shared/chat-view/activity/github";
-import { paseoToolLeafName } from "../../../../shared/chat-view/activity/paseo-tools";
+import { toolFamily } from "../../../../shared/chat-view/activity/tool-presentation";
 import { extractCodeInput, formatUnknownValue } from "../../../../shared/chat-view/activity/text";
 import { ExaToolDetail } from "../tools/exa";
 import { GithubToolDetail } from "../tools/github";
@@ -17,7 +15,8 @@ export function UnknownDetail({
   palette,
   styles,
 }: DetailRenderProps<"unknown">) {
-  if (githubToolKind(data.name)) {
+  const family = toolFamily(data.name);
+  if (family === "github") {
     return (
       <GithubToolDetail
         toolName={data.name}
@@ -29,7 +28,7 @@ export function UnknownDetail({
       />
     );
   }
-  if (exaToolKind(data.name)) {
+  if (family === "exa") {
     return (
       <ExaToolDetail
         toolName={data.name}
@@ -40,7 +39,7 @@ export function UnknownDetail({
       />
     );
   }
-  if (paseoToolLeafName(data.name)) {
+  if (family === "paseo") {
     return (
       <PaseoToolDetail
         toolName={data.name}

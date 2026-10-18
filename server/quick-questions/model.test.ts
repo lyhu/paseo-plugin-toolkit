@@ -85,7 +85,7 @@ describe("model summary", () => {
     if (!address || typeof address === "string") throw new Error("Missing HTTP address");
     await expect(
       probeModel({ baseUrl: `http://127.0.0.1:${address.port}`, model: "test", apiKey: "" }),
-    ).rejects.toThrow("未返回要求的 JSON");
+    ).rejects.toMatchObject({ key: "models.error.probeJson" });
   });
   it("keeps model catalog errors from exposing provider response bodies", async () => {
     const server = createServer((_req, res) => {
@@ -98,7 +98,7 @@ describe("model summary", () => {
     if (!address || typeof address === "string") throw new Error("Missing HTTP address");
     await expect(
       fetchModels({ baseUrl: `http://127.0.0.1:${address.port}`, model: "", apiKey: "" }),
-    ).rejects.toThrow("模型服务请求失败（HTTP 401），请检查地址、API Key 和模型。");
+    ).rejects.toMatchObject({ key: "models.error.http", params: { status: 401 } });
   });
   it("ranks and keeps the top 20 when a real provider returns more candidates", () => {
     const input = Array.from(
@@ -154,7 +154,7 @@ describe("model summary", () => {
     ]);
     expect(() =>
       groundCandidates({ candidates: [{ text: "invented", sourceIds: ["q3"] }] }, evidence),
-    ).toThrow("不存在");
+    ).toThrow("quickQuestions.error.formatUnknownSource");
   });
   it("allows one message to support multiple questions but counts it once per question", () => {
     const result = groundCandidates(
@@ -286,7 +286,7 @@ describe("model summary", () => {
         evidence,
         new AbortController().signal,
       ),
-    ).rejects.toThrow("已自动重试 1 次");
+    ).rejects.toThrow("quickQuestions.error.retriedOnce");
     expect(requests).toBe(2);
   });
   it("does not expose provider error bodies", async () => {
@@ -304,7 +304,7 @@ describe("model summary", () => {
         evidence,
         new AbortController().signal,
       ),
-    ).rejects.toThrow("HTTP 401");
+    ).rejects.toMatchObject({ key: "quickQuestions.error.http", params: { status: 401 } });
   });
   it("accepts base URLs and full completion endpoints", () => {
     expect(endpoint("https://example.com/v1/")).toBe("https://example.com/v1/chat/completions");

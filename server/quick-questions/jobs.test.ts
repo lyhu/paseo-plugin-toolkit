@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPaseoClient, type PaseoAgentListResult, type PaseoClient } from "@getpaseo/client";
 import { createJobs } from "./jobs";
+import { renderMessage } from "../../shared/chat-view/i18n";
 
 const clients: PaseoClient[] = [];
 const jobsToDispose: ReturnType<typeof createJobs>[] = [];
@@ -30,13 +31,15 @@ describe("summary task feedback", () => {
       .mockResolvedValueOnce(empty);
     const first = jobs.start(paseo, "workspace", model);
     await vi.waitFor(() => expect(jobs.read("workspace")?.phase).toBe("error"));
-    expect(first.activity).toBe("连接已断开");
+    expect(renderMessage("zh-CN", first.activity)).toBe("总结失败：连接已断开");
     expect(first.events.map((event) => event.level)).toEqual(["info", "error"]);
     const second = jobs.start(paseo, "workspace", model);
     expect(second.id).not.toBe(first.id);
     await vi.waitFor(() => expect(second.phase).toBe("error"));
-    expect(second.activity).toBe("没有可总结的用户提问。请检查历史读取结果后重试。");
-    expect(second.events.map((event) => event.message)).toEqual([
+    expect(renderMessage("zh-CN", second.activity)).toBe(
+      "没有可总结的用户提问。请检查历史读取结果后重试。",
+    );
+    expect(second.events.map((event) => renderMessage("zh-CN", event.message))).toEqual([
       "正在查找当前工作空间的对话（包含归档），选取最近 50 条用户提问",
       "找到 0 个对话，开始读取历史",
       "共读取 0 条用户提问，选用最近 0 条参与总结",
@@ -48,7 +51,9 @@ describe("summary task feedback", () => {
     vi.spyOn(paseo.agents, "list").mockResolvedValue(empty);
     const task = jobs.start(paseo, "workspace", model);
     await vi.waitFor(() => expect(task.phase).toBe("error"));
-    expect(() => jobs.removeCandidate("workspace", task.id, "one")).toThrow("尚未完成");
+    expect(() => jobs.removeCandidate("workspace", task.id, "one")).toThrow(
+      "quickQuestions.error.candidateStale",
+    );
     task.phase = "done";
     task.candidates = ["one", "two"].map((id) => ({
       id,
@@ -57,8 +62,12 @@ describe("summary task feedback", () => {
       frequency: 1,
       sources: [],
     }));
-    expect(() => jobs.removeCandidate("other-workspace", task.id, "one")).toThrow("任务已更新");
-    expect(() => jobs.removeCandidate("workspace", "stale-task", "one")).toThrow("任务已更新");
+    expect(() => jobs.removeCandidate("other-workspace", task.id, "one")).toThrow(
+      "quickQuestions.error.candidateStale",
+    );
+    expect(() => jobs.removeCandidate("workspace", "stale-task", "one")).toThrow(
+      "quickQuestions.error.candidateStale",
+    );
     expect(task.candidates.map((q) => q.id)).toEqual(["one", "two"]);
     jobs.removeCandidate("workspace", task.id, "one");
     expect(jobs.read("workspace")?.candidates.map((q) => q.id)).toEqual(["two"]);
@@ -77,9 +86,13 @@ describe("summary task feedback", () => {
     const task = jobs.start(paseo, "workspace", model);
     expect(jobs.cancel("workspace")).toBe(true);
     expect(task.phase).toBe("canceled");
-    expect(task.activity).toContain("总结已取消");
+    expect(renderMessage("zh-CN", task.activity)).toContain("总结已取消");
     release(empty);
-    await vi.waitFor(() => expect(task.events.at(-1)?.message).toContain("总结已取消"));
-    expect(task.error).toBe("");
+    await vi.waitFor(() =>
+      expect(renderMessage("zh-CN", task.events.at(-1)?.message ?? task.activity)).toContain(
+        "总结已取消",
+      ),
+    );
+    expect(task.error).toBeNull();
   });
 });

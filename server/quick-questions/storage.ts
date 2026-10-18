@@ -1,16 +1,9 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-  unlinkSync,
-} from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
+import { createRevisionedJsonStore } from "../storage/revisioned-json";
+import { LocalizedError } from "../../shared/chat-view/i18n";
 import {
   DEFAULT_HISTORY_LIMIT,
   historyLimitSchema,
@@ -28,15 +21,20 @@ const documentSchema = z.object({
   revision: z.number().int().nonnegative().default(0),
   enabled: z.boolean().default(true),
   questions: z.array(questionSchema).default([]),
-  model: z
-    .object({
-      baseUrl: z.string().default(""),
-      model: z.string().default(""),
-      apiKey: z.string().default(""),
-    })
-    .default({ baseUrl: "", model: "", apiKey: "" }),
 });
 export type Document = z.infer<typeof documentSchema>;
+export type WorkspaceDocument = Omit<Workspace, "featureEnabled" | "model">;
+
+function validateQuestions(document: Document) {
+  const seen = new Set<string>();
+  for (const question of document.questions) {
+    const key = questionKey(question.text);
+    if (seen.has(key)) throw new LocalizedError("quickQuestions.error.duplicateQuestions");
+    seen.add(key);
+  }
+  if (new Set(document.questions.map((q) => q.id)).size !== document.questions.length)
+    throw new LocalizedError("quickQuestions.error.duplicateIds");
+}
 
 export function createStorage(
   root = join(process.env.PASEO_HOME || join(homedir(), ".paseo"), "toolkit", "quick-questions"),
@@ -44,58 +42,39 @@ export function createStorage(
   function path(workspaceId: string) {
     return join(root, `${createHash("sha256").update(workspaceId).digest("hex")}.json`);
   }
+  function store(workspaceId: string) {
+    return createRevisionedJsonStore({
+      filename: path(workspaceId),
+      schema: documentSchema,
+      create: () => documentSchema.parse({}),
+      concurrencyError: new LocalizedError("quickQuestions.error.stale").message,
+      readError: new LocalizedError("quickQuestions.error.read").message,
+    });
+  }
   function read(workspaceId: string): Document {
-    const filename = path(workspaceId);
-    if (!existsSync(filename)) return documentSchema.parse({});
-    try {
-      return documentSchema.parse(JSON.parse(readFileSync(filename, "utf8")));
-    } catch {
-      throw new Error("快捷提问数据无法读取，请检查主机上的 toolkit 数据文件。");
-    }
+    return store(workspaceId).read();
   }
   function save(
     workspaceId: string,
     revision: number,
     update: (current: Document) => Document,
-  ): Workspace {
-    const current = read(workspaceId);
-    if (revision !== current.revision)
-      throw new Error("其他设备已更新此工作空间。请重新加载后再保存；当前编辑内容仍保留。");
-    const next = documentSchema.parse(update(current));
-    next.revision = current.revision + 1;
-    const seen = new Set<string>();
-    for (const question of next.questions) {
-      const key = questionKey(question.text);
-      if (seen.has(key)) throw new Error("存在重复话术，请合并后保存。");
-      seen.add(key);
-    }
-    if (new Set(next.questions.map((q) => q.id)).size !== next.questions.length)
-      throw new Error("问题标识重复，请重新加载。");
-    mkdirSync(root, { recursive: true, mode: 0o700 });
-    const temporary = `${path(workspaceId)}.${randomUUID()}.tmp`;
-    try {
-      writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-      renameSync(temporary, path(workspaceId));
-      chmodSync(path(workspaceId), 0o600);
-    } finally {
-      if (existsSync(temporary)) unlinkSync(temporary);
-    }
+  ): WorkspaceDocument {
+    const next = store(workspaceId).update(revision, (current) => {
+      const document = update(current);
+      validateQuestions(document);
+      return document;
+    });
     return publicWorkspace(next);
   }
   return { read, save };
 }
-export function publicWorkspace(document: Document): Workspace {
+/** Projects the document without the feature flag or credentials, which have other owners. */
+export function publicWorkspace(document: Document): WorkspaceDocument {
   return {
-    featureEnabled: true,
     revision: document.revision,
     historyLimit: document.historyLimit,
     summaryPrompt: document.summaryPrompt,
     enabled: document.enabled,
     questions: document.questions,
-    model: {
-      baseUrl: document.model.baseUrl,
-      model: document.model.model,
-      hasKey: Boolean(document.model.apiKey),
-    },
   };
 }

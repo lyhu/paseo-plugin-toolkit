@@ -58,32 +58,24 @@ describe("workspace storage", () => {
     ).toThrow();
     expect(storage.read("a").summaryPrompt).toBe(configured.summaryPrompt);
   });
-  it("persists isolated workspaces without exposing model credentials", () => {
+  it("persists isolated workspaces without storing model credentials", () => {
     const { root, storage } = fixture();
-    const result = storage.save("workspace/../a", 0, (current) => ({
+    storage.save("workspace/../a", 0, (current) => ({
       ...current,
       questions: [{ ...question, sources: [] }],
-      model: { baseUrl: "https://example.com/v1", model: "summary", apiKey: "private-key" },
     }));
-    expect(result.model).toEqual({
-      baseUrl: "https://example.com/v1",
-      model: "summary",
-      hasKey: true,
-    });
     expect(storage.read("b").questions).toEqual([]);
     expect(storage.read("workspace/../a").questions[0].text).toBe("检查集群状态");
     const filename = join(root, readdirSync(root)[0]);
     expect(statSync(filename).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(filename, "utf8")).revision).toBe(1);
-    expect(JSON.stringify(publicWorkspace(storage.read("workspace/../a")))).not.toContain(
-      "private-key",
-    );
+    expect(readFileSync(filename, "utf8")).not.toContain("apiKey");
   });
   it("rejects stale saves and preserves the newer data", () => {
     const { storage } = fixture();
     storage.save("a", 0, (current) => ({ ...current, questions: [{ ...question, sources: [] }] }));
     expect(() => storage.save("a", 0, (current) => ({ ...current, questions: [] }))).toThrow(
-      "其他设备已更新",
+      "quickQuestions.error.stale",
     );
     expect(storage.read("a").questions).toHaveLength(1);
   });
@@ -97,7 +89,7 @@ describe("workspace storage", () => {
           { ...question, id: "two", text: " server   status ", sources: [] },
         ],
       })),
-    ).toThrow("重复话术");
+    ).toThrow("quickQuestions.error.duplicateQuestions");
     expect(storage.read("a").revision).toBe(0);
   });
 });

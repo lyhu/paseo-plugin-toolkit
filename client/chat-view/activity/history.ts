@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { usePaseo } from "@getpaseo/plugin/client";
 import type { PaseoApi, PaseoAgentTimelineHandle } from "@getpaseo/client";
-import type {
-  ReasoningItemData,
-  ToolCallItemData,
+import {
+  activityDataKey,
+  type ReasoningItemData,
+  type ToolCallItemData,
 } from "../../../shared/chat-view/activity/timeline";
 import { createTimelinePager, type TimelinePage } from "../timeline-pager";
 import type { TurnGroup, ActivityEntry } from "./group-store";
@@ -188,8 +189,8 @@ export function useActivityGroup(
     history?.snapshot ?? emptySnapshot,
     emptySnapshot,
   );
-  // Keep this key aligned with activityIdentity so it stays stable while the text streams.
-  const key = "name" in data ? `tool:${data.callId}` : `reasoning:${timestamp.getTime()}`;
+  // Keep this key aligned with the folding identity so it stays stable while the text streams.
+  const key = activityDataKey(data, timestamp);
   const previous = useRef<
     | {
         history: typeof history;

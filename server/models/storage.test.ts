@@ -100,7 +100,7 @@ describe("shared host models", () => {
     models.inherit("a", 3);
     expect(models.resolve("a").model).toBe("new-default");
     expect(() => models.save({ revision: 0, scope: "host", ...model, clearKey: false })).toThrow(
-      "已在其他页面更新",
+      "models.error.stale",
     );
     models.save({ revision: 4, scope: "host", ...model, apiKey: "", clearKey: true });
     expect(models.resolve().apiKey).toBe("");

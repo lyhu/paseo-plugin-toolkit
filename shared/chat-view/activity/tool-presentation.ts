@@ -3,8 +3,14 @@ import { MAX_DIFF_CHARS, diffStatsForDetail, type DiffStats } from "./diff";
 import { exaToolIcon, exaToolKind, exaToolLabel, exaToolSummary } from "./exa";
 import { fileIconForPath, languageForFilePath } from "./file-kind";
 import { githubToolIcon, githubToolKind, githubToolLabel, githubToolSummary } from "./github";
-import { prettyToolName, resolvePaseoToolRow, type ToolCategory } from "./paseo-tools";
+import {
+  paseoToolLeafName,
+  prettyToolName,
+  resolvePaseoToolRow,
+  type ToolCategory,
+} from "./paseo-tools";
 import { compactText } from "./text";
+import { asRecord, unwrapToolOutput } from "./tool-output";
 
 /** 时间线条目 → 标题、图标、分类、摘要；也负责子代理动作行与 MCP 信封解包。 */
 
@@ -31,6 +37,16 @@ export interface SubAgentAction {
   summary?: string;
 }
 
+export type ToolFamily = "github" | "exa" | "paseo" | "other";
+
+/** The precedence used both for presentation and for choosing a detail renderer. */
+export function toolFamily(name: string): ToolFamily {
+  if (githubToolKind(name)) return "github";
+  if (exaToolKind(name)) return "exa";
+  if (paseoToolLeafName(name)) return "paseo";
+  return "other";
+}
+
 const TOOL_ICON_NAMES: Record<string, string> = {
   bot: "Bot",
   brain: "Brain",
@@ -49,13 +65,8 @@ function iconNameFromProtocol(value: string | undefined): string | undefined {
   return TOOL_ICON_NAMES[value] ?? value;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function stringField(value: unknown, key: string): string | undefined {
-  if (!isRecord(value)) return undefined;
-  const field = value[key];
+  const field = asRecord(value)?.[key];
   return typeof field === "string" && field.trim() ? field : undefined;
 }
 
@@ -89,41 +100,13 @@ export function paseoToolSummary(toolName: string, input: unknown): string | und
   return undefined;
 }
 
-function parseEmbeddedJson(value: string): unknown {
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    for (const match of value.matchAll(/\{|\[/g)) {
-      const offset = match.index;
-      if (offset === undefined) continue;
-      try {
-        return JSON.parse(value.slice(offset)) as unknown;
-      } catch {
-        continue;
-      }
-    }
-    return undefined;
-  }
-}
-
 export function unwrapPaseoToolOutput(value: unknown): unknown {
-  const record = isRecord(value) ? value : null;
-  if (!record) return value;
-  if (record.structuredContent !== undefined)
-    return unwrapPaseoToolOutput(record.structuredContent);
-  if (Array.isArray(record.content)) {
-    const content = record.content.find((item) => isRecord(item) && item.type === "text");
-    if (isRecord(content)) {
-      const parsed = typeof content.text === "string" ? parseEmbeddedJson(content.text) : undefined;
-      return parsed === undefined ? content.text : unwrapPaseoToolOutput(parsed);
-    }
-  }
-  return value;
+  return unwrapToolOutput(value);
 }
 
 export function paseoToolResult(value: unknown): unknown {
   const unwrapped = unwrapPaseoToolOutput(value);
-  const record = isRecord(unwrapped) ? unwrapped : null;
+  const record = asRecord(unwrapped);
   return record?.ok === true && record.result !== undefined ? record.result : unwrapped;
 }
 

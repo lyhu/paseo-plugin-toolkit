@@ -33,8 +33,8 @@ import {
 
 import { activitySettings, DEFAULT_DISPLAY_MODE } from "../../../shared/chat-view/settings";
 import {
+  activityDataKey,
   getActivityExpansionState,
-  getReasoningExpansionState,
   reasoningItemDataSchema,
   toolCallItemDataSchema,
   type ReasoningItemData,
@@ -570,7 +570,7 @@ function singleActivityGroup(
   data: ReasoningItemData | ToolCallItemData,
 ): TurnGroup {
   const tool = "name" in data;
-  const id = tool ? `tool:${data.callId}` : `reasoning:${timestamp.getTime()}`;
+  const id = activityDataKey(data, timestamp);
   const group = createActivityGroup(timestamp.getTime(), id, timestamp.getTime(), [
     {
       id,
@@ -646,9 +646,9 @@ function DetailedColorfulReasoning({
   const isLatest = useIsLatestMarker(latestReasoningMarker, agentId, timestamp, isStreaming);
   const [userExpanded, setUserExpanded] = useActivityDisclosure(
     agentId,
-    `reasoning:${timestamp.getTime()}`,
+    activityDataKey(item.data, timestamp),
   );
-  const expanded = getReasoningExpansionState(isStreaming, isLatest, userExpanded ?? null);
+  const expanded = getActivityExpansionState(isStreaming, isLatest, userExpanded ?? null);
   const toggle = useCallback(() => setUserExpanded(!expanded), [expanded, setUserExpanded]);
   return (
     <View style={styles.card}>
@@ -738,7 +738,7 @@ function DetailedColorfulToolCall({
   const detail = asToolCallDetail(item.data.detail);
   const [userExpanded, setUserExpanded] = useActivityDisclosure(
     agentId,
-    `tool:${item.data.callId ?? timestamp.getTime()}`,
+    activityDataKey(item.data, timestamp),
   );
   const categoryColor = palette.categoryColors[item.data.presentation.category];
   const statusColor = palette.statusColors[item.data.status];
