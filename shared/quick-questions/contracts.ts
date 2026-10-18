@@ -54,6 +54,16 @@ export function questionKey(text: string): string {
   return text.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
 }
 const scope = z.object({ workspaceId: z.string().min(1) });
+/**
+ * Every connected host evaluates this plugin, but the draft pill row is a single shared DOM
+ * element. A host claims the workspace before the pill mounts, so only the host that owns the
+ * workspace renders the button.
+ */
+export const claimWorkspace = defineRpc({
+  name: "quick-questions.claim",
+  input: scope,
+  output: z.object({ claimed: z.boolean() }),
+});
 export const readWorkspace = defineRpc({
   name: "quick-questions.read",
   input: scope,

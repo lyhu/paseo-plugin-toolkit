@@ -1,6 +1,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import {
   cancelSummary,
+  claimWorkspace,
   readSummary,
   removeCandidate,
   readWorkspace,
@@ -28,6 +29,10 @@ export function registerQuickQuestions(
       model: models.read(workspaceId).effectiveModel,
     };
   }
+  server.handle(claimWorkspace, async ({ workspaceId }, { paseo }) => {
+    const workspace = await paseo.workspaces.ref(workspaceId).refresh();
+    return { claimed: workspace !== null };
+  });
   server.handle(readWorkspace, ({ workspaceId }) => publicData(workspaceId));
   server.handle(saveQuestions, ({ workspaceId, revision, questions, enabled }) => {
     storage.save(workspaceId, revision, (current) => ({ ...current, questions, enabled }));

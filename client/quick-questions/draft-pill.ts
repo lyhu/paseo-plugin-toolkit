@@ -1,6 +1,10 @@
 import { Platform } from "react-native";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { readWorkspace, type Question } from "../../shared/quick-questions/contracts";
+import {
+  claimWorkspace,
+  readWorkspace,
+  type Question,
+} from "../../shared/quick-questions/contracts";
 import type { Document, Element, Window } from "../chat-view/dom";
 import { subscribeLocale } from "../chat-view/locale";
 import { tr } from "../i18n";
@@ -16,6 +20,7 @@ const IMPORT_PILL = '[data-testid="composer-import-agent-pill"]';
 const DECK_PREFIX = "workspace-deck-entry-";
 const DECK_ENTRY = `[data-testid^="${DECK_PREFIX}"]`;
 const POLL_INTERVAL_MS = 250;
+const CLAIM_RETRY_MS = 3000;
 const POPOVER_WIDTH = 340;
 const POPOVER_GAP = 8;
 const POPOVER_MAX_HEIGHT = 460;
@@ -71,6 +76,14 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
   let statusElement: Element | null = null;
   let detachPopoverListeners: (() => void) | null = null;
   let workspaceId = "";
+  /**
+   * A workspace is owned by exactly one connected host. Every host evaluates this plugin, so the
+   * host must prove ownership before touching the shared draft pill row.
+   */
+  let ownership: "unknown" | "owned" | "foreign" = "unknown";
+  const ownershipByWorkspace = new Map<string, boolean>();
+  let claimToken = 0;
+  let claimRetry: ReturnType<typeof setTimeout> | undefined;
   let data: QuestionsData | null = null;
   let loading = false;
   let error = "";
@@ -117,17 +130,53 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       error = "";
       message = "";
       search = "";
+      const claimed = ownershipByWorkspace.get(nextWorkspaceId);
+      ownership = claimed === undefined ? "unknown" : claimed ? "owned" : "foreign";
+      if (claimed === undefined) claimOwnership();
     }
     anchor = pill;
-    mountButton(pill);
+    if (ownership === "owned") mountButton(pill);
+    else removeButton();
     if (popover) positionPopover();
+  }
+
+  function claimOwnership() {
+    const target = workspaceId;
+    if (!target || stopped || !enabled) return;
+    clearClaimRetry();
+    const token = ++claimToken;
+    void client
+      .rpc(claimWorkspace, { workspaceId: target })
+      .then((result) => {
+        if (stopped || !enabled || workspaceId !== target || token !== claimToken) return;
+        ownershipByWorkspace.set(target, result.claimed);
+        ownership = result.claimed ? "owned" : "foreign";
+        if (result.claimed) sync();
+        else removeButton();
+      })
+      .catch(() => {
+        if (stopped || !enabled || workspaceId !== target || token !== claimToken) return;
+        // Leave ownership unknown and retry; a disconnected host must not claim the row.
+        ownership = "unknown";
+        claimRetry = setTimeout(() => {
+          claimRetry = undefined;
+          claimOwnership();
+        }, CLAIM_RETRY_MS);
+      });
+  }
+
+  function clearClaimRetry() {
+    if (claimRetry !== undefined) clearTimeout(claimRetry);
+    claimRetry = undefined;
   }
 
   function mountButton(pill: Element) {
     const parent = pill.parentElement;
     if (!parent) return;
     if (!button) button = buildButton();
-    if (button.parentElement !== parent || pill.nextElementSibling !== button) {
+    // Only insert when the button is detached. Reasserting the exact sibling position every poll
+    // makes two plugin instances trade places forever when several hosts are connected.
+    if (button.parentElement !== parent) {
       parent.insertBefore(button, pill.nextElementSibling);
     }
     if (styledPill !== pill) {
@@ -243,6 +292,9 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
   function detach() {
     closePopover();
     removeButton();
+    claimToken += 1;
+    clearClaimRetry();
+    ownership = "unknown";
     workspaceId = "";
     data = null;
     error = "";
