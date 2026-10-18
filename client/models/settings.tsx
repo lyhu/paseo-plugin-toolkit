@@ -1,6 +1,6 @@
 import { tr, useLocale } from "../i18n";
 import { useReducer } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRpc, type PluginSurfaceProps } from "@getpaseo/plugin/client";
 import {
@@ -11,6 +11,7 @@ import {
   type ModelScope,
 } from "../../shared/models/contracts";
 import { Button, Label, Row, Surface } from "../quick-questions/ui";
+import { TOOLKIT_VERSION } from "../../shared/version";
 import { ModelConnectionForm, type ModelDraft } from "./form";
 
 export function ModelsScreen(props: PluginSurfaceProps) {
@@ -18,6 +19,18 @@ export function ModelsScreen(props: PluginSurfaceProps) {
   return (
     <Surface theme={props.theme}>
       <ModelConfiguration hostId={props.host.id} />
+      <Text
+        style={{
+          color: props.theme.colors.foregroundMuted,
+          fontSize: 12,
+          lineHeight: 18,
+          paddingTop: 4,
+          paddingBottom: 20,
+          textAlign: "center",
+        }}
+      >
+        {tr("Toolkit 版本 v{0}", { "0": TOOLKIT_VERSION })}
+      </Text>
     </Surface>
   );
 }

@@ -13,8 +13,10 @@ import {
   resolveLocale,
   t,
   type LocalePreference,
+  type SupportedLocale,
   type TranslationKey,
 } from "../../shared/chat-view/i18n";
+import { TOOLKIT_VERSION } from "../../shared/version";
 import { useLocale } from "./locale";
 import {
   activitySettings,
@@ -58,6 +60,27 @@ const languageChoices: readonly { value: LocalePreference; labelKey: Translation
   { value: "zh-CN", labelKey: "settings.langZh" },
   { value: "en-US", labelKey: "settings.langEn" },
 ];
+
+function VersionFooter({
+  theme,
+  locale,
+}: {
+  theme: PluginSurfaceProps["theme"];
+  locale: SupportedLocale;
+}) {
+  const style = useMemo(
+    () => ({
+      color: theme.colors.foregroundMuted,
+      fontSize: 12,
+      lineHeight: 18,
+      paddingTop: 4,
+      paddingBottom: 20,
+      textAlign: "center" as const,
+    }),
+    [theme.colors.foregroundMuted],
+  );
+  return <Text style={style}>{t(locale, "settings.version", { version: TOOLKIT_VERSION })}</Text>;
+}
 
 function ReadyControls({
   settings,
@@ -212,6 +235,7 @@ function ReadyControls({
           <Text style={descriptionStyle}>{t(locale, "settings.enhanceNoteDesc")}</Text>
         </SettingsRow>
       </SettingsSection>
+      <VersionFooter theme={theme} locale={locale} />
     </>
   );
 }
@@ -233,34 +257,45 @@ export function ActivitySettings({
   // The shells render before settings are known, so they follow the running language.
   const locale = useLocale();
   if (settings.status === "loading")
-    return <Text style={textStyle}>{t(locale, "settings.loading")}</Text>;
+    return (
+      <>
+        <Text style={textStyle}>{t(locale, "settings.loading")}</Text>
+        <VersionFooter theme={theme} locale={locale} />
+      </>
+    );
   if (settings.status === "error") {
     return (
-      <SettingsSection title={t(locale, "settings.title")}>
-        <Text style={textStyle}>{settings.error}</Text>
-        <SettingsAction
-          label={t(locale, "settings.title")}
-          actionLabel={t(locale, "settings.reload")}
-          onPress={settings.reload}
-        />
-      </SettingsSection>
+      <>
+        <SettingsSection title={t(locale, "settings.title")}>
+          <Text style={textStyle}>{settings.error}</Text>
+          <SettingsAction
+            label={t(locale, "settings.title")}
+            actionLabel={t(locale, "settings.reload")}
+            onPress={settings.reload}
+          />
+        </SettingsSection>
+        <VersionFooter theme={theme} locale={locale} />
+      </>
     );
   }
   if (settings.status === "invalid") {
     return (
-      <SettingsSection title={t(locale, "settings.title")}>
-        <Text style={textStyle}>{settings.error}</Text>
-        <SettingsAction
-          label={t(locale, "settings.storedSettings")}
-          actionLabel={t(locale, "settings.reset")}
-          onPress={settings.reset}
-        />
-        <SettingsAction
-          label={t(locale, "settings.storedSettings")}
-          actionLabel={t(locale, "settings.reload")}
-          onPress={settings.reload}
-        />
-      </SettingsSection>
+      <>
+        <SettingsSection title={t(locale, "settings.title")}>
+          <Text style={textStyle}>{settings.error}</Text>
+          <SettingsAction
+            label={t(locale, "settings.storedSettings")}
+            actionLabel={t(locale, "settings.reset")}
+            onPress={settings.reset}
+          />
+          <SettingsAction
+            label={t(locale, "settings.storedSettings")}
+            actionLabel={t(locale, "settings.reload")}
+            onPress={settings.reload}
+          />
+        </SettingsSection>
+        <VersionFooter theme={theme} locale={locale} />
+      </>
     );
   }
   return <ReadyControls settings={settings} theme={theme} onOpenModels={onOpenModels} />;

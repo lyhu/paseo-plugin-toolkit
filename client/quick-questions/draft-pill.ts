@@ -403,16 +403,6 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
     header.appendChild(settings);
     container.appendChild(header);
 
-    const hint = document.createElement("div");
-    hint.textContent = tr("点击问题直接发送；点击铅笔可先编辑。");
-    Object.assign(hint.style, {
-      color: palette.muted,
-      fontSize: "12px",
-      lineHeight: "18px",
-      flexShrink: "0",
-    });
-    container.appendChild(hint);
-
     const list = document.createElement("div");
     list.setAttribute("data-testid", "toolkit-quick-questions-list");
     Object.assign(list.style, {
@@ -503,7 +493,7 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
     send.setAttribute("type", "button");
     send.setAttribute("data-testid", "toolkit-quick-questions-send");
     send.setAttribute("aria-label", tr("直接发送：{0}", { "0": question.text }));
-    send.setAttribute("title", tr("直接发送"));
+    send.setAttribute("title", tr("点击问题直接发送"));
     Object.assign(send.style, {
       display: "flex",
       alignItems: "center",
@@ -543,7 +533,7 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
     edit.setAttribute("type", "button");
     edit.setAttribute("data-testid", "toolkit-quick-questions-edit");
     edit.setAttribute("aria-label", tr("编辑后发送"));
-    edit.setAttribute("title", tr("编辑后发送"));
+    edit.setAttribute("title", tr("点击铅笔可先编辑"));
     Object.assign(edit.style, {
       width: "30px",
       height: "30px",

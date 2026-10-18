@@ -17,6 +17,7 @@ export const messages = {
     "settings.sharedModelsHint": "历史总结和增强共用主机默认模型；工作区可单独覆盖。",
     // 设置页 (Settings)
     "settings.title": "功能设置",
+    "settings.version": "Toolkit 版本 v{version}",
     "settings.storedSettings": "已存设置",
     "settings.sectionFeatures": "功能开关",
     "settings.mermaidLabel": "Mermaid 图表",
@@ -202,6 +203,7 @@ export const messages = {
       "Summary and enhancement share the host model; workspaces can override it.",
     // Settings
     "settings.title": "Settings",
+    "settings.version": "Toolkit version v{version}",
     "settings.storedSettings": "Stored settings",
     "settings.sectionFeatures": "Feature Toggles",
     "settings.mermaidLabel": "Mermaid Diagrams",

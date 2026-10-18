@@ -3,6 +3,7 @@ import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./c
 const english: Record<string, string> = {
   "Toolkit 模型": "Toolkit models",
   "Toolkit 模型设置": "Toolkit model settings",
+  "Toolkit 版本 v{0}": "Toolkit version v{0}",
   快捷提问: "Quick questions",
   维护快捷提问: "Manage quick questions",
   设置快捷提问: "Quick question settings",
@@ -74,8 +75,8 @@ const english: Record<string, string> = {
   "直接发送：{0}": "Send now: {0}",
   直接发送: "Send now",
   编辑后发送: "Edit before sending",
-  "点击问题直接发送；点击铅笔可先编辑。":
-    "Click a question to send it now; click the pencil to edit it first.",
+  点击问题直接发送: "Click a question to send it now",
+  点击铅笔可先编辑: "Click the pencil to edit it first",
   "无法发送，已复制到剪贴板。": "Could not send. Copied to the clipboard.",
   "无法发送。": "Could not send.",
   "填入输入框：{0}": "Insert into composer: {0}",

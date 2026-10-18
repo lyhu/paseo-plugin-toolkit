@@ -1,5 +1,5 @@
 import { tr, useLocale } from "../i18n";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useAgent, useRpc, type PluginButtonContentProps } from "@getpaseo/plugin/client";
@@ -9,6 +9,22 @@ import { getComposerAccess } from "../chat-view/enhance/dom";
 import { getDraftComposerAccess, sendDraftComposer } from "./draft-composer";
 import { useQuestions } from "./queries";
 import { Label, Surface, useColors } from "./ui";
+
+/**
+ * React Native Web drops `title` from View's prop whitelist, so write it on the host node. Native
+ * views have no hover effect and no `setAttribute`, which the guard skips.
+ */
+function useTooltip(text: string) {
+  const ref = useRef<View>(null);
+  useEffect(() => {
+    const node = ref.current as unknown as { setAttribute?(name: string, value: string): void };
+    node?.setAttribute?.("title", text);
+    return () => {
+      node?.setAttribute?.("title", "");
+    };
+  }, [text]);
+  return ref;
+}
 
 export function QuickQuestionsPopover(
   props: PluginButtonContentProps & { openMaintenance(): void },
@@ -85,7 +101,6 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
         </Text>
         <IconButton icon="Settings2" label={tr("设置快捷提问")} onPress={props.openMaintenance} />
       </View>
-      <Label muted>{tr("点击问题直接发送；点击铅笔可先编辑。")}</Label>
       {query.isPending && (
         <ActivityIndicator
           size="small"
@@ -156,6 +171,7 @@ function QuestionRow({
 }) {
   const colors = useColors();
   const [hovered, setHovered] = useState(false);
+  const sendRef = useTooltip(tr("点击问题直接发送"));
   const hover = {
     onHoverIn: () => setHovered(true),
     onHoverOut: () => setHovered(false),
@@ -171,6 +187,7 @@ function QuestionRow({
       }}
     >
       <Pressable
+        ref={sendRef}
         accessibilityRole="button"
         accessibilityLabel={tr("直接发送：{0}", { "0": text })}
         accessibilityState={{ disabled: !canSend }}
@@ -193,6 +210,7 @@ function QuestionRow({
       <IconButton
         icon="Pencil"
         label={tr("编辑后发送")}
+        title={tr("点击铅笔可先编辑")}
         active={hovered}
         disabled={!canEdit}
         pending={pending}
@@ -206,6 +224,8 @@ function QuestionRow({
 interface IconButtonProps {
   icon: string;
   label: string;
+  /** Hover tooltip. Defaults to `label`, which is also the accessibility label. */
+  title?: string;
   onPress(): void;
   disabled?: boolean;
   pending?: boolean;
@@ -218,6 +238,7 @@ interface IconButtonProps {
 function IconButton({
   icon,
   label,
+  title,
   onPress,
   disabled = false,
   pending = false,
@@ -227,6 +248,7 @@ function IconButton({
   onHoverOut,
 }: IconButtonProps) {
   const colors = useColors();
+  const ref = useTooltip(title ?? label);
   const color = primary
     ? colors.accentForeground
     : active
@@ -234,6 +256,7 @@ function IconButton({
       : colors.foregroundMuted;
   return (
     <Pressable
+      ref={ref}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled, busy: pending }}

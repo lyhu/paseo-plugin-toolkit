@@ -316,6 +316,19 @@ it("renders no search field in the popover", async () => {
   expect(findByTestId(popover, "toolkit-quick-questions-search")).toBeUndefined();
 });
 
+it("shows the interaction hint as tooltips on the row and edit button", async () => {
+  const { body, row } = setup([{ owns: true }]);
+  await vi.advanceTimersByTimeAsync(0);
+  const popover = await openPopover(row, body);
+
+  expect(findByTestId(popover, "toolkit-quick-questions-send")!.getAttribute("title")).toBe(
+    "点击问题直接发送",
+  );
+  expect(findByTestId(popover, "toolkit-quick-questions-edit")!.getAttribute("title")).toBe(
+    "点击铅笔可先编辑",
+  );
+});
+
 it("highlights a question row while the pointer is over it", async () => {
   const { body, row } = setup([{ owns: true }]);
   await vi.advanceTimersByTimeAsync(0);
