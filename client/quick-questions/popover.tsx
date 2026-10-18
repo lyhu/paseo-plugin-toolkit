@@ -1,18 +1,15 @@
 import { tr, useLocale } from "../i18n";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useAgent, useRpc, type PluginButtonContentProps } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { sendQuestion } from "../../shared/quick-questions/contracts";
-import { getDraftComposerAccess } from "./draft-composer";
+import { getComposerAccess } from "../chat-view/enhance/dom";
+import { getDraftComposerAccess, sendDraftComposer } from "./draft-composer";
 import { useQuestions } from "./queries";
 import { Label, Surface, useColors } from "./ui";
 
-interface Draft {
-  questionId: string;
-  text: string;
-}
 export function QuickQuestionsPopover(
   props: PluginButtonContentProps & { openMaintenance(): void },
 ) {
@@ -23,12 +20,11 @@ export function QuickQuestionsPopover(
     </Surface>
   );
 }
+
 function Content(props: PluginButtonContentProps & { openMaintenance(): void }) {
   const colors = useColors();
   const toast = useToast();
   const query = useQuestions(props.host.id, props.workspaceId);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [search, setSearch] = useState("");
   const isDraft = props.context === "workspace";
   const agentId = props.context === "agent" ? props.agentId : "";
   const status = useAgent(agentId, (agent) => agent.status);
@@ -38,57 +34,58 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
     onSuccess: () => props.close(),
   });
   const available = query.data?.enabled === true && query.data.featureEnabled;
-  const canSend = !isDraft && status === "idle" && !mutation.isPending && available;
-  const canFill = isDraft && !mutation.isPending && available;
-  function fillDraft(text: string) {
-    const access = getDraftComposerAccess(props.workspaceId);
-    if (access?.write(text)) {
-      props.close();
-      return;
-    }
+  const canSend = available && !mutation.isPending && (isDraft || status === "idle");
+  const canEdit = available && !mutation.isPending;
+
+  function copyFallback(text: string) {
     void copyText(text).then(
       () => toast.error(tr("无法写入输入框，已复制到剪贴板。")),
       () => toast.error(tr("无法写入输入框。")),
     );
   }
-  const questions =
-    query.data?.questions.filter((q) =>
-      q.text.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
-    ) ?? [];
+
+  function fillComposer(text: string) {
+    const access = isDraft ? getDraftComposerAccess(props.workspaceId) : getComposerAccess();
+    if (access?.write(text)) {
+      props.close();
+      return;
+    }
+    copyFallback(text);
+  }
+
+  function sendNow(text: string) {
+    if (isDraft) {
+      if (sendDraftComposer(props.workspaceId, text)) {
+        props.close();
+        return;
+      }
+      copyFallback(text);
+      return;
+    }
+    mutation.reset();
+    mutation.mutate(text);
+  }
+
+  const questions = query.data?.questions ?? [];
+
   return (
     <View style={{ gap: 8, width: props.layout.compact ? "100%" : 340, maxWidth: "100%" }}>
       <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-        <View
+        <Text
+          numberOfLines={1}
           style={{
             flex: 1,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            backgroundColor: colors.surface1,
-            borderRadius: 6,
-            paddingHorizontal: 9,
+            minWidth: 0,
+            color: colors.foregroundMuted,
+            fontSize: 12,
+            fontWeight: "600",
           }}
         >
-          <Icon name="Search" size={14} color={colors.foregroundMuted} />
-          <TextInput
-            accessibilityLabel={tr("搜索问题")}
-            placeholder={tr("搜索问题")}
-            placeholderTextColor={colors.foregroundMuted}
-            value={search}
-            onChangeText={setSearch}
-            autoCorrect={false}
-            style={{
-              flex: 1,
-              color: colors.foreground,
-              fontSize: 14,
-              paddingVertical: 7,
-              minHeight: 34,
-            }}
-          />
-        </View>
+          {tr("快捷提问")}
+        </Text>
         <IconButton icon="Settings2" label={tr("设置快捷提问")} onPress={props.openMaintenance} />
       </View>
-      {isDraft && <Label muted>{tr("选择问题后会填入输入框，发送前仍可编辑。")}</Label>}
+      <Label muted>{tr("点击问题直接发送；点击铅笔可先编辑。")}</Label>
       {query.isPending && (
         <ActivityIndicator
           size="small"
@@ -120,106 +117,92 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
           keyboardShouldPersistTaps="handled"
         >
           {questions.map((q) => (
-            <View
+            <QuestionRow
               key={q.id}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 4,
-                borderRadius: 6,
-                backgroundColor: draft?.questionId === q.id ? colors.surface2 : colors.surface0,
-              }}
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={q.text}
-                accessibilityState={{ selected: draft?.questionId === q.id }}
-                disabled={mutation.isPending}
-                onPress={() => {
-                  mutation.reset();
-                  setDraft({ questionId: q.id, text: q.text });
-                }}
-                style={{
-                  flex: 1,
-                  paddingHorizontal: 8,
-                  paddingVertical: 8,
-                  minHeight: 36,
-                  justifyContent: "center",
-                }}
-              >
-                <Text
-                  numberOfLines={2}
-                  style={{ color: colors.foreground, fontSize: 14, lineHeight: 20 }}
-                >
-                  {q.text}
-                </Text>
-              </Pressable>
-              <IconButton
-                icon={isDraft ? "CornerDownLeft" : "Send"}
-                label={
-                  isDraft
-                    ? tr("填入输入框：{0}", { "0": q.text })
-                    : tr("直接发送：{0}", { "0": q.text })
-                }
-                disabled={isDraft ? !canFill : !canSend}
-                pending={!isDraft && mutation.isPending && mutation.variables === q.text}
-                onPress={() => (isDraft ? fillDraft(q.text) : mutation.mutate(q.text))}
-              />
-            </View>
+              text={q.text}
+              canSend={canSend}
+              canEdit={canEdit}
+              pending={!isDraft && mutation.isPending && mutation.variables === q.text}
+              onSend={() => sendNow(q.text)}
+              onEdit={() => fillComposer(q.text)}
+            />
           ))}
           {!questions.length && (
             <View style={{ padding: 8 }}>
-              <Label muted>{search ? tr("无匹配结果") : tr("暂无问题")}</Label>
+              <Label muted>{tr("暂无问题")}</Label>
             </View>
           )}
         </ScrollView>
-      )}
-      {draft && (
-        <View
-          style={{
-            borderTopWidth: 1,
-            borderTopColor: colors.border,
-            paddingTop: 8,
-            flexDirection: "row",
-            alignItems: "flex-end",
-            gap: 6,
-          }}
-        >
-          <TextInput
-            accessibilityLabel={tr("编辑问题")}
-            placeholder={tr("编辑问题")}
-            placeholderTextColor={colors.foregroundMuted}
-            value={draft.text}
-            onChangeText={(text) => setDraft({ ...draft, text })}
-            editable={!mutation.isPending}
-            multiline
-            style={{
-              flex: 1,
-              color: colors.foreground,
-              fontSize: 14,
-              lineHeight: 20,
-              backgroundColor: colors.surface1,
-              borderRadius: 6,
-              padding: 8,
-              minHeight: 48,
-              maxHeight: 100,
-              textAlignVertical: "top",
-            }}
-          />
-          <IconButton
-            icon={isDraft ? "CornerDownLeft" : "ArrowUp"}
-            label={isDraft ? tr("填入输入框") : tr("发送编辑后的问题")}
-            primary
-            disabled={(isDraft ? !canFill : !canSend) || !draft.text.trim()}
-            pending={!isDraft && mutation.isPending && mutation.variables === draft.text}
-            onPress={() => (isDraft ? fillDraft(draft.text) : mutation.mutate(draft.text))}
-          />
-        </View>
       )}
       {mutation.isError && <Label error>{tr(mutation.error.message)}</Label>}
     </View>
   );
 }
+
+function QuestionRow({
+  text,
+  canSend,
+  canEdit,
+  pending,
+  onSend,
+  onEdit,
+}: {
+  text: string;
+  canSend: boolean;
+  canEdit: boolean;
+  pending: boolean;
+  onSend(): void;
+  onEdit(): void;
+}) {
+  const colors = useColors();
+  const [hovered, setHovered] = useState(false);
+  const hover = {
+    onHoverIn: () => setHovered(true),
+    onHoverOut: () => setHovered(false),
+  };
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        borderRadius: 6,
+        backgroundColor: hovered ? colors.surface1 : "transparent",
+      }}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={tr("直接发送：{0}", { "0": text })}
+        accessibilityState={{ disabled: !canSend }}
+        disabled={!canSend}
+        onPress={onSend}
+        {...hover}
+        style={{
+          flex: 1,
+          paddingHorizontal: 8,
+          paddingVertical: 8,
+          minHeight: 36,
+          justifyContent: "center",
+          opacity: canSend ? 1 : 0.5,
+        }}
+      >
+        <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 14, lineHeight: 20 }}>
+          {text}
+        </Text>
+      </Pressable>
+      <IconButton
+        icon="Pencil"
+        label={tr("编辑后发送")}
+        active={hovered}
+        disabled={!canEdit}
+        pending={pending}
+        onPress={onEdit}
+        {...hover}
+      />
+    </View>
+  );
+}
+
 interface IconButtonProps {
   icon: string;
   label: string;
@@ -227,7 +210,11 @@ interface IconButtonProps {
   disabled?: boolean;
   pending?: boolean;
   primary?: boolean;
+  active?: boolean;
+  onHoverIn?(): void;
+  onHoverOut?(): void;
 }
+
 function IconButton({
   icon,
   label,
@@ -235,9 +222,16 @@ function IconButton({
   disabled = false,
   pending = false,
   primary = false,
+  active = false,
+  onHoverIn,
+  onHoverOut,
 }: IconButtonProps) {
   const colors = useColors();
-  const color = primary ? colors.accentForeground : colors.foregroundMuted;
+  const color = primary
+    ? colors.accentForeground
+    : active
+      ? colors.foreground
+      : colors.foregroundMuted;
   return (
     <Pressable
       accessibilityRole="button"
@@ -245,6 +239,8 @@ function IconButton({
       accessibilityState={{ disabled, busy: pending }}
       disabled={disabled}
       onPress={onPress}
+      onHoverIn={onHoverIn}
+      onHoverOut={onHoverOut}
       hitSlop={4}
       style={{
         width: 34,
