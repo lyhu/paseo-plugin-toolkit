@@ -8,7 +8,11 @@ import {
 import type { Document, Element, Window } from "../chat-view/dom";
 import { subscribeLocale } from "../chat-view/locale";
 import { tr } from "../i18n";
-import { findDraftComposerInput, getDraftComposerAccess } from "./draft-composer";
+import {
+  findDraftComposerInput,
+  getDraftComposerAccess,
+  sendDraftComposer,
+} from "./draft-composer";
 
 declare const document: Document;
 declare const window: Window;
@@ -30,12 +34,11 @@ const ICON_MESSAGE = [
   "M13 8H7",
   "M17 12H7",
 ];
-const ICON_SEARCH = ["M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z", "m21 21-4.3-4.3"];
 const ICON_SETTINGS = [
   "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
   "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 ];
-const ICON_ENTER = ["M9 10 4 15l5 5", "M20 4v7a4 4 0 0 1-4 4H4"];
+const ICON_EDIT = ["M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z", "m15 5 4 4"];
 
 interface QuestionsData {
   featureEnabled: boolean;
@@ -88,7 +91,6 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
   let loading = false;
   let error = "";
   let message = "";
-  let search = "";
   let request = 0;
   let baseBackground = "transparent";
   let baseColor = "inherit";
@@ -129,7 +131,6 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       data = null;
       error = "";
       message = "";
-      search = "";
       const claimed = ownershipByWorkspace.get(nextWorkspaceId);
       ownership = claimed === undefined ? "unknown" : claimed ? "owned" : "foreign";
       if (claimed === undefined) claimOwnership();
@@ -299,7 +300,6 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
     data = null;
     error = "";
     message = "";
-    search = "";
   }
 
   function removeButton() {
@@ -358,9 +358,6 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       fontFamily: "inherit",
       fontSize: "13px",
     });
-    const styleElement = document.createElement("style");
-    styleElement.textContent = `.toolkit-quick-questions-input::placeholder { color: ${palette.muted}; opacity: 1; }`;
-    container.appendChild(styleElement);
 
     const header = document.createElement("div");
     Object.assign(header.style, {
@@ -369,55 +366,16 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       gap: "6px",
       flexShrink: "0",
     });
-    const searchBox = document.createElement("div");
-    Object.assign(searchBox.style, {
-      display: "flex",
-      alignItems: "center",
-      gap: "6px",
+    const title = document.createElement("div");
+    title.textContent = tr("快捷提问");
+    Object.assign(title.style, {
       flex: "1",
       minWidth: "0",
-      paddingLeft: "9px",
-      paddingRight: "9px",
-      borderRadius: "6px",
-      backgroundColor: palette.surfaceAlt,
+      color: palette.muted,
+      fontSize: "12px",
+      fontWeight: "600",
     });
-    const searchIcon = createIcon(ICON_SEARCH, 14);
-    searchIcon.style.color = palette.muted;
-    searchIcon.style.flexShrink = "0";
-    searchBox.appendChild(searchIcon);
-    const input = document.createElement("input");
-    input.setAttribute("type", "search");
-    input.setAttribute("class", "toolkit-quick-questions-input");
-    input.setAttribute("data-testid", "toolkit-quick-questions-search");
-    input.setAttribute("aria-label", tr("搜索问题"));
-    input.setAttribute("placeholder", tr("搜索问题"));
-    input.setAttribute("autocomplete", "off");
-    input.value = "";
-    Object.assign(input.style, {
-      flex: "1",
-      minWidth: "0",
-      border: "none",
-      outline: "none",
-      background: "transparent",
-      color: palette.foreground,
-      fontFamily: "inherit",
-      fontSize: "14px",
-      paddingTop: "7px",
-      paddingBottom: "7px",
-      minHeight: "34px",
-      boxSizing: "border-box",
-    });
-    input.addEventListener("input", () => {
-      search = input.value ?? "";
-      renderList();
-    });
-    input.addEventListener("keydown", (event) => {
-      if ((event as { key?: string }).key !== "Enter") return;
-      const first = filteredQuestions()[0];
-      if (first) fill(first.text);
-    });
-    searchBox.appendChild(input);
-
+    header.appendChild(title);
     const settings = document.createElement("button");
     settings.setAttribute("type", "button");
     settings.setAttribute("data-testid", "toolkit-quick-questions-settings");
@@ -442,12 +400,11 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       if (target) client.openPanel("quick-questions", { workspaceId: target });
     });
 
-    header.appendChild(searchBox);
     header.appendChild(settings);
     container.appendChild(header);
 
     const hint = document.createElement("div");
-    hint.textContent = tr("选择问题后会填入输入框，发送前仍可编辑。");
+    hint.textContent = tr("点击问题直接发送；点击铅笔可先编辑。");
     Object.assign(hint.style, {
       color: palette.muted,
       fontSize: "12px",
@@ -513,10 +470,10 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
     if (!listElement) return;
     listElement.textContent = "";
     if (!data?.enabled || !data.featureEnabled) return;
-    const questions = filteredQuestions();
+    const questions = data.questions;
     if (questions.length === 0) {
       const empty = document.createElement("div");
-      empty.textContent = search ? tr("无匹配结果") : tr("暂无问题");
+      empty.textContent = tr("暂无问题");
       Object.assign(empty.style, {
         padding: "8px",
         color: palette.muted,
@@ -529,16 +486,29 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
   }
 
   function questionRow(question: Question): Element {
-    const row = document.createElement("button");
-    row.setAttribute("type", "button");
+    const row = document.createElement("div");
     row.setAttribute("data-testid", "toolkit-quick-questions-item");
-    row.setAttribute("aria-label", tr("填入输入框：{0}", { "0": question.text }));
     Object.assign(row.style, {
       display: "flex",
       alignItems: "center",
-      justifyContent: "space-between",
-      gap: "8px",
+      gap: "2px",
       width: "100%",
+      minHeight: "36px",
+      borderRadius: "6px",
+      backgroundColor: "transparent",
+      transition: "background-color 120ms ease",
+    });
+
+    const send = document.createElement("button");
+    send.setAttribute("type", "button");
+    send.setAttribute("data-testid", "toolkit-quick-questions-send");
+    send.setAttribute("aria-label", tr("直接发送：{0}", { "0": question.text }));
+    send.setAttribute("title", tr("直接发送"));
+    Object.assign(send.style, {
+      display: "flex",
+      alignItems: "center",
+      flex: "1",
+      minWidth: "0",
       minHeight: "36px",
       padding: "8px",
       border: "none",
@@ -563,23 +533,50 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       wordBreak: "break-word",
       pointerEvents: "none",
     });
-    const icon = createIcon(ICON_ENTER, 14);
-    icon.style.color = palette.muted;
-    icon.style.flexShrink = "0";
+    send.appendChild(text);
+    send.addEventListener("click", (event) => {
+      stopEvent(event);
+      sendNow(question.text);
+    });
+
+    const edit = document.createElement("button");
+    edit.setAttribute("type", "button");
+    edit.setAttribute("data-testid", "toolkit-quick-questions-edit");
+    edit.setAttribute("aria-label", tr("编辑后发送"));
+    edit.setAttribute("title", tr("编辑后发送"));
+    Object.assign(edit.style, {
+      width: "30px",
+      height: "30px",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: "0",
+      marginRight: "2px",
+      border: "none",
+      borderRadius: "6px",
+      background: "transparent",
+      color: palette.muted,
+      cursor: "pointer",
+      padding: "0",
+      transition: "background-color 120ms ease, color 120ms ease",
+    });
+    const icon = createIcon(ICON_EDIT, 14);
     icon.style.pointerEvents = "none";
-    row.appendChild(text);
-    row.appendChild(icon);
+    edit.appendChild(icon);
+    edit.addEventListener("click", (event) => {
+      stopEvent(event);
+      editFirst(question.text);
+    });
+
+    row.appendChild(send);
+    row.appendChild(edit);
     row.addEventListener("mouseenter", () => {
       row.style.backgroundColor = palette.hover;
-      icon.style.color = palette.foreground;
+      edit.style.color = palette.foreground;
     });
     row.addEventListener("mouseleave", () => {
       row.style.backgroundColor = "transparent";
-      icon.style.color = palette.muted;
-    });
-    row.addEventListener("click", (event) => {
-      stopEvent(event);
-      fill(question.text);
+      edit.style.color = palette.muted;
     });
     return row;
   }
@@ -642,32 +639,36 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
     status.style.color = color;
   }
 
-  function filteredQuestions(): Question[] {
-    const needle = search.trim().toLocaleLowerCase();
-    if (!needle) return data?.questions ?? [];
-    return (data?.questions ?? []).filter((question) =>
-      question.text.toLocaleLowerCase().includes(needle),
-    );
+  function sendNow(text: string) {
+    if (workspaceId && sendDraftComposer(workspaceId, text)) {
+      closePopover();
+      return;
+    }
+    copyQuestion(text, tr("无法发送，已复制到剪贴板。"), tr("无法发送。"));
   }
 
-  function fill(text: string) {
+  function editFirst(text: string) {
     if (workspaceId && getDraftComposerAccess(workspaceId)?.write(text)) {
       closePopover();
       return;
     }
+    copyQuestion(text, tr("无法写入输入框，已复制到剪贴板。"), tr("无法写入输入框。"));
+  }
+
+  function copyQuestion(text: string, copiedMessage: string, failureMessage: string) {
     const clipboard = navigator.clipboard;
     if (!clipboard) {
-      message = tr("无法写入输入框。");
+      message = failureMessage;
       renderStatus();
       return;
     }
     void clipboard.writeText(text).then(
       () => {
-        message = tr("无法写入输入框，已复制到剪贴板。");
+        message = copiedMessage;
         renderStatus();
       },
       () => {
-        message = tr("无法写入输入框。");
+        message = failureMessage;
         renderStatus();
       },
     );

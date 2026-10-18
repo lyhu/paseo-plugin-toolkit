@@ -15,7 +15,8 @@ class FakeNode {
   parentElement: FakeNode | null = null;
   textContent = "";
   isConnected = true;
-  value = "";
+  focused = false;
+  dispatched: Array<{ type: string; key?: string }> = [];
   rect = { top: 0, bottom: 32, left: 0, width: 100, height: 32 };
   events = new Map<string, (event: unknown) => void>();
   selectorResults = new Map<string, FakeNode[]>();
@@ -81,6 +82,63 @@ class FakeNode {
     if (other === this) return true;
     return this.children.some((child) => child.contains(other));
   }
+  focus() {
+    this.focused = true;
+  }
+  setSelectionRange() {}
+  dispatchEvent(event: { type: string; key?: string }) {
+    this.dispatched.push(event);
+    return true;
+  }
+}
+
+const textareaValues = new WeakMap<object, string>();
+
+class FakeTextArea extends FakeNode {
+  get value() {
+    return textareaValues.get(this) ?? "";
+  }
+  set value(next: string) {
+    textareaValues.set(this, next);
+  }
+}
+
+class FakeEvent {
+  type: string;
+  bubbles?: boolean;
+  constructor(type: string, options?: { bubbles?: boolean }) {
+    this.type = type;
+    this.bubbles = options?.bubbles;
+  }
+  preventDefault() {}
+  stopPropagation() {}
+}
+
+class FakeKeyboardEvent extends FakeEvent {
+  key?: string;
+  code?: string;
+  isComposing = false;
+  constructor(
+    type: string,
+    options?: { key?: string; code?: string; bubbles?: boolean; cancelable?: boolean },
+  ) {
+    super(type, options);
+    this.key = options?.key;
+    this.code = options?.code;
+  }
+}
+
+function findByTestId(root: FakeNode, testId: string): FakeNode | undefined {
+  if (root.getAttribute("data-testid") === testId) return root;
+  for (const child of root.children) {
+    const found = findByTestId(child, testId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function click(node: FakeNode) {
+  node.events.get("click")?.({ preventDefault() {}, stopPropagation() {} });
 }
 
 let controllers: DraftPillController[] = [];
@@ -91,9 +149,13 @@ function setup(hosts: Array<{ owns: boolean }>) {
   const row = new FakeNode();
   const pill = new FakeNode();
   pill.setAttribute("data-testid", "composer-import-agent-pill");
+  const composer = new FakeTextArea();
+  composer.setAttribute("data-composer-input", "true");
   row.appendChild(pill);
-  row.appendChild(new FakeNode());
+  row.appendChild(composer);
   deck.appendChild(row);
+  deck.selectorResults.set(PILL_SELECTOR, [pill]);
+  row.selectorResults.set("textarea[data-composer-input]", [composer]);
 
   const body = new FakeNode();
   body.selectorResults.set(PILL_SELECTOR, [pill]);
@@ -109,6 +171,9 @@ function setup(hosts: Array<{ owns: boolean }>) {
   vi.stubGlobal("window", {
     innerWidth: 1200,
     innerHeight: 800,
+    HTMLTextAreaElement: FakeTextArea,
+    Event: FakeEvent,
+    KeyboardEvent: FakeKeyboardEvent,
     getComputedStyle: () => ({
       display: "flex",
       visibility: "visible",
@@ -145,7 +210,15 @@ function setup(hosts: Array<{ owns: boolean }>) {
             summaryPrompt: "prompt",
             historyLimit: 50,
             revision: 0,
-            questions: [],
+            questions: [
+              {
+                id: "q1",
+                text: "如何部署 170？",
+                origin: "history",
+                frequency: 2,
+                sources: [],
+              },
+            ],
             model: { configured: false },
           };
         }
@@ -156,11 +229,20 @@ function setup(hosts: Array<{ owns: boolean }>) {
     return createDraftPill(client);
   });
   for (const controller of controllers) controller.setEnabled(true);
-  return { deck, row, pill };
+  return { body, deck, row, pill, composer };
 }
 
 function toolkitPills(row: FakeNode) {
   return row.children.filter((child) => child.getAttribute("data-testid") === TOOLKIT_PILL);
+}
+
+async function openPopover(row: FakeNode, body: FakeNode) {
+  const pill = toolkitPills(row)[0]!;
+  click(pill);
+  await vi.advanceTimersByTimeAsync(0);
+  const popover = findByTestId(body, "toolkit-quick-questions-popover");
+  expect(popover).toBeDefined();
+  return popover!;
 }
 
 beforeEach(() => {
@@ -199,4 +281,50 @@ it("does not reorder the pill row on every poll", async () => {
   await vi.advanceTimersByTimeAsync(2_500);
   const after = row.children.map((child) => child.getAttribute("data-testid"));
   expect(after).toEqual(before);
+});
+
+it("sends the question directly when the row is clicked", async () => {
+  const { body, row, composer } = setup([{ owns: true }]);
+  await vi.advanceTimersByTimeAsync(0);
+  const popover = await openPopover(row, body);
+
+  click(findByTestId(popover, "toolkit-quick-questions-send")!);
+
+  expect(composer.value).toBe("如何部署 170？");
+  expect(composer.dispatched.map((event) => event.type)).toEqual(["input", "keydown"]);
+  expect(composer.dispatched[1]?.key).toBe("Enter");
+  expect(findByTestId(body, "toolkit-quick-questions-popover")).toBeUndefined();
+});
+
+it("fills the composer without sending when the edit button is clicked", async () => {
+  const { body, row, composer } = setup([{ owns: true }]);
+  await vi.advanceTimersByTimeAsync(0);
+  const popover = await openPopover(row, body);
+
+  click(findByTestId(popover, "toolkit-quick-questions-edit")!);
+
+  expect(composer.value).toBe("如何部署 170？");
+  expect(composer.dispatched.map((event) => event.type)).toEqual(["input"]);
+  expect(findByTestId(body, "toolkit-quick-questions-popover")).toBeUndefined();
+});
+
+it("renders no search field in the popover", async () => {
+  const { body, row } = setup([{ owns: true }]);
+  await vi.advanceTimersByTimeAsync(0);
+  const popover = await openPopover(row, body);
+
+  expect(findByTestId(popover, "toolkit-quick-questions-search")).toBeUndefined();
+});
+
+it("highlights a question row while the pointer is over it", async () => {
+  const { body, row } = setup([{ owns: true }]);
+  await vi.advanceTimersByTimeAsync(0);
+  const popover = await openPopover(row, body);
+  const item = findByTestId(popover, "toolkit-quick-questions-item")!;
+
+  expect(item.style.backgroundColor).toBe("transparent");
+  item.events.get("mouseenter")?.({});
+  expect(item.style.backgroundColor).not.toBe("transparent");
+  item.events.get("mouseleave")?.({});
+  expect(item.style.backgroundColor).toBe("transparent");
 });

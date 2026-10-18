@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import type { Document, Element, Window } from "../chat-view/dom";
+import type { Document, Element, Window, WindowConstructors } from "../chat-view/dom";
 import { createComposerAccess, type ComposerAccess } from "../chat-view/enhance/dom";
 
 declare const document: Document;
@@ -24,6 +24,29 @@ export function findDraftComposerInput(workspaceId: string): Element | undefined
 
 export function getDraftComposerAccess(workspaceId: string): ComposerAccess | undefined {
   return createComposerAccess(findDraftComposerInput(workspaceId));
+}
+
+/**
+ * Sends a question through the draft composer. The host exposes no draft submit API, so the
+ * composer receives the same Enter key event a user would produce; the host reads the live
+ * textarea value when it submits.
+ */
+export function sendDraftComposer(workspaceId: string, text: string): boolean {
+  const input = findDraftComposerInput(workspaceId);
+  if (!input) return false;
+  const access = createComposerAccess(input);
+  if (!access?.write(text)) return false;
+  const view = window as unknown as WindowConstructors;
+  if (!view.KeyboardEvent) return false;
+  input.dispatchEvent(
+    new view.KeyboardEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  return true;
 }
 
 function findScope(workspaceId: string): Element | undefined {

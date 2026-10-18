@@ -78,4 +78,8 @@ export interface ResizeObserverApi {
 export interface WindowConstructors {
   HTMLTextAreaElement?: { prototype: object };
   Event?: new (type: string, options?: { bubbles?: boolean }) => unknown;
+  KeyboardEvent?: new (
+    type: string,
+    options?: { key?: string; code?: string; bubbles?: boolean; cancelable?: boolean },
+  ) => unknown;
 }

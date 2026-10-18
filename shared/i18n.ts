@@ -72,6 +72,12 @@ const english: Record<string, string> = {
   重试: "Retry",
   已停用: "Disabled",
   "直接发送：{0}": "Send now: {0}",
+  直接发送: "Send now",
+  编辑后发送: "Edit before sending",
+  "点击问题直接发送；点击铅笔可先编辑。":
+    "Click a question to send it now; click the pencil to edit it first.",
+  "无法发送，已复制到剪贴板。": "Could not send. Copied to the clipboard.",
+  "无法发送。": "Could not send.",
   "填入输入框：{0}": "Insert into composer: {0}",
   填入输入框: "Insert into composer",
   "选择问题后会填入输入框，发送前仍可编辑。":
