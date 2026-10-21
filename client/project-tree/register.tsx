@@ -37,6 +37,7 @@ import {
   type TreeNodeAction,
 } from "../../shared/project-tree/model";
 import { NodeActionsDialog } from "./node-actions";
+import { mountProjectTreeMenu } from "./native-menu";
 
 export function registerProjectTree(client: PluginClientContext) {
   const catalog = createCatalog();
@@ -337,13 +338,27 @@ export function registerProjectTree(client: PluginClientContext) {
       mounted.current?.setEnabled(selectedMode === "custom");
       mounted.current?.update(render);
     });
+    useEffect(() => {
+      if (props.layout.platform !== "web" || !snapshot.initialized) return;
+      const remove = mountProjectTreeMenu({
+        title: tr("项目树"),
+        theme: props.theme,
+        open: () => setMode("custom"),
+      });
+      const cleanup = () => {
+        remove();
+        cleanups.delete(cleanup);
+      };
+      cleanups.add(cleanup);
+      return cleanup;
+    }, [props.layout.platform, props.theme, snapshot.initialized]);
+    if (props.layout.platform === "web") return null;
     return (
       <SidebarRow
         icon="FolderTree"
         label={tr("项目树")}
         onPress={() => {
-          if (props.layout.platform === "web") setMode("custom");
-          else props.openScreen({ screenId: "project-tree" });
+          props.openScreen({ screenId: "project-tree" });
         }}
       />
     );

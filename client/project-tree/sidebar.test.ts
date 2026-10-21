@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { mountProjectSidebar, renderProjectSidebar } from "../web";
 import { createCatalog } from "./catalog";
 import { applyTreeCommand, type TreeCommand } from "../../shared/project-tree/model";
+import { mountProjectTreeMenu } from "./native-menu";
 
 vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
 let dispose: (() => void) | undefined;
@@ -134,6 +135,59 @@ it("switches back to native without leaving a blank flex container", () => {
   expect(document.querySelector("[data-toolkit-project-tree]")).toBeNull();
   setEnabled(true);
   expect(original.style.display).toBe("none");
+});
+
+it("adds the project tree only to the native Workspaces menu and cleans up across reopenings", async () => {
+  const { document } = setup();
+  vi.stubGlobal("MouseEvent", document.defaultView!.MouseEvent);
+  const open = vi.fn();
+  const remove = mountProjectTreeMenu({
+    title: "项目树",
+    theme: { colors: { foreground: "#fff", surface2: "#333", border: "#444" } } as never,
+    open,
+  });
+  const stop = dispose!;
+  dispose = () => {
+    remove();
+    stop();
+  };
+  const trigger = document.createElement("button");
+  trigger.setAttribute("data-testid", "sidebar-display-preferences-menu");
+  trigger.setAttribute("aria-expanded", "true");
+  const close = vi.fn(() => trigger.setAttribute("aria-expanded", "false"));
+  trigger.addEventListener("click", close);
+  document.body.appendChild(trigger);
+  const other = document.createElement("div");
+  other.setAttribute("role", "menu");
+  document.body.appendChild(other);
+  const surface = document.createElement("div");
+  surface.setAttribute("data-testid", "sidebar-display-preferences-content");
+  surface.innerHTML =
+    '<div class="page"><div><button data-testid="sidebar-display-grouping">分组</button></div><button data-testid="sidebar-display-show">显示</button><button>显示后台工作区</button></div>';
+  document.body.appendChild(surface);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const entry = surface.querySelector("[data-toolkit-project-tree-menu]")!;
+  expect(entry.parentElement?.className).toBe("page");
+  expect(entry.previousElementSibling?.textContent).toBe("显示后台工作区");
+  expect(entry.querySelector('[role="separator"]')).not.toBeNull();
+  expect(other.querySelector("[data-toolkit-project-tree-menu]")).toBeNull();
+  const button = entry.querySelector("button")!;
+  expect(surface.querySelector('[data-menu-item="true"]:not([data-menu-disabled="true"])')).toBe(
+    button,
+  );
+  button.dispatchEvent(new document.defaultView!.Event("mouseenter"));
+  expect(button.style.backgroundColor).toBe("rgb(51, 51, 51)");
+  button.click();
+  expect(close).toHaveBeenCalledOnce();
+  expect(open).toHaveBeenCalledOnce();
+  surface.remove();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  document.body.appendChild(surface);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(surface.querySelectorAll("[data-toolkit-project-tree-menu]")).toHaveLength(1);
+  remove();
+  expect(surface.querySelector("[data-toolkit-project-tree-menu]")).toBeNull();
+  expect(surface.querySelector('[data-testid="sidebar-display-grouping"]')).not.toBeNull();
 });
 
 it("offers root creation and the original view through the header settings menu", () => {

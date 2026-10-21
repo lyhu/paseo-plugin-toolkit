@@ -97,7 +97,7 @@ Drag individual workspace rows onto another project header or workspace row to c
 
 Project overflow menus contain Rename, Move to, Move up, Move down, Merge into, Split group, and New workspace. Inputs and destination pickers open beside the node; there is no separate management page. The header settings menu offers Add tree node and Switch to original view; folder menus also support ordering and deletion. Native workspace menus remain unchanged.
 
-Switch between custom and native views. Disabling the plugin or an adapter failure restores the original list. iOS and Android use a separate project-tree screen and still require physical-device verification. Offline configuration Hosts preserve the device cache and workspace navigation to other online Hosts; structural edits pause. Device preferences and cache are namespaced by configuration Host.
+On desktop and web, open Project tree from the Workspaces settings menu; there is no separate navigation row. Switch back using the project-tree header settings menu. Disabling the plugin or an adapter failure restores the original list. iOS and Android retain the navigation row and use a separate project-tree screen that still requires physical-device verification. Offline configuration Hosts preserve the device cache and workspace navigation to other online Hosts; structural edits pause. Device preferences and cache are namespaced by configuration Host.
 
 Tree organization is stored at `$PASEO_HOME/toolkit/project-tree.json`; its enable switch uses plugin settings. Sidebar replacement and native menu forwarding depend on Paseo 0.12 web structure and require verification when upgrading. Old workspaces are never automatically archived.
 
