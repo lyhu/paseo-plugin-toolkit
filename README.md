@@ -8,6 +8,7 @@
 
 | Module             | What it does                                                                             | Default                |
 | ------------------ | ---------------------------------------------------------------------------------------- | ---------------------- |
+| Project tree       | Custom folders, cross-Host display groups, and compact workspace rows                    | Off                    |
 | Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions | On                     |
 | Sticky questions   | Keeps the active user question visible above the composer while scrolling                | On                     |
 | Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows              | Off                    |
@@ -18,7 +19,7 @@
 
 ## Requirements and Platform Support
 
-Supported Paseo versions: **0.10.3 through 0.11.x** (`>=0.10.3 <0.12.0`). Both client and daemon environments must support the plugin APIs. Built against Paseo SDK 0.10.3.
+Supported Paseo versions: **0.12.x** (`>=0.12.0 <0.13.0`). Update both client and daemon. Built against Paseo SDK 0.12.0.
 
 | Feature                            | Desktop / Browser                           | iOS / Android                                                     |
 | ---------------------------------- | ------------------------------------------- | ----------------------------------------------------------------- |
@@ -83,6 +84,22 @@ paseo plugin enable toolkit
 - **Dependency Preparation**: Check npm availability and review `$PASEO_HOME/daemon.log`.
 - **Runtime Errors**: Inspect plugin runtime logs with `paseo plugin logs toolkit`.
 - **Multi-host Environments**: Select the target host when managing multiple Paseo hosts. Source code, settings, question libraries, and credentials are kept isolated per host.
+
+## Custom Project Tree
+
+Enable **Settings → Plugins → toolkit → Project tree** on one stable configuration Host only. Connect every device to that Host and any other workspace Hosts.
+
+Folders support three levels, renaming, ordering, and moving. Deleting a folder promotes its contents. Merge Host-local projects into display groups with workspace rows directly underneath; directories, agents, and terminals remain in place.
+
+Desktop and browser sidebars use native-like icons, indentation, `+`, and overflow buttons. Drag rows or use their overflow menus. The project `+` opens Paseo’s native New workspace page, including its project, Host, directory and worktree controls. Multiple native groups first show their Host scope. Mobile node dialogs provide simplified directory creation.
+
+Drag individual workspace rows onto another project header or workspace row to change their display group. Host, native Project, directory, and sessions stay intact; placement is persisted on the configuration Host. Workspace rows mirror available native row presentation and status, and forward overflow/right-click actions to the real native workspace menu. Collapsed or paginated native projects are revealed when needed; unavailable native rows offer SDK rename and native-view fallback.
+
+Project overflow menus contain Rename, Move to, Move up, Move down, Merge into, Split group, and New workspace. Inputs and destination pickers open beside the node; there is no separate management page. The header settings menu offers Add tree node and Switch to original view; folder menus also support ordering and deletion. Native workspace menus remain unchanged.
+
+Switch between custom and native views. Disabling the plugin or an adapter failure restores the original list. iOS and Android use a separate project-tree screen and still require physical-device verification. Offline configuration Hosts preserve the device cache and workspace navigation to other online Hosts; structural edits pause. Device preferences and cache are namespaced by configuration Host.
+
+Tree organization is stored at `$PASEO_HOME/toolkit/project-tree.json`; its enable switch uses plugin settings. Sidebar replacement and native menu forwarding depend on Paseo 0.12 web structure and require verification when upgrading. Old workspaces are never automatically archived.
 
 ## Quick Questions
 

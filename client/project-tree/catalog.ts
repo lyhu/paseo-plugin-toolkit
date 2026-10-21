@@ -1,0 +1,201 @@
+import type { PaseoApi } from "@getpaseo/client";
+import type { PluginHostSummary } from "@getpaseo/plugin/client";
+import { applyTreeCommand, emptyTree, memberKey, type Tree } from "../../shared/project-tree/model";
+import { treeSchema } from "../../shared/project-tree/model";
+import { z } from "zod";
+
+export interface CatalogProject {
+  serverId: string;
+  projectId: string;
+  name: string;
+  key?: string;
+  root: string;
+}
+export interface CatalogWorkspace {
+  serverId: string;
+  projectId: string;
+  id: string;
+  name: string;
+  cwd: string;
+}
+export interface HostCatalog {
+  projects: CatalogProject[];
+  workspaces: CatalogWorkspace[];
+}
+export const catalogCacheSchema = z.object({
+  tree: treeSchema,
+  catalogs: z.record(
+    z.string(),
+    z.object({
+      projects: z.array(
+        z.object({
+          serverId: z.string(),
+          projectId: z.string(),
+          name: z.string(),
+          key: z.string().optional(),
+          root: z.string(),
+        }),
+      ),
+      workspaces: z.array(
+        z.object({
+          serverId: z.string(),
+          projectId: z.string(),
+          id: z.string(),
+          name: z.string(),
+          cwd: z.string(),
+        }),
+      ),
+    }),
+  ),
+});
+export interface CatalogSnapshot {
+  hosts: readonly PluginHostSummary[];
+  catalogs: Record<string, HostCatalog>;
+  tree: Tree;
+  errors: Record<string, string>;
+  editable: boolean;
+  organizationError: string;
+  initialized: boolean;
+}
+
+/** Uses the public SDK, including pagination. Background and archived workspaces remain excluded. */
+export async function readHostCatalog(api: PaseoApi, serverId: string): Promise<HostCatalog> {
+  const { projects } = await api.projects.list();
+  const workspaces: CatalogWorkspace[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await api.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } });
+    for (const workspace of page.entries) {
+      if (workspace.background || workspace.archivingAt) continue;
+      workspaces.push({
+        serverId,
+        projectId: workspace.projectId,
+        id: workspace.id,
+        name: workspace.name,
+        cwd: workspace.workspaceDirectory,
+      });
+    }
+    const next = page.pageInfo.nextCursor;
+    if (next && next === cursor) throw new Error("Workspace pagination did not advance");
+    cursor = next ?? undefined;
+  } while (cursor);
+  return {
+    projects: projects.map((project) => ({
+      serverId,
+      projectId: project.projectId,
+      name: project.projectDisplayName,
+      key: project.projectKey,
+      root: project.projectRootPath,
+    })),
+    workspaces,
+  };
+}
+
+export function createCatalog(cache?: z.infer<typeof catalogCacheSchema>) {
+  let organized = cache?.tree ?? emptyTree();
+  let snapshot: CatalogSnapshot = {
+    hosts: [],
+    catalogs: cache?.catalogs ?? {},
+    tree: organized,
+    errors: {},
+    editable: false,
+    organizationError: "",
+    initialized: !!cache,
+  };
+  const listeners = new Set<() => void>();
+  const publish = (next: CatalogSnapshot) => {
+    snapshot = next;
+    for (const listener of listeners) listener();
+  };
+  return {
+    read: () => snapshot,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    hosts(hosts: readonly PluginHostSummary[]) {
+      const retained = new Set(hosts.map((host) => host.serverId));
+      const catalogs = Object.fromEntries(
+        Object.entries(snapshot.catalogs).filter(([id]) => retained.has(id)),
+      );
+      publish({ ...snapshot, hosts, catalogs });
+    },
+    restore(cache?: z.infer<typeof catalogCacheSchema>) {
+      organized = cache?.tree ?? emptyTree();
+      const retained = new Set(snapshot.hosts.map((host) => host.serverId));
+      const catalogs = Object.fromEntries(
+        Object.entries(cache?.catalogs ?? {}).filter(([id]) => retained.has(id)),
+      );
+      publish({ ...snapshot, catalogs, tree: organized, initialized: true });
+    },
+    update(serverId: string, catalog: HostCatalog) {
+      if (
+        !snapshot.errors[serverId] &&
+        JSON.stringify(snapshot.catalogs[serverId]) === JSON.stringify(catalog)
+      )
+        return;
+      const catalogs = { ...snapshot.catalogs, [serverId]: catalog };
+      const errors = { ...snapshot.errors };
+      delete errors[serverId];
+      const projects = Object.values(catalogs).flatMap((entry) => entry.projects);
+      publish({
+        ...snapshot,
+        catalogs,
+        errors,
+        tree: applyTreeCommand(organized, { type: "discover", projects }),
+      });
+    },
+    error(serverId: string, error: unknown) {
+      publish({
+        ...snapshot,
+        errors: {
+          ...snapshot.errors,
+          [serverId]: error instanceof Error ? error.message : String(error),
+        },
+      });
+    },
+    organize(tree: Tree) {
+      organized = tree;
+      if (JSON.stringify(snapshot.tree) !== JSON.stringify(tree)) publish({ ...snapshot, tree });
+    },
+    connection(editable: boolean, organizationError = "") {
+      if (snapshot.editable !== editable || snapshot.organizationError !== organizationError)
+        publish({ ...snapshot, editable, organizationError });
+    },
+  };
+}
+
+export function projectWorkspaces(
+  snapshot: CatalogSnapshot,
+  members: Array<{ serverId: string; projectId: string }>,
+  nodeId?: string,
+) {
+  const keys = new Set(members.map(memberKey));
+  const hosts = new Set(snapshot.hosts.map((host) => host.serverId));
+  return Object.values(snapshot.catalogs)
+    .flatMap((catalog) => catalog.workspaces)
+    .filter((workspace) => {
+      if (!hosts.has(workspace.serverId)) return false;
+      const placement = snapshot.tree.workspacePlacements?.find(
+        (entry) => entry.serverId === workspace.serverId && entry.workspaceId === workspace.id,
+      );
+      return placement ? placement.nodeId === nodeId : keys.has(memberKey(workspace));
+    });
+}
+
+export function projectAvailable(
+  snapshot: CatalogSnapshot,
+  members: Array<{ serverId: string; projectId: string }>,
+  nodeId?: string,
+) {
+  return (
+    projectWorkspaces(snapshot, members, nodeId).length > 0 ||
+    members.some((member) =>
+      snapshot.catalogs[member.serverId]?.projects.some(
+        (project) => project.projectId === member.projectId,
+      ),
+    )
+  );
+}
