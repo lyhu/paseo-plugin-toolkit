@@ -25,6 +25,7 @@ import {
   languageModeSchema,
   type ChatViewSettings,
 } from "../../shared/chat-view/settings";
+import { projectTreeSettings } from "../../shared/project-tree/contracts";
 
 type ReadySettings = Extract<SettingsState<typeof activitySettings.schema>, { status: "ready" }>;
 
@@ -110,6 +111,8 @@ function ReadyControls({
     void settings.save({ ...settings.values, palette: parsed.data }, settings.revision);
   };
   const locale = resolveLocale(settings.values.language);
+  // 万象工作台自己的 Host 级开关；配置页只在这里呈现，不再占用插件菜单的独立条目。
+  const projectTree = useSettings(projectTreeSettings);
   function labels<Value extends string>(
     choices: readonly { value: Value; labelKey: TranslationKey }[],
   ) {
@@ -234,6 +237,25 @@ function ReadyControls({
         <SettingsRow label={t(locale, "settings.enhanceNoteLabel")}>
           <Text style={descriptionStyle}>{t(locale, "settings.enhanceNoteDesc")}</Text>
         </SettingsRow>
+      </SettingsSection>
+      <SettingsSection title={t(locale, "settings.sectionProjectTree")}>
+        <SettingsCard>
+          <SettingsSwitch
+            label={t(locale, "settings.projectTreeLabel")}
+            hint={t(locale, "settings.projectTreeHint")}
+            value={projectTree.status === "ready" && projectTree.values.enabled}
+            disabled={projectTree.status !== "ready" || projectTree.saving}
+            onValueChange={(enabled) => {
+              if (projectTree.status === "ready")
+                void projectTree.save({ enabled }, projectTree.revision);
+            }}
+          />
+        </SettingsCard>
+        {projectTree.status === "ready" && projectTree.saveError ? (
+          <Text accessibilityRole="alert" style={errorStyle}>
+            {projectTree.saveError}
+          </Text>
+        ) : null}
       </SettingsSection>
       <VersionFooter theme={theme} locale={locale} />
     </>

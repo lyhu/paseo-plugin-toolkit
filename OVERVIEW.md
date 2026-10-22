@@ -8,7 +8,7 @@ History summaries and enhancement share a host default model, with optional work
 
 Requires Paseo 0.12.x. The interface supports Chinese and English. Sticky questions and read-only message guards require web or desktop; native enhancement uses a slash command and clipboard fallback. Avoid running the old chat-view plugin or overlapping timeline transformers alongside the embedded tools. Tunnel migration is not included yet.
 
-Project tree is off by default. Enable it on one configuration Host to organize cross-Host projects into folders with up to three levels. Desktop/browser can replace the native list; mobile uses a separate screen. See README for native menu boundaries and offline behavior.
+Wanxiang Workbench is off by default. Enable it on one configuration Host to organize cross-Host projects into folders with up to three levels. Desktop/browser can replace the native list; mobile uses a separate screen. See README for native menu boundaries and offline behavior.
 
 ## 简体中文
 
@@ -18,4 +18,4 @@ Toolkit 提供工作区快捷提问，并嵌入吸顶提问、紧凑活动、Mer
 
 需要 Paseo 0.12.x，界面支持中英文。吸顶和只读保护限网页及桌面端；原生增强使用斜杠命令与剪贴板降级。嵌入工具应避免与旧 chat-view 或同类时间线转换器同时启用。隧道尚未迁移。
 
-项目树默认关闭。仅在一个配置 Host 启用，可将跨 Host 项目组织到最多三层的文件夹中。桌面/网页可替换原始列表，手机使用独立页面。原生菜单边界与离线行为见 README。
+万象工作台默认关闭。仅在一个配置 Host 启用，可将跨 Host 项目组织到最多三层的文件夹中。桌面/网页可替换原始列表，手机使用独立页面。原生菜单边界与离线行为见 README。

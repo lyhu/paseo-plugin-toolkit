@@ -8,6 +8,7 @@ import { expect, it, vi } from "vitest";
 import { join, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { activitySettings } from "../../shared/chat-view/settings";
+import { projectTreeSettings } from "../../shared/project-tree/contracts";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { paseoToolLeafName } from "../../shared/chat-view/activity/paseo-tools";
 
@@ -23,6 +24,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     server: new URL("../../index.server.ts", import.meta.url).pathname,
   });
   const save = vi.fn(async () => true);
+  const saveProjectTree = vi.fn(async () => true);
   const savedValues = activitySettings.schema.parse({ palette: "soft", displayMode: "detailed" });
   const enabledValues = {
     ...activitySettings.schema.parse({}),
@@ -63,14 +65,24 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     "react/jsx-runtime": JSX,
     "react-native": ReactNative,
     "@getpaseo/plugin/client": {
-      useSettings: () => ({
-        status: "ready",
-        values: savedValues,
-        revision: "saved-revision",
-        saving: false,
-        saveError: null,
-        save,
-      }),
+      useSettings: (definition: { id: string }) =>
+        definition.id === projectTreeSettings.id
+          ? {
+              status: "ready",
+              values: { enabled: false },
+              revision: "tree-revision",
+              saving: false,
+              saveError: null,
+              save: saveProjectTree,
+            }
+          : {
+              status: "ready",
+              values: savedValues,
+              revision: "saved-revision",
+              saving: false,
+              saveError: null,
+              save,
+            },
       useRpc: () => async () => ({
         ok: false,
         message: "未调用",
@@ -172,7 +184,17 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   expect(markup).toContain("Toolkit 版本 v0.1.0");
   expect(markup).not.toContain("API Key");
   expect(actions.some((entry) => entry.label === "Toolkit 模型设置")).toBe(true);
-  expect(switches.map((entry) => entry.value)).toEqual([true, false, false, true, true, false]);
+  // 万象工作台不再是独立的设置页，开关跟随功能设置页面。
+  expect(switches.map((entry) => entry.value)).toEqual([
+    true,
+    false,
+    false,
+    true,
+    true,
+    false,
+    false,
+  ]);
+  expect(switches[6]!.label).toBe("启用万象工作台");
   for (const [index, key] of [
     "quickQuestionsEnabled",
     "mermaidEnabled",
@@ -185,6 +207,8 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     switches[index]!.onValueChange(next);
     expect(save).toHaveBeenLastCalledWith({ ...savedValues, [key]: next }, "saved-revision");
   }
+  switches[6]!.onValueChange(true);
+  expect(saveProjectTree).toHaveBeenLastCalledWith({ enabled: true }, "tree-revision");
   savedValues.compactActivityEnabled = false;
   selections.length = 0;
   renderToStaticMarkup(

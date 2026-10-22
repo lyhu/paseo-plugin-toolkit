@@ -72,6 +72,10 @@ export const messages = {
     "settings.enhanceNoteLabel": "说明",
     "settings.enhanceNoteDesc":
       "增强会读取项目的清单文件、脚本命令与说明文档作为上下文，只发送文本，不发送源码文件内容。插件不经过 Paseo 宿主账号，因此不会在你的对话列表里产生记录。",
+    "settings.sectionProjectTree": "万象工作台",
+    "settings.projectTreeLabel": "启用万象工作台",
+    "settings.projectTreeHint":
+      "用跨 Host 合并的自定义目录树替换侧栏的原生项目列表；仅在此配置 Host 上生效，所有客户端请选择同一 Host。",
     "settings.loading": "正在加载设置…",
     "settings.reload": "重新加载",
     "settings.reset": "重置",
@@ -265,6 +269,10 @@ export const messages = {
     "settings.enhanceNoteLabel": "About",
     "settings.enhanceNoteDesc":
       "Enhancement reads manifests, scripts, and docs as project context. Only text is sent, never full source files. Bypasses host account and creates no chat logs.",
+    "settings.sectionProjectTree": "Wanxiang Workbench",
+    "settings.projectTreeLabel": "Enable Wanxiang Workbench",
+    "settings.projectTreeHint":
+      "Replaces the sidebar's native project list with a merged, cross-host tree. Applies only to this configuration Host; use the same Host on every client.",
     "settings.loading": "Loading settings…",
     "settings.reload": "Reload",
     "settings.reset": "Reset",
