@@ -1,15 +1,34 @@
 import { useRef, useState } from "react";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { CatalogSnapshot } from "./catalog";
+import { emptyProjectNodes, type CatalogSnapshot } from "./catalog";
 import { memberKey, type TreeCommand, type TreeNodeAction } from "../../shared/project-tree/model";
 import {
   adjacentMove,
+  edgeMove,
   folderDestinations,
   nodeActions,
   nodePath,
 } from "../../shared/project-tree/actions";
 import { tr } from "../i18n";
+
+const actionIcons = {
+  menu: "MoreVertical",
+  rename: "Pencil",
+  move: "MoveUpRight",
+  up: "ArrowUp",
+  down: "ArrowDown",
+  top: "ArrowUpToLine",
+  bottom: "ArrowDownToLine",
+  merge: "Merge",
+  split: "Split",
+  hide: "EyeOff",
+  hideEmpty: "FolderX",
+  new: "Plus",
+  folder: "FolderPlus",
+  delete: "Trash2",
+} as const;
 
 export function NodeActionsDialog({
   nodeId,
@@ -49,13 +68,26 @@ export function NodeActionsDialog({
     [error, setError] = useState("");
   const disabled = !snapshot.editable || pending || (!!nodeId && !node);
   const colors = theme.colors;
-  const button = (label: string, press: () => void, unavailable = disabled) => (
+  const button = (
+    label: string,
+    press: () => void,
+    unavailable = disabled,
+    icon?: (typeof actionIcons)[keyof typeof actionIcons] | "Eye",
+  ) => (
     <Pressable
       key={label}
       disabled={unavailable}
       onPress={press}
-      style={{ padding: 10, borderRadius: 6, opacity: unavailable ? 0.5 : 1 }}
+      style={{
+        padding: 10,
+        borderRadius: 6,
+        opacity: unavailable ? 0.5 : 1,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+      }}
     >
+      {icon && <Icon name={icon} size={16} color={colors.foregroundMuted} />}
       <Text style={{ color: colors.foreground, fontSize: 14 }}>{label}</Text>
     </Pressable>
   );
@@ -100,6 +132,20 @@ export function NodeActionsDialog({
     if ((next === "up" || next === "down") && node) {
       const command = adjacentMove(snapshot.tree, node, next);
       if (command) void execute(command);
+      return;
+    }
+    if ((next === "top" || next === "bottom") && node) {
+      const command = edgeMove(snapshot.tree, node, next);
+      if (command) void execute(command);
+      return;
+    }
+    if (next === "hide" && node) {
+      void execute({ type: "hide", id: node.id, hidden: !node.hidden });
+      return;
+    }
+    if (next === "hideEmpty") {
+      const ids = emptyProjectNodes(snapshot).map((entry) => entry.id);
+      if (ids.length) void execute({ type: "hideEmpty", ids });
       return;
     }
     if (next === "rename") setName(node?.name ?? "");
@@ -164,8 +210,13 @@ export function NodeActionsDialog({
             {error ? <Text style={{ color: colors.foreground }}>{error}</Text> : null}
             {action === "menu" &&
               node &&
-              nodeActions(snapshot.tree, node).map((item) =>
-                button(tr(item.label), () => choose(item.action), disabled || !!item.disabled),
+              nodeActions(snapshot.tree, node, emptyProjectNodes(snapshot).length).map((item) =>
+                button(
+                  tr(item.label),
+                  () => choose(item.action),
+                  disabled || !!item.disabled,
+                  item.action === "hide" && node.hidden ? "Eye" : actionIcons[item.action],
+                ),
               )}
             {(action === "rename" || action === "folder") && (
               <>
