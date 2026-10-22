@@ -17,6 +17,9 @@ export interface CatalogWorkspace {
   id: string;
   name: string;
   cwd: string;
+  worktreeSlug?: string;
+  diffStat?: { additions: number; deletions: number } | null;
+  currentBranch?: string | null;
 }
 export interface HostCatalog {
   projects: CatalogProject[];
@@ -43,6 +46,12 @@ export const catalogCacheSchema = z.object({
           id: z.string(),
           name: z.string(),
           cwd: z.string(),
+          worktreeSlug: z.string().optional(),
+          diffStat: z
+            .object({ additions: z.number(), deletions: z.number() })
+            .nullable()
+            .optional(),
+          currentBranch: z.string().nullable().optional(),
         }),
       ),
     }),
@@ -67,12 +76,16 @@ export async function readHostCatalog(api: PaseoApi, serverId: string): Promise<
     const page = await api.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } });
     for (const workspace of page.entries) {
       if (workspace.background || workspace.archivingAt) continue;
+      const branch = workspace.gitRuntime?.currentBranch?.trim();
       workspaces.push({
         serverId,
         projectId: workspace.projectId,
         id: workspace.id,
         name: workspace.name,
         cwd: workspace.workspaceDirectory,
+        worktreeSlug: workspace.worktreeSlug,
+        diffStat: workspace.diffStat,
+        currentBranch: branch && branch !== "HEAD" ? branch : null,
       });
     }
     const next = page.pageInfo.nextCursor;
@@ -197,5 +210,16 @@ export function projectAvailable(
         (project) => project.projectId === member.projectId,
       ),
     )
+  );
+}
+
+/** Visible project nodes that currently show no workspace rows. */
+export function emptyProjectNodes(snapshot: CatalogSnapshot) {
+  return snapshot.tree.nodes.filter(
+    (node) =>
+      node.kind === "project" &&
+      !node.hidden &&
+      projectAvailable(snapshot, node.members, node.id) &&
+      projectWorkspaces(snapshot, node.members, node.id).length === 0,
   );
 }
