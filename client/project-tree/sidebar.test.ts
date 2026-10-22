@@ -751,6 +751,81 @@ it("reattaches after the host remounts the list and does not hide an unknown lay
   expect(document.querySelectorAll("[data-toolkit-project-tree]")).toHaveLength(0);
 });
 
+it("indexes native workspace rows once per render and ignores unrelated mutations", async () => {
+  const { document, original, update } = setup();
+  const catalog = createCatalog();
+  catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
+  catalog.restore();
+  const workspaces = Array.from({ length: 300 }, (_, index) => ({
+    serverId: "pro",
+    projectId: "p",
+    id: `w${index}`,
+    name: `Workspace ${index}`,
+    cwd: `/p/${index}`,
+  }));
+  for (const workspace of workspaces) {
+    const source = document.createElement("div");
+    source.setAttribute("data-testid", `sidebar-workspace-row-pro:${workspace.id}`);
+    source.textContent = workspace.name;
+    original.appendChild(source);
+  }
+  catalog.update("pro", {
+    projects: [{ serverId: "pro", projectId: "p", name: "P", root: "/p" }],
+    workspaces,
+  });
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: {
+        colors: { foreground: "#fff", foregroundMuted: "#aaa", surface0: "#111", surface1: "#222" },
+      } as never,
+      collapsed: new Set(),
+      toggle() {},
+      open() {},
+      native() {},
+    });
+  const query = vi.spyOn(document, "querySelectorAll");
+  const history = document.defaultView!.history;
+  const pushState = history.pushState;
+  const replaceState = history.replaceState;
+  const addListener = vi.spyOn(document.defaultView!, "addEventListener");
+  const removeListener = vi.spyOn(document.defaultView!, "removeEventListener");
+  const scans = () =>
+    query.mock.calls.filter(([selector]) => selector === '[data-testid^="sidebar-workspace-row-"]')
+      .length;
+  update(render);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(scans()).toBe(1);
+  const sibling = document.querySelector('[data-toolkit-workspace="w1"]')!;
+  const siblingContent = sibling.firstElementChild;
+  query.mockClear();
+  const chat = document.createElement("main");
+  document.body.appendChild(chat);
+  chat.textContent = "Streaming reply";
+  const source = original.querySelector('[data-testid="sidebar-workspace-row-pro:w0"]')!;
+  source.textContent = "Updated workspace";
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(scans()).toBe(0);
+  expect(document.querySelector('[data-toolkit-workspace="w0"]')!.textContent).toContain(
+    "Updated workspace",
+  );
+  expect(sibling.firstElementChild).toBe(siblingContent);
+  update(render);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(scans()).toBe(1);
+  dispose?.();
+  dispose = undefined;
+  expect(history.pushState).toBe(pushState);
+  expect(history.replaceState).toBe(replaceState);
+  for (const event of ["popstate", "hashchange"]) {
+    expect(addListener.mock.calls.filter(([name]) => name === event)).toHaveLength(2);
+    expect(removeListener.mock.calls.filter(([name]) => name === event)).toHaveLength(2);
+  }
+  query.mockRestore();
+  addListener.mockRestore();
+  removeListener.mockRestore();
+});
+
 it("keeps native navigation usable when the custom renderer fails", () => {
   const { original, update } = setup();
   update(() => {

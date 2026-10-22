@@ -29,7 +29,14 @@ declare const document: {
   addEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;
   removeEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;
 };
-declare const MutationObserver: new (callback: () => void) => MutationObserverApi;
+interface SidebarMutation {
+  target: Element;
+  addedNodes: ArrayLike<Element>;
+  removedNodes: ArrayLike<Element>;
+}
+declare const MutationObserver: new (
+  callback: (records: readonly SidebarMutation[]) => void,
+) => MutationObserverApi & { takeRecords(): SidebarMutation[] };
 declare const window: {
   innerWidth: number;
   innerHeight: number;
@@ -196,6 +203,14 @@ const workspaceBindings = new Map<
   Element,
   Array<{ expected: string; attach(source?: Element): void }>
 >();
+const workspaceRowIndexes = new WeakMap<Element, ReadonlyMap<string, Element>>();
+function indexNativeWorkspaceRows() {
+  return new Map(
+    Array.from(document.querySelectorAll('[data-testid^="sidebar-workspace-row-"]'))
+      .filter((entry) => !entry.closest("[data-toolkit-project-tree]"))
+      .map((entry) => [entry.getAttribute("data-testid")!, entry]),
+  );
+}
 export async function openNativeProjectCreate(
   group: NativeProjectGroup,
   active: () => boolean = () => true,
@@ -239,8 +254,10 @@ export async function openNativeProjectCreate(
   }
 }
 
-const patchedHistories = new WeakSet<History>();
-const workspaceRouteListeners = new Set<() => void>();
+const workspaceRouteWatches = new WeakMap<
+  History,
+  { listeners: Set<() => void>; cleanup(): void }
+>();
 
 /** Paseo encodes path-shaped workspace ids as `b64_` on `/h/:server/workspace/:id`. */
 function activeWorkspaceFromLocation(): { serverId: string; workspaceId: string } | null {
@@ -273,24 +290,44 @@ function activeWorkspaceFromLocation(): { serverId: string; workspaceId: string 
 /** pushState does not emit popstate, so navigation has to notify selection directly. */
 function watchWorkspaceRoute(listener: () => void) {
   if (Platform.OS !== "web") return () => {};
-  if (!patchedHistories.has(window.history)) {
-    patchedHistories.add(window.history);
+  const observedWindow = window;
+  const history = observedWindow.history;
+  let watch = workspaceRouteWatches.get(history);
+  if (!watch) {
+    const listeners = new Set<() => void>();
     const notify = () => {
-      for (const entry of workspaceRouteListeners) entry();
+      for (const entry of listeners) entry();
     };
-    window.addEventListener("popstate", notify);
-    window.addEventListener("hashchange", notify);
+    observedWindow.addEventListener("popstate", notify);
+    observedWindow.addEventListener("hashchange", notify);
+    const restores: Array<() => void> = [];
     for (const name of ["pushState", "replaceState"] as const) {
-      const original = window.history[name].bind(window.history);
-      window.history[name] = (...args: Parameters<History["pushState"]>) => {
-        original(...args);
+      const original = history[name];
+      const wrapped = (...args: Parameters<History["pushState"]>) => {
+        original.apply(history, args);
         notify();
       };
+      history[name] = wrapped;
+      restores.push(() => {
+        if (history[name] === wrapped) history[name] = original;
+      });
     }
+    watch = {
+      listeners,
+      cleanup() {
+        observedWindow.removeEventListener("popstate", notify);
+        observedWindow.removeEventListener("hashchange", notify);
+        for (const restore of restores) restore();
+        workspaceRouteWatches.delete(history);
+      },
+    };
+    workspaceRouteWatches.set(history, watch);
   }
-  workspaceRouteListeners.add(listener);
+  const current = watch;
+  current.listeners.add(listener);
   return () => {
-    workspaceRouteListeners.delete(listener);
+    if (!current.listeners.delete(listener)) return;
+    if (!current.listeners.size) current.cleanup();
   };
 }
 
@@ -567,6 +604,7 @@ export function mountProjectSidebar(initialRender: (container: Element) => void)
     for (const cleanup of workspaceCleanups.get(mounted.panel) ?? []) cleanup();
     workspaceCleanups.delete(mounted.panel);
     workspaceBindings.delete(mounted.panel);
+    workspaceRowIndexes.delete(mounted.panel);
     menuCleanups.get(mounted.panel)?.();
     mounted.panel.remove();
     mounts.delete(native);
@@ -583,11 +621,15 @@ export function mountProjectSidebar(initialRender: (container: Element) => void)
       for (const original of mounts.keys()) restore(original);
     }
   }
-  function scan() {
+  function scan(refresh = false) {
     if (stopped || Platform.OS !== "web") return;
     for (const [native, { panel }] of mounts) {
       if (!enabled || !native.isConnected || !panel.isConnected) restore(native);
     }
+    if (!enabled) return;
+    const originals = indexNativeWorkspaceRows();
+    for (const { panel } of mounts.values()) workspaceRowIndexes.set(panel, originals);
+    if (refresh) for (const [native, { panel }] of mounts) paint(native, panel);
     if (!enabled) return;
     for (const scroller of Array.from(
       document.querySelectorAll('[data-testid="sidebar-project-workspace-list-scroll"]'),
@@ -607,33 +649,61 @@ export function mountProjectSidebar(initialRender: (container: Element) => void)
         overflow: "hidden",
       });
       mounts.set(native, { panel, display: native.style.display });
+      workspaceRowIndexes.set(panel, originals);
       parent.insertBefore(panel, native);
       paint(native, panel);
       if (!enabled) break;
     }
-    const originals = new Map(
-      Array.from(document.querySelectorAll('[data-testid^="sidebar-workspace-row-"]')).map(
-        (entry) => [entry.getAttribute("data-testid"), entry],
-      ),
-    );
     for (const { panel } of mounts.values())
       for (const binding of workspaceBindings.get(panel) ?? [])
         binding.attach(originals.get(binding.expected));
   }
-  const observer = Platform.OS === "web" ? new MutationObserver(scan) : null;
+  const affectsSidebar = (entry: Element) => {
+    // Mutation records also contain text nodes, which have no element methods.
+    if (typeof entry.getAttribute !== "function") return false;
+    const id = entry.getAttribute("data-testid");
+    return (
+      id === "sidebar-project-workspace-list-scroll" ||
+      id === "sidebar-footer" ||
+      id?.startsWith("sidebar-workspace-row-") ||
+      entry.getAttribute("data-toolkit-project-tree") !== null ||
+      !!entry.querySelector(
+        '[data-testid="sidebar-project-workspace-list-scroll"],[data-testid="sidebar-footer"],[data-testid^="sidebar-workspace-row-"],[data-toolkit-project-tree]',
+      )
+    );
+  };
+  const observer =
+    Platform.OS === "web"
+      ? new MutationObserver((records) => {
+          if (
+            records.some(
+              (record) =>
+                !record.target.closest("[data-toolkit-project-tree]") &&
+                [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)].some(
+                  affectsSidebar,
+                ),
+            )
+          )
+            scan();
+        })
+      : null;
   if (observer) {
     scan();
     observer.observe(document.body, { childList: true, subtree: true });
   }
   return {
     setEnabled(value: boolean) {
+      if (stopped || enabled === value) return;
+      observer?.takeRecords();
       enabled = value;
       scan();
     },
     update(next: (container: Element) => void) {
+      if (stopped) return;
       render = next;
-      for (const [native, { panel }] of mounts) paint(native, panel);
-      scan();
+      // The full scan includes pending native changes; do not scan them a second time.
+      observer?.takeRecords();
+      scan(true);
     },
     dispose() {
       stopped = true;
@@ -667,6 +737,7 @@ export function renderProjectSidebar(
 ) {
   if (Platform.OS !== "web") return;
   const { snapshot, theme, collapsed } = options;
+  const originals = workspaceRowIndexes.get(container) ?? indexNativeWorkspaceRows();
   const colors = theme.colors;
   menuCleanups.get(container)?.();
   for (const cleanup of workspaceCleanups.get(container) ?? []) cleanup();
@@ -1866,7 +1937,7 @@ export function renderProjectSidebar(
             fallback();
           }
         };
-        attach(nativeWorkspaceRow(workspace));
+        attach(originals.get(`sidebar-workspace-row-${workspace.serverId}:${workspace.id}`));
         bindings.push({
           expected: `sidebar-workspace-row-${workspace.serverId}:${workspace.id}`,
           attach,
