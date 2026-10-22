@@ -5,6 +5,10 @@ import {
   readSummary,
   removeCandidate,
   readWorkspace,
+  readWorkspaceChanges,
+  readSummaryChanges,
+  workspaceVersion,
+  summaryVersion,
   saveQuestions,
   saveSummarySettings,
   sendQuestion,
@@ -25,6 +29,7 @@ export function registerQuickQuestions(
   async function publicData(workspaceId: string) {
     return {
       ...publicWorkspace(storage.read(workspaceId)),
+      syncToken: storage.version(workspaceId),
       featureEnabled: (await readFeatures()).quickQuestionsEnabled,
       model: models.read(workspaceId).effectiveModel,
     };
@@ -34,6 +39,15 @@ export function registerQuickQuestions(
     return { claimed: workspace !== null };
   });
   server.handle(readWorkspace, ({ workspaceId }) => publicData(workspaceId));
+  server.handle(readWorkspaceChanges, async ({ workspaceId, known }) => {
+    const data = await publicData(workspaceId);
+    return workspaceVersion(data) === known ? null : data;
+  });
+  server.handle(readSummaryChanges, ({ workspaceId, known }) => {
+    const job = jobs.read(workspaceId);
+    const unchanged = summaryVersion(job) === known;
+    return { unchanged, job: unchanged ? null : job };
+  });
   server.handle(saveQuestions, ({ workspaceId, revision, questions, enabled }) => {
     storage.save(workspaceId, revision, (current) => ({ ...current, questions, enabled }));
     return publicData(workspaceId);

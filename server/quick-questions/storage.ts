@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
@@ -51,8 +52,45 @@ export function createStorage(
       readError: new LocalizedError("quickQuestions.error.read").message,
     });
   }
+  const cached = new Map<string, { version: string; bytes: number; document: Document }>();
+  let cachedBytes = 0;
+  function metadata(workspaceId: string) {
+    try {
+      const stat = statSync(path(workspaceId), { bigint: true });
+      return {
+        version: `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}:${stat.size}`,
+        bytes: Number(stat.size),
+      };
+    } catch {
+      return { version: "missing", bytes: 0 };
+    }
+  }
+  function version(workspaceId: string) {
+    return metadata(workspaceId).version;
+  }
   function read(workspaceId: string): Document {
-    return store(workspaceId).read();
+    const stamp = metadata(workspaceId);
+    const previous = cached.get(workspaceId);
+    if (previous) {
+      cached.delete(workspaceId);
+      cachedBytes -= previous.bytes;
+      if (previous.version === stamp.version) {
+        cached.set(workspaceId, previous);
+        cachedBytes += previous.bytes;
+        return previous.document;
+      }
+    }
+    const document = store(workspaceId).read();
+    if (stamp.bytes <= 4 * 1024 * 1024) {
+      cached.set(workspaceId, { ...stamp, document });
+      cachedBytes += stamp.bytes;
+      while (cached.size > 32 || cachedBytes > 4 * 1024 * 1024) {
+        const oldest = cached.keys().next().value!;
+        cachedBytes -= cached.get(oldest)!.bytes;
+        cached.delete(oldest);
+      }
+    }
+    return document;
   }
   function save(
     workspaceId: string,
@@ -66,7 +104,7 @@ export function createStorage(
     });
     return publicWorkspace(next);
   }
-  return { read, save };
+  return { read, save, version };
 }
 /** Projects the document without the feature flag or credentials, which have other owners. */
 export function publicWorkspace(document: Document): WorkspaceDocument {

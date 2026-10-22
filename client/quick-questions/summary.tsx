@@ -1,15 +1,15 @@
+import { useSummary, summaryKey } from "./queries";
 import { tr } from "../i18n";
 import { useReducer, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import {
   cancelSummary,
   isWorking,
   historyLimitSchema,
   saveSummarySettings,
-  readSummary,
   removeCandidate,
   startSummary,
   type Job,
@@ -58,16 +58,11 @@ export function Summary({
       }),
     onSuccess: onSettingsSaved,
   });
-  const read = useRpc(readSummary);
   const start = useRpc(startSummary);
   const cancel = useRpc(cancelSummary);
   const cache = useQueryClient();
-  const queryKey = ["toolkit", "summary", host.id, workspaceId];
-  const job = useQuery({
-    queryKey,
-    queryFn: () => read({ workspaceId }),
-    refetchInterval: (query) => (isWorking(query.state.data) ? 1000 : 5000),
-  });
+  const queryKey = summaryKey(host.id, workspaceId);
+  const job = useSummary(host.id, workspaceId, expanded);
   const startMutation = useMutation({
     mutationFn: async () => {
       if (settingsChanged) await limitMutation.mutateAsync();

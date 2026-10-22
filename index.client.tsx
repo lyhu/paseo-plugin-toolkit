@@ -4,7 +4,9 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { registerQuickQuestions } from "./client/quick-questions/register";
 import { registerChatView } from "./client/chat-view/register";
 import { ModelsScreen } from "./client/models/settings";
+import { registerProjectTree } from "./client/project-tree/register";
 export default function contribute(client: PluginClientContext) {
+  const removeProjectTree = registerProjectTree(client);
   const addModels = () =>
     client.addSettingsScreen({
       id: "models",
@@ -22,6 +24,7 @@ export default function contribute(client: PluginClientContext) {
     questions.setEnabled(values.quickQuestionsEnabled),
   );
   return async () => {
+    await removeProjectTree();
     unsubscribeLocale();
     await questions.dispose();
     await removeChat();

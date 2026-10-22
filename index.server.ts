@@ -5,7 +5,9 @@ import { createModelStore } from "./server/models/storage";
 import { activitySettings } from "./shared/chat-view/settings";
 import { registerEnhance } from "./server/chat-view/enhance";
 import { LocalizedError } from "./shared/chat-view/i18n";
+import { registerProjectTree } from "./server/project-tree/register";
 export default function contribute(server: PluginServerContext) {
+  registerProjectTree(server);
   const models = createModelStore();
   registerModels(server, models);
   const settings = server.registerSettings(activitySettings);

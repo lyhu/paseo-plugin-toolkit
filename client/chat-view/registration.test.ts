@@ -8,6 +8,7 @@ import { expect, it, vi } from "vitest";
 import { join, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { activitySettings } from "../../shared/chat-view/settings";
+import { projectTreeSettings } from "../../shared/project-tree/contracts";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { paseoToolLeafName } from "../../shared/chat-view/activity/paseo-tools";
 
@@ -23,6 +24,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     server: new URL("../../index.server.ts", import.meta.url).pathname,
   });
   const save = vi.fn(async () => true);
+  const saveProjectTree = vi.fn(async () => true);
   const savedValues = activitySettings.schema.parse({ palette: "soft", displayMode: "detailed" });
   const enabledValues = {
     ...activitySettings.schema.parse({}),
@@ -63,14 +65,24 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     "react/jsx-runtime": JSX,
     "react-native": ReactNative,
     "@getpaseo/plugin/client": {
-      useSettings: () => ({
-        status: "ready",
-        values: savedValues,
-        revision: "saved-revision",
-        saving: false,
-        saveError: null,
-        save,
-      }),
+      useSettings: (definition: { id: string }) =>
+        definition.id === projectTreeSettings.id
+          ? {
+              status: "ready",
+              values: projectTreeSettings.schema.parse({ enabled: false }),
+              revision: "tree-revision",
+              saving: false,
+              saveError: null,
+              save: saveProjectTree,
+            }
+          : {
+              status: "ready",
+              values: savedValues,
+              revision: "saved-revision",
+              saving: false,
+              saveError: null,
+              save,
+            },
       useRpc: () => async () => ({
         ok: false,
         message: "未调用",
@@ -172,7 +184,18 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   expect(markup).toContain("Toolkit 版本 v0.1.0");
   expect(markup).not.toContain("API Key");
   expect(actions.some((entry) => entry.label === "Toolkit 模型设置")).toBe(true);
-  expect(switches.map((entry) => entry.value)).toEqual([true, false, false, true, true, false]);
+  // 工作台不再是独立的设置页，而是“功能开关”里的第一项。
+  expect(switches.map((entry) => entry.value)).toEqual([
+    false,
+    true,
+    false,
+    false,
+    true,
+    true,
+    false,
+    false,
+  ]);
+  expect(switches[0]!.label).toBe("工作台");
   for (const [index, key] of [
     "quickQuestionsEnabled",
     "mermaidEnabled",
@@ -181,10 +204,23 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     "readonlyMessagesEnabled",
     "enhanceEnabled",
   ].entries()) {
-    const next = !switches[index]!.value;
-    switches[index]!.onValueChange(next);
+    const toggle = switches[index + (index === 5 ? 2 : 1)]!;
+    const next = !toggle.value;
+    toggle.onValueChange(next);
     expect(save).toHaveBeenLastCalledWith({ ...savedValues, [key]: next }, "saved-revision");
   }
+  switches[0]!.onValueChange(true);
+  expect(saveProjectTree).toHaveBeenLastCalledWith(
+    { enabled: true, showSessionsByDefault: false, viewName: "我的工作台" },
+    "tree-revision",
+  );
+  const sessionsSwitch = switches.find((entry) => entry.label === "默认显示会话")!;
+  expect(sessionsSwitch.value).toBe(false);
+  sessionsSwitch.onValueChange(true);
+  expect(saveProjectTree).toHaveBeenLastCalledWith(
+    { enabled: false, showSessionsByDefault: true, viewName: "我的工作台" },
+    "tree-revision",
+  );
   savedValues.compactActivityEnabled = false;
   selections.length = 0;
   renderToStaticMarkup(
@@ -248,8 +284,8 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   // language, then removed once more on cleanup.
   expect(remove).toHaveBeenCalledTimes(4);
   expect(removeSettings).toHaveBeenCalledTimes(4);
-  expect(unsubscribe).toHaveBeenCalledOnce();
-  expect(release).toHaveBeenCalledTimes(2);
+  expect(unsubscribe).not.toHaveBeenCalled();
+  expect(release).toHaveBeenCalledOnce();
 });
 
 it("covers every tool the host registers, or admits it by the browser family pattern", async () => {

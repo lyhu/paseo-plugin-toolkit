@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { Text } from "react-native";
+import { useEffect, useMemo, useRef } from "react";
+import { Text, TextInput, View } from "react-native";
 import { useSettings, type PluginSurfaceProps, type SettingsState } from "@getpaseo/plugin/client";
 import {
   SettingsAction,
@@ -25,6 +25,11 @@ import {
   languageModeSchema,
   type ChatViewSettings,
 } from "../../shared/chat-view/settings";
+import {
+  DEFAULT_PROJECT_TREE_VIEW_NAME,
+  projectTreeSettings,
+  projectTreeViewName,
+} from "../../shared/project-tree/contracts";
 
 type ReadySettings = Extract<SettingsState<typeof activitySettings.schema>, { status: "ready" }>;
 
@@ -60,6 +65,66 @@ const languageChoices: readonly { value: LocalePreference; labelKey: Translation
   { value: "zh-CN", labelKey: "settings.langZh" },
   { value: "en-US", labelKey: "settings.langEn" },
 ];
+
+function ProjectTreeViewName({
+  disabled,
+  label,
+  hint,
+  theme,
+  value,
+  onCommit,
+}: {
+  disabled: boolean;
+  label: string;
+  hint: string;
+  theme: PluginSurfaceProps["theme"];
+  value: string;
+  onCommit(value: string): void;
+}) {
+  const draft = useRef(value);
+  const field = useMemo(
+    () => ({
+      color: theme.colors.foreground,
+      borderColor: theme.colors.border,
+      borderWidth: 1,
+      borderRadius: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      fontSize: 14,
+    }),
+    [theme.colors.border, theme.colors.foreground],
+  );
+  const hintStyle = useMemo(
+    () => ({ color: theme.colors.foregroundMuted, fontSize: 13, lineHeight: 18 }),
+    [theme.colors.foregroundMuted],
+  );
+  const commit = () => {
+    const next = projectTreeViewName(draft.current);
+    draft.current = next;
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <SettingsRow label={label}>
+      <View style={{ gap: 6 }}>
+        <TextInput
+          accessibilityLabel={label}
+          defaultValue={value}
+          editable={!disabled}
+          maxLength={40}
+          placeholder={DEFAULT_PROJECT_TREE_VIEW_NAME}
+          placeholderTextColor={theme.colors.foregroundMuted}
+          onChangeText={(text) => {
+            draft.current = text;
+          }}
+          onBlur={commit}
+          onSubmitEditing={commit}
+          style={field}
+        />
+        <Text style={hintStyle}>{hint}</Text>
+      </View>
+    </SettingsRow>
+  );
+}
 
 function VersionFooter({
   theme,
@@ -110,6 +175,8 @@ function ReadyControls({
     void settings.save({ ...settings.values, palette: parsed.data }, settings.revision);
   };
   const locale = resolveLocale(settings.values.language);
+  // 工作台与其他功能一样放进“功能开关”，但沿用自己原有的 Host 级设置存储。
+  const projectTree = useSettings(projectTreeSettings);
   function labels<Value extends string>(
     choices: readonly { value: Value; labelKey: TranslationKey }[],
   ) {
@@ -119,6 +186,21 @@ function ReadyControls({
     <>
       <SettingsSection title={t(locale, "settings.sectionFeatures")}>
         <SettingsCard>
+          <SettingsSwitch
+            label={t(locale, "settings.projectTreeLabel")}
+            hint={t(locale, "settings.projectTreeHint")}
+            value={projectTree.status === "ready" && projectTree.values.enabled}
+            disabled={projectTree.status !== "ready" || projectTree.saving}
+            onValueChange={(enabled) => {
+              if (projectTree.status === "ready")
+                void projectTree.save({ ...projectTree.values, enabled }, projectTree.revision);
+            }}
+          />
+          {projectTree.status === "ready" && projectTree.saveError ? (
+            <Text accessibilityRole="alert" style={errorStyle}>
+              {projectTree.saveError}
+            </Text>
+          ) : null}
           <SettingsSwitch
             label={t(locale, "settings.quickQuestionsLabel")}
             hint={t(locale, "settings.quickQuestionsHint")}
@@ -165,6 +247,43 @@ function ReadyControls({
                 { ...settings.values, readonlyMessagesEnabled },
                 settings.revision,
               );
+            }}
+          />
+        </SettingsCard>
+      </SettingsSection>
+      <SettingsSection title={t(locale, "settings.sectionProjectTree")}>
+        <SettingsCard>
+          <SettingsSwitch
+            label={t(locale, "settings.showSessionsLabel")}
+            hint={t(locale, "settings.showSessionsHint")}
+            value={projectTree.status === "ready" && projectTree.values.showSessionsByDefault}
+            disabled={projectTree.status !== "ready" || projectTree.saving}
+            onValueChange={(showSessionsByDefault) => {
+              if (projectTree.status === "ready")
+                void projectTree.save(
+                  { ...projectTree.values, showSessionsByDefault },
+                  projectTree.revision,
+                );
+            }}
+          />
+          <ProjectTreeViewName
+            key={
+              projectTree.status === "ready"
+                ? `${projectTree.revision}:${projectTree.values.viewName}`
+                : "loading"
+            }
+            label={t(locale, "settings.projectTreeViewNameLabel")}
+            hint={t(locale, "settings.projectTreeViewNameHint")}
+            theme={theme}
+            value={
+              projectTree.status === "ready"
+                ? projectTree.values.viewName
+                : DEFAULT_PROJECT_TREE_VIEW_NAME
+            }
+            disabled={projectTree.status !== "ready" || projectTree.saving}
+            onCommit={(viewName) => {
+              if (projectTree.status === "ready")
+                void projectTree.save({ ...projectTree.values, viewName }, projectTree.revision);
             }}
           />
         </SettingsCard>

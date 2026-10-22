@@ -1,12 +1,12 @@
 import { tr, useLocale } from "../i18n";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useAgent, useRpc, type PluginButtonContentProps } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { sendQuestion } from "../../shared/quick-questions/contracts";
 import { getComposerAccess } from "../chat-view/enhance/dom";
-import { getDraftComposerAccess, sendDraftComposer } from "./draft-composer";
+import { getDraftComposerAccess, resolveEditTarget, sendDraftComposer } from "./draft-composer";
 import { useQuestions } from "./queries";
 import { Label, Surface, useColors } from "./ui";
 
@@ -41,6 +41,7 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
   const colors = useColors();
   const toast = useToast();
   const query = useQuestions(props.host.id, props.workspaceId);
+  const [editor, setEditor] = useState<string | null>(null);
   const isDraft = props.context === "workspace";
   const agentId = props.context === "agent" ? props.agentId : "";
   const status = useAgent(agentId, (agent) => agent.status);
@@ -60,13 +61,30 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
     );
   }
 
+  function copyQuestion(text: string) {
+    void copyText(text).then(
+      () => toast.show(tr("已复制到剪贴板。")),
+      () => toast.error(tr("无法复制到剪贴板。")),
+    );
+  }
+
+  /**
+   * Web writes the question straight into the host composer. Native clients have no composer DOM,
+   * so the question opens in the popover editor instead of silently landing on the clipboard.
+   */
   function fillComposer(text: string) {
-    const access = isDraft ? getDraftComposerAccess(props.workspaceId) : getComposerAccess();
-    if (access?.write(text)) {
+    const target = resolveEditTarget({
+      platform: props.layout.platform,
+      write: () => {
+        const access = isDraft ? getDraftComposerAccess(props.workspaceId) : getComposerAccess();
+        return access?.write(text) === true;
+      },
+    });
+    if (target === "composer") {
       props.close();
       return;
     }
-    copyFallback(text);
+    setEditor(text);
   }
 
   function sendNow(text: string) {
@@ -149,6 +167,47 @@ function Content(props: PluginButtonContentProps & { openMaintenance(): void }) 
             </View>
           )}
         </ScrollView>
+      )}
+      {editor !== null && (
+        <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8, gap: 6 }}>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 12, fontWeight: "600" }}>
+            {tr("编辑后发送")}
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 6 }}>
+            <TextInput
+              accessibilityLabel={tr("编辑问题")}
+              placeholder={tr("编辑问题")}
+              placeholderTextColor={colors.foregroundMuted}
+              value={editor}
+              onChangeText={setEditor}
+              editable={!mutation.isPending}
+              multiline
+              autoFocus
+              style={{
+                flex: 1,
+                minWidth: 0,
+                color: colors.foreground,
+                fontSize: 14,
+                lineHeight: 20,
+                backgroundColor: colors.surface1,
+                borderRadius: 6,
+                padding: 8,
+                minHeight: 48,
+                maxHeight: 120,
+                textAlignVertical: "top",
+              }}
+            />
+            <IconButton icon="Copy" label={tr("复制问题")} onPress={() => copyQuestion(editor)} />
+            <IconButton
+              icon={isDraft ? "CornerDownLeft" : "ArrowUp"}
+              label={isDraft ? tr("填入输入框") : tr("发送编辑后的问题")}
+              primary
+              disabled={!canSend || !editor.trim()}
+              pending={!isDraft && mutation.isPending && mutation.variables === editor}
+              onPress={() => sendNow(editor)}
+            />
+          </View>
+        </View>
       )}
       {mutation.isError && <Label error>{tr(mutation.error.message)}</Label>}
     </View>

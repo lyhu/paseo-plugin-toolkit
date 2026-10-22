@@ -20,6 +20,9 @@ export const messages = {
     "settings.version": "Toolkit 版本 v{version}",
     "settings.storedSettings": "已存设置",
     "settings.sectionFeatures": "功能开关",
+    "settings.sectionProjectTree": "工作台",
+    "settings.showSessionsLabel": "默认显示会话",
+    "settings.showSessionsHint": "默认隐藏工作空间下的会话；项目菜单中的单独设置优先于此默认值。",
     "settings.mermaidLabel": "Mermaid 图表",
     "settings.mermaidHint": "绘制助手回答中的流程图和时序图；关闭后恢复 Paseo 原生显示。",
     "settings.compactActivityLabel": "紧凑活动展示",
@@ -72,6 +75,12 @@ export const messages = {
     "settings.enhanceNoteLabel": "说明",
     "settings.enhanceNoteDesc":
       "增强会读取项目的清单文件、脚本命令与说明文档作为上下文，只发送文本，不发送源码文件内容。插件不经过 Paseo 宿主账号，因此不会在你的对话列表里产生记录。",
+    "settings.projectTreeLabel": "工作台",
+    "settings.projectTreeHint":
+      "用跨 Host 合并的自定义目录树替换侧栏的原生项目列表；仅在此配置 Host 上生效，所有客户端请选择同一 Host。",
+    "settings.projectTreeViewNameLabel": "视图名称",
+    "settings.projectTreeViewNameHint":
+      "侧栏标题、Workspaces 菜单和独立页面使用这个名称。留空时恢复为「我的工作台」。",
     "settings.loading": "正在加载设置…",
     "settings.reload": "重新加载",
     "settings.reset": "重置",
@@ -206,6 +215,10 @@ export const messages = {
     "settings.version": "Toolkit version v{version}",
     "settings.storedSettings": "Stored settings",
     "settings.sectionFeatures": "Feature Toggles",
+    "settings.sectionProjectTree": "Workbench",
+    "settings.showSessionsLabel": "Show sessions by default",
+    "settings.showSessionsHint":
+      "Workspace sessions are hidden by default. Individual project menu settings override this default.",
     "settings.mermaidLabel": "Mermaid Diagrams",
     "settings.mermaidHint":
       "Renders flowcharts and sequence diagrams in assistant messages; disable to restore native display.",
@@ -265,6 +278,12 @@ export const messages = {
     "settings.enhanceNoteLabel": "About",
     "settings.enhanceNoteDesc":
       "Enhancement reads manifests, scripts, and docs as project context. Only text is sent, never full source files. Bypasses host account and creates no chat logs.",
+    "settings.projectTreeLabel": "Workbench",
+    "settings.projectTreeHint":
+      "Replaces the sidebar's native project list with a merged, cross-host tree. Applies only to this configuration Host; use the same Host on every client.",
+    "settings.projectTreeViewNameLabel": "View name",
+    "settings.projectTreeViewNameHint":
+      "Used for the sidebar heading, the Workspaces menu, and the standalone screen. An empty value restores “我的工作台”.",
     "settings.loading": "Loading settings…",
     "settings.reload": "Reload",
     "settings.reset": "Reset",
