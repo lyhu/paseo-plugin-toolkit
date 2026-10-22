@@ -1,4 +1,4 @@
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoApi, PaseoAgentListResult } from "@getpaseo/client";
 import type { PluginHostSummary } from "@getpaseo/plugin/client";
 import { applyTreeCommand, emptyTree, memberKey, type Tree } from "../../shared/project-tree/model";
 import { treeSchema } from "../../shared/project-tree/model";
@@ -17,16 +17,36 @@ export interface CatalogWorkspace {
   id: string;
   name: string;
   cwd: string;
+  worktreeSlug?: string;
+  diffStat?: { additions: number; deletions: number } | null;
+  currentBranch?: string | null;
 }
 export interface HostCatalog {
   projects: CatalogProject[];
   workspaces: CatalogWorkspace[];
+  sessions?: CatalogSession[];
+}
+export interface CatalogSession {
+  id: string;
+  workspaceId: string;
+  title: string | null;
+  updatedAt: string;
 }
 export const catalogCacheSchema = z.object({
   tree: treeSchema,
   catalogs: z.record(
     z.string(),
     z.object({
+      sessions: z
+        .array(
+          z.object({
+            id: z.string(),
+            workspaceId: z.string(),
+            title: z.string().nullable(),
+            updatedAt: z.string(),
+          }),
+        )
+        .optional(),
       projects: z.array(
         z.object({
           serverId: z.string(),
@@ -43,6 +63,12 @@ export const catalogCacheSchema = z.object({
           id: z.string(),
           name: z.string(),
           cwd: z.string(),
+          worktreeSlug: z.string().optional(),
+          diffStat: z
+            .object({ additions: z.number(), deletions: z.number() })
+            .nullable()
+            .optional(),
+          currentBranch: z.string().nullable().optional(),
         }),
       ),
     }),
@@ -67,19 +93,46 @@ export async function readHostCatalog(api: PaseoApi, serverId: string): Promise<
     const page = await api.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } });
     for (const workspace of page.entries) {
       if (workspace.background || workspace.archivingAt) continue;
+      const branch = workspace.gitRuntime?.currentBranch?.trim();
       workspaces.push({
         serverId,
         projectId: workspace.projectId,
         id: workspace.id,
         name: workspace.name,
         cwd: workspace.workspaceDirectory,
+        worktreeSlug: workspace.worktreeSlug,
+        diffStat: workspace.diffStat,
+        currentBranch: branch && branch !== "HEAD" ? branch : null,
       });
     }
     const next = page.pageInfo.nextCursor;
     if (next && next === cursor) throw new Error("Workspace pagination did not advance");
     cursor = next ?? undefined;
   } while (cursor);
+  const sessions: CatalogSession[] = [];
+  const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+  cursor = undefined;
+  do {
+    const page: PaseoAgentListResult = await api.agents.list({
+      filter: { includeArchived: true },
+      sort: [{ key: "updated_at", direction: "desc" }],
+      page: { limit: 200, ...(cursor ? { cursor } : {}) },
+    });
+    for (const { agent } of page.entries) {
+      if (!agent.workspaceId || !workspaceIds.has(agent.workspaceId) || agent.internal) continue;
+      sessions.push({
+        id: agent.id,
+        workspaceId: agent.workspaceId,
+        title: agent.title,
+        updatedAt: agent.updatedAt,
+      });
+    }
+    const next = page.pageInfo.nextCursor;
+    if (next && next === cursor) throw new Error("Session pagination did not advance");
+    cursor = next ?? undefined;
+  } while (cursor);
   return {
+    sessions,
     projects: projects.map((project) => ({
       serverId,
       projectId: project.projectId,
@@ -197,5 +250,16 @@ export function projectAvailable(
         (project) => project.projectId === member.projectId,
       ),
     )
+  );
+}
+
+/** Visible project nodes that currently show no workspace rows. */
+export function emptyProjectNodes(snapshot: CatalogSnapshot) {
+  return snapshot.tree.nodes.filter(
+    (node) =>
+      node.kind === "project" &&
+      !node.hidden &&
+      projectAvailable(snapshot, node.members, node.id) &&
+      projectWorkspaces(snapshot, node.members, node.id).length === 0,
   );
 }
