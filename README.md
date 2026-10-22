@@ -1,6 +1,6 @@
 # Paseo Toolkit
 
-[English](README.md) | [简体中文](README_zh.md)
+[English](README.md) | [简体中文](README_zh.md) | [Product PRD (zh)](docs/product/prd.md) | [Docs Center](docs/README.md) | [Glossary](GLOSSARY.md)
 
 `paseo-plugin-toolkit` provides a curated workspace quick-question library, rich conversation display enhancements, and unified AI model configuration for Paseo. The plugin installation ID is `toolkit`.
 
@@ -8,6 +8,7 @@
 
 | Module             | What it does                                                                             | Default                |
 | ------------------ | ---------------------------------------------------------------------------------------- | ---------------------- |
+| Workbench          | Custom folders, cross-Host display groups, and compact workspace rows                    | Off                    |
 | Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions | On                     |
 | Sticky questions   | Keeps the active user question visible above the composer while scrolling                | On                     |
 | Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows              | Off                    |
@@ -18,7 +19,7 @@
 
 ## Requirements and Platform Support
 
-Supported Paseo versions: **0.10.3 through 0.11.x** (`>=0.10.3 <0.12.0`). Both client and daemon environments must support the plugin APIs. Built against Paseo SDK 0.10.3.
+Supported Paseo versions: **0.12.x** (`>=0.12.0 <0.13.0`). Update both client and daemon. Built against Paseo SDK 0.12.0.
 
 | Feature                            | Desktop / Browser                           | iOS / Android                                                     |
 | ---------------------------------- | ------------------------------------------- | ----------------------------------------------------------------- |
@@ -83,6 +84,22 @@ paseo plugin enable toolkit
 - **Dependency Preparation**: Check npm availability and review `$PASEO_HOME/daemon.log`.
 - **Runtime Errors**: Inspect plugin runtime logs with `paseo plugin logs toolkit`.
 - **Multi-host Environments**: Select the target host when managing multiple Paseo hosts. Source code, settings, question libraries, and credentials are kept isolated per host.
+
+## Workbench
+
+Turn on **Workbench** in **Settings → Plugins → toolkit → Settings**, on one stable configuration Host only. Connect every device to that Host and any other workspace Hosts. **View name** on the same page is the sidebar heading, the Workspaces menu label, and the standalone screen title. It defaults to"我的工作台"; leaving it blank restores that default.
+
+Folders support three levels, renaming, ordering, and moving. Deleting a folder promotes its contents. Merge Host-local projects into display groups with workspace rows directly underneath; directories, agents, and terminals remain in place.
+
+Desktop and browser sidebars use native-like icons, indentation, `+`, and overflow buttons. Drag rows or use their overflow menus. The project `+` opens Paseo’s native New workspace page, including its project, Host, directory and worktree controls. Multiple native groups first show their Host scope. Mobile node dialogs provide simplified directory creation.
+
+Drag individual workspace rows onto another project header or workspace row to change their display group. Host, native Project, directory, and sessions stay intact; placement is persisted on the configuration Host. Workspace rows mirror available native row presentation and status, and forward overflow/right-click actions to the real native workspace menu. Collapsed or paginated native projects are revealed when needed; unavailable native rows offer SDK rename and native-view fallback.
+
+Project overflow menus contain Rename, Move to, Move up, Move down, Move to top, Move to bottom, Merge into, Split group, Hide project, Hide empty projects, and New workspace. Hide empty projects hides every project node that currently has no workspace. Inputs and destination pickers open beside the node; there is no separate management page. The header settings menu offers Add tree node, Show hidden nodes, and Switch to original view; folder menus also support moving, pinning to top or bottom, ordering, and deletion. Native workspace menus remain unchanged. The Show hidden nodes switch is stored per device; hidden project nodes and their workspaces reappear dimmed when it is on.
+
+On desktop and web, open the view from the Workspaces settings menu; the menu uses the configured view name, which defaults to "我的工作台". There is no separate navigation row. Switch back using the header settings menu. Disabling the plugin or an adapter failure restores the original list. iOS and Android retain the navigation row and use a separate screen with the same view name; that screen still requires physical-device verification. Offline configuration Hosts preserve the device cache and workspace navigation to other online Hosts; structural edits pause. Device preferences and cache are namespaced by configuration Host.
+
+Tree organization is stored at `$PASEO_HOME/toolkit/project-tree.json`; its enable switch uses plugin settings. Sidebar replacement and native menu forwarding depend on Paseo 0.12 web structure and require verification when upgrading. Old workspaces are never automatically archived.
 
 ## Quick Questions
 
@@ -159,7 +176,7 @@ Click **Enhance** above the composer or trigger `/enhance`:
 
 Toolkit **Settings** provides granular control over individual features and display options:
 
-- **Feature Toggles**: Quick questions, sticky questions, compact activity, Mermaid diagrams, read-only protection, and prompt enhancement can be toggled independently.
+- **Feature Toggles**: Workbench, quick questions, sticky questions, compact activity, Mermaid diagrams, read-only protection, and prompt enhancement can be toggled independently.
 - **Multi-language Support**: Supports **简体中文**, **English**, and **Auto** (browser language detection). Panels, dialogs, progress bars, and alerts switch instantly.
 - **Content Integrity**: UI language switching only affects interface labels. User question text, conversation content, and model outputs are preserved in their original languages.
 
@@ -186,24 +203,37 @@ If your environment includes other plugins that modify the Paseo conversation ti
 index.client.tsx       Client entry point and lifecycle registration
 index.server.ts        Server entry point and lifecycle registration
 client/
+  project-tree/        Workbench custom tree renderer, node actions, native menu proxy & device cache
   quick-questions/     Quick questions UI, candidate management, and progress views
   models/              Shared model configuration UI
   chat-view/           Conversation display & enhancement components
+  agent-directory.ts   Shared agent directory and session discovery
 server/
+  project-tree/        Workbench RPC handlers and persistence services
   quick-questions/     History readers, summary job orchestrators, and persistence
   models/              Model storage repository and endpoint probes
   chat-view/           Prompt enhancement service and context extractors
-shared/                RPC contracts, validation schemas, and i18n dictionaries
+  storage/             Revisioned atomic JSON storage layer
+shared/
+  project-tree/        Workbench data model, pure action reducers & RPC contracts
+  quick-questions/     Quick questions RPC contracts & summary prompt templates
+  models/              Model definitions and contracts
+  chat-view/           Display enhancement settings, Mermaid parsers & activity stream transformers
+  i18n.ts              Internationalization dictionaries and formatters
 ```
 
 ### Verification and Testing
 
 ```bash
+# Type checking
 npm run typecheck
+
+# Code quality & formatting check
 npm run lint
 npm run format:check
-npm run test -- run shared/i18n.test.ts --bail=1
-npm run test -- run server/quick-questions/jobs.test.ts --bail=1
+
+# Automated unit tests
+npm run test -- run
 ```
 
 ## Licenses

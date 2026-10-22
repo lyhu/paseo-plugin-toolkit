@@ -39,6 +39,50 @@ function page(entries: Page["entries"], hasOlder = false): Page {
   };
 }
 describe("history collection", () => {
+  it("keeps only the requested sample while scanning 100,000 messages", async () => {
+    let remaining = 100000;
+    const refetch = vi.fn(async () => {
+      const end = remaining;
+      const start = Math.max(1, end - 99);
+      remaining = start - 1;
+      return page(
+        Array.from({ length: end - start + 1 }, (_, i) => ({
+          ...entry(start + i, "user_message", `question ${start + i}`),
+          timestamp: new Date((start + i) * 1000).toISOString(),
+        })),
+        remaining > 0,
+      );
+    });
+    const onRead = vi.fn();
+    const result = await readHistory({ refetch } as never, "a", new AbortController().signal, {
+      limit: 50,
+      onRead,
+    });
+    expect(result).toHaveLength(50);
+    expect(result[0]!.sequence).toBe(99951);
+    expect(result[49]!.sequence).toBe(100000);
+    expect(onRead).toHaveBeenCalledWith(100000);
+    expect(refetch).toHaveBeenCalledTimes(1000);
+  });
+  it("selects by timestamp even when an older page has the newest question", async () => {
+    const refetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        page([{ ...entry(3, "user_message", "tail"), timestamp: "2026-01-01" }], true),
+      )
+      .mockResolvedValueOnce(
+        page([
+          entry(1, "assistant_message", "prior context"),
+          { ...entry(2, "user_message", "newest"), timestamp: "2026-12-01" },
+        ]),
+      );
+    const result = await readHistory({ refetch } as never, "a", new AbortController().signal, {
+      limit: 1,
+    });
+    expect(result.map(({ text, context }) => ({ text, context }))).toEqual([
+      { text: "newest", context: "prior context" },
+    ]);
+  });
   it("selects the newest 50 user questions across conversation histories by message time", async () => {
     const entries = Array.from({ length: 60 }, (_, index) => ({
       ...entry(index + 1, "user_message", `question ${index + 1}`),

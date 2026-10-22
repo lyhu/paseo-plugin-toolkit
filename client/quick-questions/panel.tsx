@@ -1,5 +1,5 @@
 import { tr, useLocale } from "../i18n";
-import { useReducer } from "react";
+import { useMemo, useReducer } from "react";
 import { ScrollView, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
@@ -145,11 +145,33 @@ function Editor(props: PluginWorkspacePanelProps & { data: Workspace }) {
       }),
     });
   }
-  const invalid = state.questions.some((q) => !q.text.trim() || q.text.length > 8000);
+  const invalid = useMemo(
+    () => state.questions.some((q) => !q.text.trim() || q.text.length > 8000),
+    [state.questions],
+  );
+  const questionsDirty = useMemo(() => {
+    const saved = props.data.questions;
+    return (
+      state.questions.length !== saved.length ||
+      state.questions.some((question, index) => {
+        const previous = saved[index]!;
+        if (question === previous) return false;
+        return (
+          question.id !== previous.id ||
+          question.text !== previous.text ||
+          question.origin !== previous.origin ||
+          question.frequency !== previous.frequency ||
+          question.sources.length !== previous.sources.length ||
+          question.sources.some((source, sourceIndex) => {
+            const original = previous.sources[sourceIndex]!;
+            return source.agentId !== original.agentId || source.question !== original.question;
+          })
+        );
+      })
+    );
+  }, [state.questions, props.data.questions]);
   const modelConfigured = Boolean(props.data.model.baseUrl && props.data.model.model);
-  const dirty =
-    state.enabled !== props.data.enabled ||
-    JSON.stringify(state.questions) !== JSON.stringify(props.data.questions);
+  const dirty = state.enabled !== props.data.enabled || questionsDirty;
   return (
     <View style={{ gap: 18, maxWidth: 840, width: "100%", alignSelf: "center" }}>
       <Row>

@@ -12,9 +12,22 @@ import { DEFAULT_SUMMARY_PROMPT } from "../../shared/quick-questions/summary-pro
 interface Task {
   state: Job;
   controller: AbortController;
+  accessedAt: number;
 }
 export function createJobs() {
   const tasks = new Map<string, Task>();
+  let pruneTimer: ReturnType<typeof setTimeout> | undefined;
+  const prune = () => {
+    clearTimeout(pruneTimer);
+    const idle = [...tasks]
+      .filter(([, task]) => !isWorking(task.state))
+      .sort((a, b) => a[1].accessedAt - b[1].accessedAt);
+    while (idle.length && (idle.length > 32 || Date.now() - idle[0]![1].accessedAt >= 1800000)) {
+      tasks.delete(idle.shift()![0]);
+    }
+    if (idle.length)
+      pruneTimer = setTimeout(prune, Math.max(1, 1800000 - (Date.now() - idle[0]![1].accessedAt)));
+  };
   async function run(
     task: Task,
     paseo: PaseoApi,
@@ -26,6 +39,8 @@ export function createJobs() {
     const signal = task.controller.signal;
     const state = task.state;
     function report(message: LocalizedMessage, level: "info" | "success" | "error" = "info") {
+      state.revision++;
+      task.accessedAt = Date.now();
       state.activity = message;
       state.events.push({ at: new Date().toISOString(), level, message });
       state.events = state.events.slice(-100);
@@ -39,17 +54,20 @@ export function createJobs() {
         const result = await paseo.agents.list({
           filter: { includeArchived: true },
           page: { limit: 200, cursor },
+          signal,
         });
         agents.push(
           ...result.entries
             .map((entry) => entry.agent)
-            .filter((agent) => agent.workspaceId === workspaceId),
+            .filter((agent) => agent.workspaceId === workspaceId)
+            .map((agent) => ({ id: agent.id, title: agent.title })),
         );
         cursor = result.pageInfo.nextCursor ?? undefined;
       } while (cursor);
       state.total = agents.length;
       report(localized("quickQuestions.activity.found", { count: agents.length }));
-      const history: HistoryQuestion[] = [];
+      let history: HistoryQuestion[] = [];
+      let historyCount = 0;
       const batches: Evidence[][] = [];
       let batch: Evidence[] = [];
       let size = 0;
@@ -73,13 +91,25 @@ export function createJobs() {
           }),
         );
         try {
-          const evidence = await readHistory(paseo.agents.ref(agent.id).timeline, agent.id, signal);
-          history.push(...evidence);
+          let count = 0;
+          const evidence = await readHistory(
+            paseo.agents.ref(agent.id).timeline,
+            agent.id,
+            signal,
+            {
+              limit: historyLimit,
+              onRead: (total) => {
+                count = total;
+              },
+            },
+          );
+          historyCount += count;
+          history = recentQuestions([...history, ...evidence], historyLimit);
           state.read += 1;
           report(
             localized("quickQuestions.activity.read", {
               title: agent.title || agent.id,
-              count: evidence.length,
+              count,
             }),
             "success",
           );
@@ -103,7 +133,7 @@ export function createJobs() {
       state.messageCount = selected.length;
       report(
         localized("quickQuestions.activity.selected", {
-          total: history.length,
+          total: historyCount,
           selected: selected.length,
         }),
       );
@@ -217,7 +247,10 @@ export function createJobs() {
   }
   return {
     read(workspaceId: string) {
-      return tasks.get(workspaceId)?.state ?? null;
+      prune();
+      const task = tasks.get(workspaceId);
+      if (task) task.accessedAt = Date.now();
+      return task?.state ?? null;
     },
     start(
       paseo: PaseoApi,
@@ -230,9 +263,12 @@ export function createJobs() {
         throw new LocalizedError("quickQuestions.error.summaryRunning");
       if (!model.baseUrl || !model.model)
         throw new LocalizedError("quickQuestions.error.modelNotConfigured");
+      prune();
       const task: Task = {
+        accessedAt: Date.now(),
         controller: new AbortController(),
         state: {
+          revision: 0,
           id: randomUUID(),
           phase: "reading",
           completed: 0,
@@ -247,13 +283,15 @@ export function createJobs() {
         },
       };
       tasks.set(workspaceId, task);
-      void run(task, paseo, workspaceId, model, historyLimit, summaryPrompt);
+      void run(task, paseo, workspaceId, model, historyLimit, summaryPrompt).finally(prune);
       return task.state;
     },
     removeCandidate(workspaceId: string, jobId: string, candidateId: string) {
       const task = tasks.get(workspaceId);
       if (!task || task.state.id !== jobId || task.state.phase !== "done")
         throw new LocalizedError("quickQuestions.error.candidateStale");
+      task.state.revision++;
+      task.accessedAt = Date.now();
       task.state.candidates = task.state.candidates.filter(
         (question) => question.id !== candidateId,
       );
@@ -263,6 +301,8 @@ export function createJobs() {
       const task = tasks.get(workspaceId);
       if (!task || !isWorking(task.state)) return false;
       task.controller.abort();
+      task.state.revision++;
+      task.accessedAt = Date.now();
       task.state.phase = "canceled";
       task.state.activity = localized("quickQuestions.activity.canceled");
       return true;
@@ -270,6 +310,7 @@ export function createJobs() {
     dispose() {
       for (const task of tasks.values()) task.controller.abort();
       tasks.clear();
+      clearTimeout(pruneTimer);
     },
   };
 }

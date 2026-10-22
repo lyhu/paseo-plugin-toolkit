@@ -85,42 +85,40 @@ export function measureNode(node: FlowNode): { width: number; height: number } {
  */
 export function assignLayers(nodes: FlowNode[], edges: FlowEdge[]): Map<string, number> {
   const ids = new Set(nodes.map((node) => node.id));
-  const outgoing = new Map<string, string[]>();
+  const outgoing = new Map<string, FlowEdge[]>();
   for (const edge of edges) {
     if (!ids.has(edge.from) || !ids.has(edge.to)) continue;
-    outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to]);
+    const next = outgoing.get(edge.from) ?? [];
+    next.push(edge);
+    outgoing.set(edge.from, next);
   }
-
   const back = new Set<FlowEdge>();
   const state = new Map<string, "open" | "done">();
-  const walk = (id: string) => {
-    state.set(id, "open");
-    for (const next of outgoing.get(id) ?? []) {
-      const seen = state.get(next);
-      if (seen === "open") {
-        for (const edge of edges) if (edge.from === id && edge.to === next) back.add(edge);
-        continue;
+  const order: string[] = [];
+  for (const node of nodes) {
+    if (state.has(node.id)) continue;
+    const stack = [{ id: node.id, next: 0 }];
+    state.set(node.id, "open");
+    while (stack.length) {
+      const frame = stack[stack.length - 1]!;
+      const edge = outgoing.get(frame.id)?.[frame.next++];
+      if (!edge) {
+        state.set(frame.id, "done");
+        order.push(frame.id);
+        stack.pop();
+      } else if (state.get(edge.to) === "open") back.add(edge);
+      else if (!state.has(edge.to)) {
+        state.set(edge.to, "open");
+        stack.push({ id: edge.to, next: 0 });
       }
-      if (seen === undefined) walk(next);
     }
-    state.set(id, "done");
-  };
-  for (const node of nodes) if (!state.has(node.id)) walk(node.id);
-
-  const forward = edges.filter((edge) => !back.has(edge) && ids.has(edge.from) && ids.has(edge.to));
+  }
   const layer = new Map<string, number>(nodes.map((node) => [node.id, 0]));
-
-  // Relax until stable; the graph is a DAG now, so this settles in at most |V| rounds.
-  for (let round = 0; round < nodes.length; round += 1) {
-    let moved = false;
-    for (const edge of forward) {
-      const candidate = (layer.get(edge.from) ?? 0) + 1;
-      if (candidate > (layer.get(edge.to) ?? 0)) {
-        layer.set(edge.to, candidate);
-        moved = true;
-      }
+  // Reverse postorder is topological once the DFS back edges have been removed.
+  for (const id of order.reverse()) {
+    for (const edge of outgoing.get(id) ?? []) {
+      if (!back.has(edge)) layer.set(edge.to, Math.max(layer.get(edge.to)!, layer.get(id)! + 1));
     }
-    if (!moved) break;
   }
   return layer;
 }
@@ -135,13 +133,19 @@ export function orderLayers(
   const rows: string[][] = Array.from({ length: depth }, () => []);
   for (const node of nodes) rows[layers.get(node.id) ?? 0].push(node.id);
 
+  const incoming = new Map<string, string[]>();
+  for (const edge of edges) {
+    const parents = incoming.get(edge.to) ?? [];
+    parents.push(edge.from);
+    incoming.set(edge.to, parents);
+  }
   for (let index = 1; index < rows.length; index += 1) {
     const previous = new Map(rows[index - 1].map((id, position) => [id, position]));
     const score = new Map<string, number>();
     for (const id of rows[index]) {
-      const parents = edges
-        .filter((edge) => edge.to === id && previous.has(edge.from))
-        .map((edge) => previous.get(edge.from) as number);
+      const parents = (incoming.get(id) ?? [])
+        .filter((parent) => previous.has(parent))
+        .map((parent) => previous.get(parent) as number);
       score.set(
         id,
         parents.length > 0

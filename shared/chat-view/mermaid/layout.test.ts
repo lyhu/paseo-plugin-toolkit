@@ -31,6 +31,23 @@ describe("measureNode", () => {
 });
 
 describe("assignLayers", () => {
+  it("lays out a 10,000-node reversed-edge chain without recursion", () => {
+    const nodes = Array.from({ length: 10000 }, (_, i) => ({
+      id: String(i),
+      label: String(i),
+      shape: "rect" as const,
+    }));
+    const edges = Array.from({ length: 9999 }, (_, i) => ({
+      from: String(i),
+      to: String(i + 1),
+      label: null,
+      style: "solid" as const,
+      arrow: true,
+    })).reverse();
+    const layers = assignLayers(nodes, edges);
+    expect(layers.get("0")).toBe(0);
+    expect(layers.get("9999")).toBe(9999);
+  });
   it("puts a chain on successive layers", () => {
     const graph = chart("flowchart TD\n A --> B --> C");
     const layers = assignLayers(graph.nodes, graph.edges);

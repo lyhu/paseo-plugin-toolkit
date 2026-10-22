@@ -65,8 +65,8 @@ export function createActivityDomain(
       // Deliberately not in the detach handle: mounted rows release their history in effect cleanup,
       // and React can batch a rapid off/on without unmounting them, so disposing on disable would
       // leave a mounted row holding dead history.
-      cleanupActivityHistory();
-      cleanupActivityDisclosure();
+      cleanupActivityHistory(client.paseo);
+      cleanupActivityDisclosure(client.paseo);
       detach?.();
       detach = undefined;
     },

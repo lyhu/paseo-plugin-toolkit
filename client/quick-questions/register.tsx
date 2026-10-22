@@ -7,6 +7,7 @@ import type {
   PluginClientContext,
 } from "@getpaseo/plugin/client";
 import { subscribeLocale } from "../chat-view/locale";
+import { observeAgents } from "../agent-directory";
 import { createDraftPill } from "./draft-pill";
 import { QuickQuestionsPanel } from "./panel";
 import { QuickQuestionsPopover } from "./popover";
@@ -17,7 +18,7 @@ export function registerQuickQuestions(client: PluginClientContext) {
   const draftPill = Platform.OS === "web" ? createDraftPill(client) : null;
   let enabled = false;
   let stopped = false;
-  let generation = 0;
+  let unobserve: (() => void) | undefined;
   const addPanel = () =>
     client.addWorkspacePanel({
       id: "quick-questions",
@@ -79,62 +80,37 @@ export function registerQuickQuestions(client: PluginClientContext) {
     });
     pills.set(agent.id, { workspaceId: agent.workspaceId, registration });
   }
-  const listing = client.paseo.agents.list({ page: { limit: 200 }, subscribe: {} });
-  void listing
-    .then((result) => {
-      if (stopped) return result.subscription.release();
-      result.subscription.subscribe({
-        snapshot(snapshot) {
-          generation += 1;
-          const current = generation;
-          agents.clear();
-          for (const id of pills.keys()) remove(id);
-          for (const entry of snapshot.entries) register(entry.agent);
-          async function remaining() {
-            let cursor = snapshot.pageInfo.nextCursor;
-            while (cursor && !stopped && generation === current) {
-              const page = await client.paseo.agents.list({ page: { limit: 200, cursor } });
-              if (stopped || generation !== current) return;
-              for (const entry of page.entries) register(entry.agent);
-              cursor = page.pageInfo.nextCursor;
-            }
-          }
-          void remaining().catch((error: unknown) =>
-            console.error("[Toolkit] Agent directory failed", error),
-          );
-        },
-        update(message) {
-          if (message.type !== "agent_update") return;
-          if (message.payload.kind === "upsert") register(message.payload.agent);
-          else {
-            agents.delete(message.payload.agentId);
-            remove(message.payload.agentId);
-          }
-        },
-        error(error) {
-          console.error("[Toolkit] Agent observation failed", error);
-        },
-      });
-    })
-    .catch((error: unknown) => console.error("[Toolkit] Agent observation failed", error));
   async function dispose() {
     unsubscribeLocale();
     stopped = true;
-    generation += 1;
+    unobserve?.();
+    unobserve = undefined;
     draftPill?.dispose();
     for (const pill of pills.values()) pill.registration.remove();
     pills.clear();
     agents.clear();
     await removePanel();
     await removeCommand();
-    await listing.then((result) => result.subscription.release()).catch(() => {});
   }
   return {
     setEnabled(next: boolean) {
       if (stopped || next === enabled) return;
       enabled = next;
       draftPill?.setEnabled(next);
-      for (const agent of agents.values()) register(agent);
+      if (next) {
+        unobserve = observeAgents(client.paseo, {
+          upsert: register,
+          remove(id) {
+            agents.delete(id);
+            remove(id);
+          },
+        });
+      } else {
+        unobserve?.();
+        unobserve = undefined;
+        for (const id of pills.keys()) remove(id);
+        agents.clear();
+      }
     },
     dispose,
   };

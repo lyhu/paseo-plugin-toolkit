@@ -6,6 +6,7 @@ function createDisclosure() {
   let expanded: boolean | undefined;
   const listeners = new Set<() => void>();
   return {
+    observed: () => listeners.size > 0,
     snapshot: () => expanded,
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -21,8 +22,9 @@ function createDisclosure() {
   };
 }
 let disclosures = new WeakMap<PaseoApi, Map<string, ReturnType<typeof createDisclosure>>>();
-export function cleanupActivityDisclosure() {
-  disclosures = new WeakMap();
+export function cleanupActivityDisclosure(paseo?: PaseoApi) {
+  if (paseo) disclosures.delete(paseo);
+  else disclosures = new WeakMap();
 }
 
 /** Retain explicit choices across virtualized row remounts, scoped to the host connection. */
@@ -39,6 +41,14 @@ export function useActivityDisclosure(agentId: string, rowId: string) {
     if (!row) {
       row = createDisclosure();
       rows.set(key, row);
+    }
+    rows.delete(key);
+    rows.set(key, row);
+    if (rows.size > 2000) {
+      for (const [identity, previous] of rows) {
+        if (rows.size <= 2000) break;
+        if (identity !== key && !previous.observed()) rows.delete(identity);
+      }
     }
     return row;
   }, [paseo, agentId, rowId]);

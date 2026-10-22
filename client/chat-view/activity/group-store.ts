@@ -180,7 +180,10 @@ export interface ActivityEntry {
 }
 
 /** Fold contiguous activity only: never move details across a visible message. */
-export function buildActivityGroups(entries: readonly ActivityEntry[]) {
+export function buildActivityGroups(
+  entries: readonly ActivityEntry[],
+  dataCache = new WeakMap<AgentTimelineItem, ReasoningItemData | ToolCallItemData>(),
+) {
   const groups = new Map<string, { group: TurnGroup; isLeader: boolean; itemId: string }>();
   let group: TurnGroup | undefined;
   const tools = new Map<string, ActivityEntry>();
@@ -224,13 +227,21 @@ export function buildActivityGroups(entries: readonly ActivityEntry[]) {
     const id = projection.item.type === "reasoning" ? `${identity}:${entry.seqStart}` : identity;
     const lookup = (identityCounts.get(identity) ?? 0) > 1 ? id : identity;
     if (!group) group = createActivityGroup(entry.seqStart, id, startedAt);
+    let data = dataCache.get(projection.item);
+    if (!data) {
+      data =
+        projection.item.type === "reasoning"
+          ? createReasoningData(projection.item, "complete")
+          : createToolCallData(projection.item);
+      dataCache.set(projection.item, data);
+    }
     const groupItem: GroupItemData = {
       id,
       type: projection.item.type,
       timestamp: startedAt,
       ...(projection.item.type === "reasoning"
-        ? { reasoningData: createReasoningData(projection.item, "complete") }
-        : { toolCallData: createToolCallData(projection.item) }),
+        ? { reasoningData: data as ReasoningItemData }
+        : { toolCallData: data as ToolCallItemData }),
     };
     group.items.push(groupItem);
     if (accumulateItemStats(group, groupItem)) activeCount++;

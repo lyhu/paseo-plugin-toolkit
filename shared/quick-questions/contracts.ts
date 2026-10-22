@@ -16,6 +16,7 @@ export const DEFAULT_HISTORY_LIMIT = 50;
 export const historyLimitSchema = z.number().int().positive();
 export const summaryPromptSchema = z.string().trim().min(1).max(8000);
 export const workspaceSchema = z.object({
+  syncToken: z.string().optional(),
   featureEnabled: z.boolean(),
   summaryPrompt: summaryPromptSchema,
   historyLimit: historyLimitSchema,
@@ -26,6 +27,7 @@ export const workspaceSchema = z.object({
 });
 export type Workspace = z.infer<typeof workspaceSchema>;
 export const jobSchema = z.object({
+  revision: z.number().int().nonnegative().default(0),
   id: z.string(),
   phase: z.enum(["reading", "summarizing", "merging", "done", "error", "canceled"]),
   completed: z.number(),
@@ -68,6 +70,27 @@ export const readWorkspace = defineRpc({
   name: "quick-questions.read",
   input: scope,
   output: workspaceSchema,
+});
+/** Opaque persistence identity also catches edits made outside revisioned writes. */
+export function workspaceVersion(workspace: Workspace) {
+  return JSON.stringify([
+    workspace.syncToken ?? workspace.revision,
+    workspace.featureEnabled,
+    workspace.model,
+  ]);
+}
+export function summaryVersion(job: Job | null) {
+  return job ? `${job.id}:${job.revision}` : "none";
+}
+export const readWorkspaceChanges = defineRpc({
+  name: "quick-questions.changes",
+  input: scope.extend({ known: z.string().optional() }),
+  output: workspaceSchema.nullable(),
+});
+export const readSummaryChanges = defineRpc({
+  name: "quick-questions.summary.changes",
+  input: scope.extend({ known: z.string().optional() }),
+  output: z.object({ unchanged: z.boolean(), job: jobSchema.nullable() }),
 });
 export const saveQuestions = defineRpc({
   name: "quick-questions.save",

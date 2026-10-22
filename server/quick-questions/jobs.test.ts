@@ -16,6 +16,7 @@ afterEach(async () => {
   for (const jobs of jobsToDispose.splice(0)) jobs.dispose();
   for (const client of clients.splice(0)) await client.dispose();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 const model = { baseUrl: "https://example.com/v1", model: "summary", apiKey: "" };
 const empty: PaseoAgentListResult = {
@@ -24,6 +25,17 @@ const empty: PaseoAgentListResult = {
   pageInfo: { nextCursor: null, prevCursor: null, hasMore: false },
 };
 describe("summary task feedback", () => {
+  it("expires terminal jobs after 30 minutes without canceling running jobs", async () => {
+    vi.useFakeTimers();
+    const { paseo, jobs } = fixture();
+    vi.spyOn(paseo.agents, "list").mockResolvedValue(empty);
+    const task = jobs.start(paseo, "workspace", model);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(task.phase).toBe("error");
+    expect(jobs.read("workspace")).toBe(task);
+    await vi.advanceTimersByTimeAsync(1800001);
+    expect(jobs.read("workspace")).toBeNull();
+  });
   it("reports directory errors and allows a fresh retry", async () => {
     const { paseo, jobs } = fixture();
     vi.spyOn(paseo.agents, "list")

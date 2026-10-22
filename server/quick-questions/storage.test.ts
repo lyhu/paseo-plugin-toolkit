@@ -23,6 +23,20 @@ const question = {
   sources: [],
 } as const;
 describe("workspace storage", () => {
+  it("reuses parsed documents, invalidates external edits and bounds the cache", () => {
+    const { root, storage } = fixture();
+    storage.save("a", 0, (current) => ({ ...current, questions: [{ ...question, sources: [] }] }));
+    const first = storage.read("a");
+    const token = storage.version("a");
+    expect(storage.read("a")).toBe(first);
+    const filename = join(root, readdirSync(root)[0]!);
+    writeFileSync(filename, JSON.stringify({ ...first, enabled: false }));
+    expect(storage.read("a").enabled).toBe(false);
+    expect(storage.version("a")).not.toBe(token);
+    const previous = storage.read("a");
+    for (let i = 0; i < 33; i++) storage.read(`workspace-${i}`);
+    expect(storage.read("a")).not.toBe(previous);
+  });
   it("defaults old workspace files to 50 and persists an independently configured limit", () => {
     const { root, storage } = fixture();
     const first = storage.save("a", 0, (current) => ({

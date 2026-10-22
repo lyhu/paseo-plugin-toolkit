@@ -40,39 +40,51 @@ const ARROW = 5;
 
 export type ParsedDiagram =
   | { kind: "flow"; layout: FlowLayout; skipped: Flowchart["skipped"] }
-  | { kind: "sequence"; diagram: SequenceDiagram; size: Size }
+  | { kind: "sequence"; diagram: SequenceDiagram; layout: ReturnType<typeof layoutSequence> }
   | { kind: "unsupported" };
 
 export type DrawableDiagram = Exclude<ParsedDiagram, { kind: "unsupported" }>;
 
 /** Reads the source as whichever diagram it names, laid out at natural size. */
 export function parseDiagram(source: string): ParsedDiagram {
+  if (source.length > 100000) return { kind: "unsupported" };
   const flow = parseFlowchart(source);
-  if (flow && flow.nodes.length > 0)
+  if (flow && flow.nodes.length > 0) {
+    if (flow.nodes.length > 1000 || flow.edges.length > 3000) return { kind: "unsupported" };
     return { kind: "flow", layout: layoutFlowchart(flow), skipped: flow.skipped };
+  }
   const sequence = parseSequence(source);
   if (sequence && sequence.participants.length > 0) {
-    const box = layoutSequence(sequence.participants, sequence.events.length);
-    return { kind: "sequence", diagram: sequence, size: { width: box.width, height: box.height } };
+    if (sequence.participants.length > 100 || sequence.events.length > 1000)
+      return { kind: "unsupported" };
+    return {
+      kind: "sequence",
+      diagram: sequence,
+      layout: layoutSequence(sequence.participants, sequence.events.length),
+    };
   }
   return { kind: "unsupported" };
 }
 
 /** The size the drawing was laid out at, before any fitting or zoom. */
 export function naturalSize(parsed: DrawableDiagram): Size {
-  return parsed.kind === "flow"
-    ? { width: parsed.layout.width, height: parsed.layout.height }
-    : parsed.size;
+  return { width: parsed.layout.width, height: parsed.layout.height };
 }
 
 /** Draws a parsed diagram at its natural size; the caller scales and places it. */
-export function Drawing({ parsed, theme }: { parsed: DrawableDiagram; theme: PluginTheme }) {
+export const Drawing = React.memo(function Drawing({
+  parsed,
+  theme,
+}: {
+  parsed: DrawableDiagram;
+  theme: PluginTheme;
+}) {
   return parsed.kind === "flow" ? (
     <FlowchartView layout={parsed.layout} theme={theme} />
   ) : (
-    <SequenceView diagram={parsed.diagram} theme={theme} />
+    <SequenceView diagram={parsed.diagram} layout={parsed.layout} theme={theme} />
   );
-}
+});
 
 export function Unsupported({ source, theme }: { source: string; theme: PluginTheme }) {
   // The item is claimed as soon as the fence opens, so most of the time this is a
@@ -318,8 +330,15 @@ function Arrow({ at, color }: { at: NonNullable<LaidOutEdge["arrowAt"]>; color: 
 /* Sequence                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function SequenceView({ diagram, theme }: { diagram: SequenceDiagram; theme: PluginTheme }) {
-  const layout = layoutSequence(diagram.participants, diagram.events.length);
+function SequenceView({
+  diagram,
+  layout,
+  theme,
+}: {
+  diagram: SequenceDiagram;
+  layout: ReturnType<typeof layoutSequence>;
+  theme: PluginTheme;
+}) {
   const centers = new Map(layout.columns.map((column) => [column.id, column.centerX]));
 
   return (

@@ -14,24 +14,28 @@ export function createAgentPills(build: (agent: PaseoAgent) => PluginButtonRegis
   const agents = new Map<string, PaseoAgent>();
   const pills = new Map<string, PluginButtonRegistration>();
   let enabled = false;
-  function sync() {
-    for (const agent of agents.values()) {
-      if (!enabled || !isLive(agent)) {
-        pills.get(agent.id)?.remove();
-        pills.delete(agent.id);
-        continue;
-      }
-      if (!pills.has(agent.id)) pills.set(agent.id, build(agent));
+  function sync(agent: PaseoAgent) {
+    if (!enabled || !isLive(agent)) {
+      pills.get(agent.id)?.remove();
+      pills.delete(agent.id);
+      return;
     }
+    if (!pills.has(agent.id)) pills.set(agent.id, build(agent));
   }
   return {
     setEnabled(next: boolean) {
+      if (next === enabled) return;
       enabled = next;
-      sync();
+      for (const agent of agents.values()) sync(agent);
     },
     registerAgent(agent: PaseoAgent) {
+      const previous = agents.get(agent.id);
+      if (previous?.workspaceId !== agent.workspaceId) {
+        pills.get(agent.id)?.remove();
+        pills.delete(agent.id);
+      }
       agents.set(agent.id, agent);
-      sync();
+      sync(agent);
     },
     unregisterAgent(agentId: string) {
       agents.delete(agentId);
@@ -42,7 +46,7 @@ export function createAgentPills(build: (agent: PaseoAgent) => PluginButtonRegis
     refresh() {
       for (const pill of pills.values()) pill.remove();
       pills.clear();
-      sync();
+      for (const agent of agents.values()) sync(agent);
     },
     /** Live agents in registration order; a DOM-injected button has no agent context of its own. */
     liveAgents(): PaseoAgent[] {
@@ -51,6 +55,7 @@ export function createAgentPills(build: (agent: PaseoAgent) => PluginButtonRegis
     dispose() {
       for (const pill of pills.values()) pill.remove();
       pills.clear();
+      agents.clear();
     },
   };
 }

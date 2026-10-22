@@ -1,3 +1,4 @@
+import { observeAgents } from "../agent-directory";
 import { createFeatureController } from "./features";
 import { subscribeLocale, tr } from "./locale";
 import { ActivitySettings } from "./settings";
@@ -32,22 +33,14 @@ export function registerChatView(
     void removeSettings();
     removeSettings = addSettings();
   });
-  const unsubscribe = client.paseo.agents.subscribe((update) => {
-    if (update.kind === "upsert") features.registerAgent(update.agent);
-    else features.unregisterAgent(update.agentId);
+  const unsubscribe = observeAgents(client.paseo, {
+    upsert: (agent) => features.registerAgent(agent),
+    remove: (id) => features.unregisterAgent(id),
   });
-  const listing = client.paseo.agents.list({ subscribe: {} });
-  void listing
-    .then((result) => {
-      for (const entry of result.entries) features.registerAgent(entry.agent);
-      return undefined;
-    })
-    .catch((error: unknown) => console.warn("[Sticky message] Failed to list agents", error));
   return async () => {
     unsubscribeLocale();
     await removeSettings();
     unsubscribe();
     features.cleanup();
-    await listing.then((result) => result.subscription.release()).catch(() => {});
   };
 }
