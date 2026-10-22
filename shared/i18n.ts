@@ -160,6 +160,9 @@ const english: Record<string, string> = {
   暂无问题: "No questions yet",
   编辑问题: "Edit question",
   发送编辑后的问题: "Send edited question",
+  复制问题: "Copy question",
+  "已复制到剪贴板。": "Copied to the clipboard.",
+  "无法复制到剪贴板。": "Could not copy to the clipboard.",
   "从当前工作空间（含归档）最近的用户提问中提炼最多 20 条候选。":
     "Generate up to 20 candidates from recent user questions in this workspace, including archived conversations.",
   最近: "Latest",

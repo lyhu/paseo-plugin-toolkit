@@ -26,6 +26,22 @@ export function getDraftComposerAccess(workspaceId: string): ComposerAccess | un
   return createComposerAccess(findDraftComposerInput(workspaceId));
 }
 
+export type ComposerPlatform = "web" | "ios" | "android";
+export type EditTarget = "composer" | "editor";
+
+/**
+ * Editing lands in the host composer only where that composer exists as DOM. Native clients expose
+ * no such seam, and an unresolved web composer is equally unreachable, so both fall back to the
+ * popover editor.
+ */
+export function resolveEditTarget(input: {
+  platform: ComposerPlatform;
+  write(): boolean;
+}): EditTarget {
+  if (input.platform !== "web") return "editor";
+  return input.write() ? "composer" : "editor";
+}
+
 /**
  * Sends a question through the draft composer. The host exposes no draft submit API, so the
  * composer receives the same Enter key event a user would produce; the host reads the live
