@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import type { Element, MutationObserverApi } from "./chat-view/dom";
 import type { CatalogSnapshot, CatalogWorkspace } from "./project-tree/catalog";
-import { projectAvailable, projectWorkspaces } from "./project-tree/catalog";
+import { emptyProjectNodes, projectAvailable, projectWorkspaces } from "./project-tree/catalog";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { tr } from "./i18n";
 import {
@@ -12,6 +12,7 @@ import {
 import type { TreeCommand, TreeNode } from "../shared/project-tree/model";
 import {
   adjacentMove,
+  edgeMove,
   folderDestinations,
   nodeActions,
   nodePath,
@@ -24,12 +25,21 @@ declare const document: {
   createElement(tag: string): Element;
   createElementNS(namespace: string, tag: string): Element;
   querySelectorAll(selector: string): ArrayLike<Element>;
+  addEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;
+  removeEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;
 };
 declare const MutationObserver: new (callback: () => void) => MutationObserverApi;
 declare const window: {
   innerWidth: number;
   innerHeight: number;
+  location: { pathname: string };
+  history: History;
   getComputedStyle(element: Element): { backgroundColor: string };
+  addEventListener(name: string, callback: (event: unknown) => void): void;
+  removeEventListener(name: string, callback: (event: unknown) => void): void;
+};
+declare const navigator: {
+  clipboard?: { writeText(text: string): Promise<void> };
 };
 declare const localStorage: {
   getItem(key: string): string | null;
@@ -45,6 +55,81 @@ declare const MouseEvent: new (
     button: number;
   },
 ) => unknown;
+const HOVER_CARD_WIDTH = 260;
+const HOVER_CARD_OFFSET = 4;
+const HOVER_CARD_EDGE = 8;
+const HOVER_CARD_CLOSE_GRACE = 100;
+const compactDiffFormatter = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+const formatDiffCount = (value: number) => compactDiffFormatter.format(value).toLowerCase();
+/** Mirrors the native workspace card's path label, including the worktree slug when present. */
+const workspaceDirectoryLabel = (workspace: CatalogWorkspace) =>
+  workspace.worktreeSlug?.trim() || (workspace.cwd ?? "").replace(/^\/(?:Users|home)\/[^/]+/, "~");
+
+type GlyphKind =
+  | "folder"
+  | "directory"
+  | "chevron"
+  | "plus"
+  | "more"
+  | "settings"
+  | "diff"
+  | "server"
+  | "branch"
+  | "copy"
+  | "check";
+/** Lucide geometry, kept here so the web adapter renders the same icons as the native card. */
+const glyphShapes: Record<GlyphKind, Array<[string, Record<string, string>]>> = {
+  folder: [["path", { d: "M3 7V5h6l2 2h10v12H3Z" }]],
+  directory: [
+    [
+      "path",
+      {
+        d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+      },
+    ],
+  ],
+  chevron: [["path", { d: "m9 5 7 7-7 7" }]],
+  plus: [["path", { d: "M12 5v14M5 12h14" }]],
+  more: [["path", { d: "M12 5h.01M12 12h.01M12 19h.01", "stroke-width": "3" }]],
+  settings: [
+    [
+      "path",
+      {
+        d: "M20 7h-9M14 17H5M7 7a2 2 0 1 0-4 0 2 2 0 0 0 4 0ZM21 17a2 2 0 1 0-4 0 2 2 0 0 0 4 0Z",
+      },
+    ],
+  ],
+  diff: [
+    [
+      "path",
+      {
+        d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z",
+      },
+    ],
+    ["path", { d: "M9 10h6" }],
+    ["path", { d: "M12 13V7" }],
+    ["path", { d: "M9 17h6" }],
+  ],
+  server: [
+    ["rect", { width: "20", height: "8", x: "2", y: "2", rx: "2", ry: "2" }],
+    ["rect", { width: "20", height: "8", x: "2", y: "14", rx: "2", ry: "2" }],
+    ["line", { x1: "6", x2: "6.01", y1: "6", y2: "6" }],
+    ["line", { x1: "6", x2: "6.01", y1: "18", y2: "18" }],
+  ],
+  branch: [
+    ["path", { d: "M15 6a9 9 0 0 0-9 9V3" }],
+    ["circle", { cx: "18", cy: "6", r: "3" }],
+    ["circle", { cx: "6", cy: "18", r: "3" }],
+  ],
+  copy: [
+    ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" }],
+    ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }],
+  ],
+  check: [["path", { d: "M20 6 9 17l-5-5" }]],
+};
 const menuCleanups = new Map<Element, () => void>();
 const workspaceCleanups = new Map<Element, Array<() => void>>();
 const workspaceBindings = new Map<
@@ -94,6 +179,61 @@ export async function openNativeProjectCreate(
   }
 }
 
+const patchedHistories = new WeakSet<History>();
+const workspaceRouteListeners = new Set<() => void>();
+
+/** Paseo encodes path-shaped workspace ids as `b64_` on `/h/:server/workspace/:id`. */
+function activeWorkspaceFromLocation(): { serverId: string; workspaceId: string } | null {
+  if (Platform.OS !== "web") return null;
+  const path = window.location.pathname.split(/[?#]/)[0] ?? "";
+  const match = /^\/h\/([^/]+)\/workspace\/([^/]+)\/?$/.exec(path);
+  if (!match?.[1] || !match[2]) return null;
+  const decode = (value: string) => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+  const serverId = decode(match[1]);
+  let workspaceId = decode(match[2]);
+  if (workspaceId.startsWith("b64_")) {
+    const payload = workspaceId.slice(4).replace(/-/g, "+").replace(/_/g, "/");
+    try {
+      const binary = atob(payload.padEnd(payload.length + ((4 - (payload.length % 4)) % 4), "="));
+      const bytes = Array.from(binary, (char) => char.charCodeAt(0).toString(16).padStart(2, "0"));
+      workspaceId = decodeURIComponent(bytes.map((byte) => `%${byte}`).join(""));
+    } catch {
+      return null;
+    }
+  }
+  return serverId && workspaceId ? { serverId, workspaceId } : null;
+}
+
+/** pushState does not emit popstate, so navigation has to notify selection directly. */
+function watchWorkspaceRoute(listener: () => void) {
+  if (Platform.OS !== "web") return () => {};
+  if (!patchedHistories.has(window.history)) {
+    patchedHistories.add(window.history);
+    const notify = () => {
+      for (const entry of workspaceRouteListeners) entry();
+    };
+    window.addEventListener("popstate", notify);
+    window.addEventListener("hashchange", notify);
+    for (const name of ["pushState", "replaceState"] as const) {
+      const original = window.history[name].bind(window.history);
+      window.history[name] = (...args: Parameters<History["pushState"]>) => {
+        original(...args);
+        notify();
+      };
+    }
+  }
+  workspaceRouteListeners.add(listener);
+  return () => {
+    workspaceRouteListeners.delete(listener);
+  };
+}
+
 function nativeWorkspaceRow(workspace: Pick<CatalogWorkspace, "serverId" | "id">) {
   const expected = `sidebar-workspace-row-${workspace.serverId}:${workspace.id}`;
   return Array.from(document.querySelectorAll('[data-testid^="sidebar-workspace-row-"]')).find(
@@ -125,15 +265,55 @@ export function openNativeWorkspaceMenu(
   return row ? openNativeMenu(row, anchor) : false;
 }
 
+interface MirroredAnimation {
+  effect: {
+    getKeyframes(): Record<string, unknown>[];
+    getTiming(): Record<string, unknown>;
+  } | null;
+  startTime: number | null;
+  cancel(): void;
+}
+type AnimatedElement = Element & {
+  getAnimations?(): MirroredAnimation[];
+  animate?(
+    keyframes: Record<string, unknown>[],
+    timing: Record<string, unknown>,
+  ): MirroredAnimation;
+};
+
 /** Mirror presentation only; React retains ownership of the original row and its menu handlers. */
 export function mirrorNativeWorkspace(
   source: Element,
   target: Element,
   onState?: (selected: boolean, background: string) => void,
+  decorate?: (clone: Element) => void,
 ) {
   if (Platform.OS !== "web") return () => {};
+  let animations: MirroredAnimation[] = [];
+  const clearAnimations = () => {
+    for (const animation of animations) animation.cancel();
+    animations = [];
+  };
   const paint = () => {
+    clearAnimations();
     const clone = (source as Element & { cloneNode(deep: boolean): Element }).cloneNode(true);
+    // cloneNode omits the Web Animations driving native status rings. Keep their shared epoch.
+    const originals = [source, ...Array.from(source.querySelectorAll("*"))] as AnimatedElement[];
+    const copies = [clone, ...Array.from(clone.querySelectorAll("*"))] as AnimatedElement[];
+    originals.forEach((original, index) => {
+      for (const animation of original.getAnimations?.() ?? []) {
+        if (!animation.effect) continue;
+        const copy = copies[index]?.animate?.(
+          animation.effect.getKeyframes(),
+          animation.effect.getTiming(),
+        );
+        if (copy) {
+          copy.startTime = animation.startTime;
+          animations.push(copy);
+        }
+      }
+    });
+    decorate?.(clone);
     for (const control of Array.from(
       clone.querySelectorAll(
         '[data-testid^="sidebar-workspace-kebab-"],[data-testid^="sidebar-workspace-archive-"]',
@@ -151,11 +331,11 @@ export function mirrorNativeWorkspace(
     clone.setAttribute("aria-hidden", "true");
     clone.style.width = "100%";
     // The shared row owns the backdrop, including the trailing menu button.
+    // Selection lives on this trigger; descendants keep their own fills.
+    const selected = source.getAttribute("aria-selected") === "true";
+    const background = window.getComputedStyle(source).backgroundColor;
     clone.style.background = "transparent";
-    onState?.(
-      source.getAttribute("aria-selected") === "true",
-      window.getComputedStyle(source).backgroundColor,
-    );
+    onState?.(selected, background);
     target.textContent = "";
     target.appendChild(clone);
   };
@@ -167,7 +347,10 @@ export function mirrorNativeWorkspace(
     attributes: true,
     characterData: true,
   });
-  return () => observer.disconnect();
+  return () => {
+    observer.disconnect();
+    clearAnimations();
+  };
 }
 
 export function readDevicePreference(key: string): string | null {
@@ -286,6 +469,8 @@ export function renderProjectSidebar(
     open(workspace: CatalogWorkspace): void;
     run?(command: TreeCommand): Promise<void>;
     native(): void;
+    showHidden?: boolean;
+    toggleHidden?(): void;
     move?(id: string, parentId: string | null, beforeId?: string): void;
     moveWorkspace?(workspace: CatalogWorkspace, targetId: string): void;
     renameWorkspace?(workspace: CatalogWorkspace): void;
@@ -341,40 +526,298 @@ export function renderProjectSidebar(
       });
     return child;
   };
-  const icon = (parent: Element, kind: "folder" | "chevron" | "plus" | "more" | "settings") => {
+  const glyph = (parent: Element, kind: GlyphKind, size = 16, strokeWidth = "1.6") => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     for (const [key, value] of Object.entries({
-      width: "16",
-      height: "16",
+      width: String(size),
+      height: String(size),
       viewBox: "0 0 24 24",
       fill: "none",
       stroke: "currentColor",
-      "stroke-width": "1.6",
+      "stroke-width": strokeWidth,
       "stroke-linecap": "round",
       "stroke-linejoin": "round",
       "aria-hidden": "true",
     }))
       svg.setAttribute(key, value);
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute(
-      "d",
-      {
-        folder: "M3 7V5h6l2 2h10v12H3Z",
-        chevron: "m9 5 7 7-7 7",
-        plus: "M12 5v14M5 12h14",
-        more: "M12 5h.01M12 12h.01M12 19h.01",
-        settings:
-          "M20 7h-9M14 17H5M7 7a2 2 0 1 0-4 0 2 2 0 0 0 4 0ZM21 17a2 2 0 1 0-4 0 2 2 0 0 0 4 0Z",
-      }[kind],
-    );
-    if (kind === "more") path.setAttribute("stroke-width", "3");
-    svg.appendChild(path);
+    for (const [tag, attributes] of glyphShapes[kind]) {
+      const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [key, value] of Object.entries(attributes)) shape.setAttribute(key, value);
+      svg.appendChild(shape);
+    }
     parent.appendChild(svg);
     return svg;
   };
+  const icon = (parent: Element, kind: GlyphKind) => glyph(parent, kind);
+  /** 原生 meta 行的 host 徽标：12px 服务器图标 + 主机名，与原生 HostBadge 同款。 */
+  const hostBadge = (parent: Element, label: string, suffix = "") => {
+    const badge = element("div", parent);
+    Object.assign(badge.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "3px",
+      minWidth: "0",
+      flexShrink: "1",
+    });
+    const svg = glyph(badge, "server", 12, "2");
+    svg.style.color = colors.foregroundMuted;
+    svg.style.flexShrink = "0";
+    const text = element("span", badge, `${label}${suffix}`);
+    Object.assign(text.style, {
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+      color: colors.foregroundMuted,
+      fontSize: "12px",
+      lineHeight: "16px",
+    });
+    return badge;
+  };
+  /**
+   * Native project-row actions are 24×24, radius md.
+   * Plus uses surfaceSidebarHover (light surface3, dark surface1); kebab uses surface2.
+   */
+  const actionButton = (child: Element, hover: "sidebar" | "surface2") => {
+    child.setAttribute("data-toolkit-row-action", hover);
+    child.classList.add("toolkit-row-action");
+  };
+  let activeHoverCard: (() => void) | null = null;
+  /** Mirrors WorkspaceHoverCard: same content, width, placement and close grace as native Paseo. */
+  const workspaceHoverCard = (anchor: Element, workspace: CatalogWorkspace, hostLabel: string) => {
+    let card: Element | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let copyCleanups: Array<() => void> = [];
+    let removeViewportListeners = () => {};
+    const clearCloseTimer = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    const close = () => {
+      clearCloseTimer();
+      for (const cleanup of copyCleanups) cleanup();
+      copyCleanups = [];
+      removeViewportListeners();
+      removeViewportListeners = () => {};
+      card?.remove();
+      card = null;
+      if (activeHoverCard === close) activeHoverCard = null;
+    };
+    const scheduleClose = () => {
+      clearCloseTimer();
+      timer = setTimeout(close, HOVER_CARD_CLOSE_GRACE);
+    };
+    const place = (element: Element) => {
+      const rect = anchor.getBoundingClientRect();
+      const sidebar = anchor.closest("[data-toolkit-project-tree]")?.getBoundingClientRect();
+      const size = element.getBoundingClientRect();
+      const width = size.width || HOVER_CARD_WIDTH;
+      const height = size.height;
+      const edge = sidebar?.right ?? rect.right;
+      const available = window.innerWidth;
+      let left = edge + HOVER_CARD_OFFSET;
+      if (available > 0 && available - edge < width + HOVER_CARD_OFFSET)
+        left = (sidebar?.left ?? rect.left) - width - HOVER_CARD_OFFSET;
+      left = Math.max(HOVER_CARD_EDGE, Math.min(window.innerWidth - width - HOVER_CARD_EDGE, left));
+      const top = Math.max(
+        HOVER_CARD_EDGE,
+        Math.min(window.innerHeight - height - HOVER_CARD_EDGE, rect.top),
+      );
+      element.style.left = `${Math.round(left)}px`;
+      element.style.top = `${Math.round(top)}px`;
+    };
+    const open = () => {
+      clearCloseTimer();
+      if (card) return;
+      activeHoverCard?.();
+      copyCleanups = [];
+      const next = element("div", document.body);
+      card = next;
+      next.setAttribute("data-toolkit-workspace-hover", "true");
+      next.setAttribute("role", "menu");
+      next.setAttribute("aria-label", workspace.name);
+      Object.assign(next.style, {
+        position: "fixed",
+        zIndex: "100001",
+        width: `${HOVER_CARD_WIDTH}px`,
+        maxWidth: `calc(100vw - ${HOVER_CARD_EDGE * 2}px)`,
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        paddingTop: "8px",
+        background: colors.surface1,
+        border: `1px solid ${colors.border}`,
+        borderRadius: "8px",
+        boxShadow: "0 4px 8px rgba(0, 0, 0, 0.2)",
+        color: colors.foreground,
+        font: "14px system-ui, sans-serif",
+        lineHeight: "20px",
+      });
+      const header = element("div", next);
+      Object.assign(header.style, {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "0 12px 8px",
+      });
+      const title = element("span", header, workspace.name);
+      Object.assign(title.style, {
+        flex: "1",
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        color: colors.foreground,
+        fontSize: "14px",
+        fontWeight: "400",
+      });
+      const infoRow = () => {
+        const row = element("div", next);
+        Object.assign(row.style, {
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "0 12px 8px",
+          minWidth: "0",
+        });
+        return row;
+      };
+      const infoIcon = (parent: Element, kind: GlyphKind) => {
+        const svg = glyph(parent, kind, 12, "2");
+        svg.style.color = colors.foregroundMuted;
+        svg.style.flexShrink = "0";
+        return svg;
+      };
+      const infoText = (parent: Element, value: string) => {
+        const text = element("span", parent, value);
+        Object.assign(text.style, {
+          flex: "1",
+          minWidth: "0",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          color: colors.foregroundMuted,
+          fontSize: "12px",
+          fontWeight: "400",
+        });
+        return text;
+      };
+      if (workspace.diffStat) {
+        const row = infoRow();
+        infoIcon(row, "diff");
+        const stat = element("span", row);
+        Object.assign(stat.style, {
+          display: "flex",
+          alignItems: "center",
+          height: "20px",
+          gap: "4px",
+          flexShrink: "0",
+        });
+        const additions = element(
+          "span",
+          stat,
+          `+${formatDiffCount(workspace.diffStat.additions)}`,
+        );
+        additions.style.color = colors.statusSuccess;
+        additions.style.fontSize = "12px";
+        const deletions = element(
+          "span",
+          stat,
+          `-${formatDiffCount(workspace.diffStat.deletions)}`,
+        );
+        deletions.style.color = colors.statusDanger;
+        deletions.style.fontSize = "12px";
+      }
+      const hostRow = infoRow();
+      infoIcon(hostRow, "server");
+      infoText(hostRow, hostLabel);
+      const copyRow = (kind: GlyphKind, value: string, copyValue: string, copyLabel: string) => {
+        const row = infoRow();
+        row.setAttribute("role", "button");
+        row.setAttribute("tabindex", "0");
+        row.setAttribute("aria-label", copyLabel);
+        Object.assign(row.style, { cursor: "pointer", borderRadius: "6px" });
+        const slot = element("span", row);
+        Object.assign(slot.style, { display: "flex", alignItems: "center", flexShrink: "0" });
+        const text = infoText(row, value);
+        let hovered = false;
+        let copied = false;
+        let reset: ReturnType<typeof setTimeout> | undefined;
+        const paint = () => {
+          slot.textContent = "";
+          const svg = glyph(slot, copied ? "check" : hovered ? "copy" : kind, 12, "2");
+          svg.style.color = hovered || copied ? colors.foreground : colors.foregroundMuted;
+          text.style.color = hovered || copied ? colors.foreground : colors.foregroundMuted;
+        };
+        const copy = () => {
+          copied = true;
+          paint();
+          try {
+            void navigator.clipboard?.writeText(copyValue).catch(() => {});
+          } catch {
+            /* Clipboard access can be denied in embedded webviews. */
+          }
+          if (reset) clearTimeout(reset);
+          reset = setTimeout(() => {
+            copied = false;
+            paint();
+          }, 2000);
+        };
+        paint();
+        row.addEventListener("mouseenter", () => {
+          hovered = true;
+          paint();
+        });
+        row.addEventListener("mouseleave", () => {
+          hovered = false;
+          paint();
+        });
+        row.addEventListener("click", (event) => {
+          (event as { stopPropagation(): void }).stopPropagation();
+          copy();
+        });
+        row.addEventListener("keydown", (event) => {
+          const input = event as { key: string; preventDefault(): void };
+          if (input.key !== "Enter" && input.key !== " ") return;
+          input.preventDefault();
+          copy();
+        });
+        copyCleanups.push(() => {
+          if (reset) clearTimeout(reset);
+        });
+      };
+      if (workspace.currentBranch)
+        copyRow("branch", workspace.currentBranch, workspace.currentBranch, tr("复制分支名称"));
+      const directory = workspaceDirectoryLabel(workspace);
+      if (directory) copyRow("directory", directory, workspace.cwd, tr("复制路径"));
+      place(next);
+      next.addEventListener("mouseenter", clearCloseTimer);
+      next.addEventListener("mouseleave", scheduleClose);
+      document.addEventListener("scroll", close, true);
+      window.addEventListener("resize", close);
+      removeViewportListeners = () => {
+        document.removeEventListener("scroll", close, true);
+        window.removeEventListener("resize", close);
+      };
+      activeHoverCard = close;
+    };
+    return { open, scheduleClose, close };
+  };
   const style = element("style", container);
-  style.textContent =
-    '[data-toolkit-tree-actions]{opacity:0} [data-toolkit-tree-row]:hover [data-toolkit-tree-actions],[data-toolkit-tree-row]:focus-within [data-toolkit-tree-actions],[data-toolkit-tree-row][data-toolkit-menu-open] [data-toolkit-tree-actions],[data-toolkit-workspace][aria-selected="true"] [data-toolkit-tree-actions]{opacity:1} @media(hover:none){[data-toolkit-tree-actions]{opacity:1}}';
+  style.textContent = [
+    "[data-toolkit-tree-actions]{opacity:0}",
+    "[data-toolkit-tree-row]:hover [data-toolkit-tree-actions],[data-toolkit-tree-row]:focus-within [data-toolkit-tree-actions],[data-toolkit-tree-row][data-toolkit-menu-open] [data-toolkit-tree-actions],[data-toolkit-workspace][aria-selected='true'] [data-toolkit-tree-actions]{opacity:1}",
+    "@media(hover:none){[data-toolkit-tree-actions]{opacity:1}}",
+    // Native trailing content stays on the right edge. Hover paints a 48px fade
+    // (transparent until 55%) in the row background, then the 24px kebab on top.
+    "[data-toolkit-workspace-scrim]{display:none}",
+    "[data-toolkit-workspace]:hover [data-toolkit-workspace-scrim],[data-toolkit-workspace]:focus-within [data-toolkit-workspace-scrim],[data-toolkit-workspace][data-toolkit-menu-open] [data-toolkit-workspace-scrim]{display:block}",
+    `.toolkit-row-action{box-sizing:border-box;width:24px!important;height:24px!important;padding:0!important;display:inline-flex!important;align-items:center;justify-content:center;flex-shrink:0;border-radius:6px!important;color:${colors.foregroundMuted}!important;background:transparent!important}`,
+    `.toolkit-row-action:hover:not([disabled]),.toolkit-row-action:focus-visible:not([disabled]){color:${colors.foreground}!important}`,
+    `.toolkit-row-action[data-toolkit-row-action="sidebar"]:hover:not([disabled]),.toolkit-row-action[data-toolkit-row-action="sidebar"]:focus-visible:not([disabled]){background:${colors.surface1}!important}`,
+    `.toolkit-row-action[data-toolkit-row-action="surface2"]:hover:not([disabled]),.toolkit-row-action[data-toolkit-row-action="surface2"]:focus-visible:not([disabled]){background:${colors.surface2}!important}`,
+  ].join("");
   const nativeGroups = nativeProjectGroups(
     Object.values(snapshot.catalogs).flatMap((catalog) => catalog.projects),
   );
@@ -388,7 +831,7 @@ export function renderProjectSidebar(
     padding: "0 12px 0 16px",
     userSelect: "none",
   });
-  const title = element("span", header, tr("项目树"));
+  const title = element("span", header, tr("万象工作台"));
   Object.assign(title.style, {
     flex: "1",
     color: colors.foregroundMuted,
@@ -408,7 +851,11 @@ export function renderProjectSidebar(
             parentId: null,
           })),
       },
-      { label: tr("切换原始视图"), action: options.native, separatorBefore: true },
+      {
+        label: `${options.showHidden ? "✓ " : ""}${tr("显示隐藏节点")}`,
+        action: () => options.toggleHidden?.(),
+      },
+      { label: tr("切换原生视图"), action: options.native, separatorBefore: true },
     ]),
   );
   const settingsIcon = icon(settings, "settings");
@@ -421,8 +868,8 @@ export function renderProjectSidebar(
     justifyContent: "center",
     padding: "6px",
   });
-  settings.setAttribute("aria-label", tr("项目树设置"));
-  settings.setAttribute("title", tr("项目树设置"));
+  settings.setAttribute("aria-label", tr("万象工作台设置"));
+  settings.setAttribute("title", tr("万象工作台设置"));
   settings.setAttribute("aria-haspopup", "menu");
   const body = element("div", container);
   Object.assign(body.style, { flex: "1", overflow: "auto", minHeight: "0", padding: "0 8px 12px" });
@@ -682,9 +1129,9 @@ export function renderProjectSidebar(
   const organize = (anchor: Element, node: TreeNode, create: () => void) =>
     showMenu(
       anchor,
-      nodeActions(snapshot.tree, node).map((item) => ({
+      nodeActions(snapshot.tree, node, emptyProjectNodes(snapshot).length).map((item) => ({
         label: tr(item.label),
-        separatorBefore: ["merge", "new", "folder", "delete"].includes(item.action),
+        separatorBefore: item.separatorBefore,
         disabled: item.disabled || (item.action !== "new" && (!snapshot.editable || !options.run)),
         action() {
           switch (item.action) {
@@ -712,6 +1159,21 @@ export function renderProjectSidebar(
               if (command) execute(command);
               break;
             }
+            case "top":
+            case "bottom": {
+              const command = edgeMove(snapshot.tree, node, item.action);
+              if (command) execute(command);
+              break;
+            }
+            case "hide":
+              execute({ type: "hide", id: node.id, hidden: !node.hidden });
+              break;
+            case "hideEmpty":
+              execute({
+                type: "hideEmpty",
+                ids: emptyProjectNodes(snapshot).map((entry) => entry.id),
+              });
+              break;
             case "move":
               showMenu(anchor, [
                 {
@@ -791,6 +1253,7 @@ export function renderProjectSidebar(
     }
   const renderNodes = (parentId: string | null, depth: number) => {
     for (const node of snapshot.tree.nodes.filter((entry) => entry.parentId === parentId)) {
+      if (node.hidden && !options.showHidden) continue;
       if (node.kind === "project" && !projectAvailable(snapshot, node.members, node.id)) continue;
       const row = element("div", body);
       row.setAttribute("data-toolkit-tree-row", node.id);
@@ -802,6 +1265,7 @@ export function renderProjectSidebar(
         paddingLeft: `${depth * 14}px`,
         borderRadius: "7px",
         minHeight: "34px",
+        opacity: node.hidden ? ".55" : "1",
       });
       row.addEventListener("mouseenter", () => {
         row.setAttribute("data-toolkit-hovered", "true");
@@ -932,7 +1396,7 @@ export function renderProjectSidebar(
         `${node.kind === "folder" ? tr("新建分类文件夹") : tr("新建 workspace")} · ${node.name}`,
       );
       icon(add, "plus");
-      add.style.padding = "5px";
+      actionButton(add, "sidebar");
       add.setAttribute(
         "title",
         node.kind === "folder" ? tr("新建分类文件夹") : tr("新建 workspace"),
@@ -941,7 +1405,7 @@ export function renderProjectSidebar(
       const more = button(actions, "", () => organize(more, node, createWorkspace), false);
       more.setAttribute("aria-label", `${tr("项目操作")} · ${node.name}`);
       icon(more, "more");
-      more.style.padding = "5px";
+      actionButton(more, "surface2");
       if (snapshot.editable && options.move) {
         row.setAttribute("draggable", "true");
         row.addEventListener("dragstart", (event) => {
@@ -976,6 +1440,7 @@ export function renderProjectSidebar(
         );
         workspaceRow.setAttribute("data-toolkit-workspace", workspace.id);
         Object.assign(workspaceRow.style, {
+          position: "relative",
           display: "flex",
           alignItems: "center",
           gap: "2px",
@@ -992,23 +1457,66 @@ export function renderProjectSidebar(
           false,
         );
         let hovered = false;
-        let selected = false;
-        let selectedBackground = colors.surface1;
+        let nativeSelected = false;
+        const scrim = element("div", workspaceRow);
+        scrim.setAttribute("data-toolkit-workspace-scrim", "true");
+        scrim.setAttribute("aria-hidden", "true");
+        Object.assign(scrim.style, {
+          display: "none",
+          position: "absolute",
+          top: "0",
+          right: "0",
+          bottom: "0",
+          width: "48px",
+          pointerEvents: "none",
+          borderRadius: "0 8px 8px 0",
+        });
+        const paintScrim = () => {
+          const background = workspaceRow.style.background;
+          scrim.style.background = `linear-gradient(to right, transparent, ${
+            background && background !== "transparent" ? background : colors.surface0
+          } 55%)`;
+        };
+        const routeMatches = () => {
+          const active = activeWorkspaceFromLocation();
+          return active?.serverId === workspace.serverId && active.workspaceId === workspace.id;
+        };
+        let routeSelected = routeMatches();
+        let selected = routeSelected;
+        // Native selected rows use surfaceSidebarSelected (dark: surface2). The plugin
+        // theme omits that token, so keep the color read from the hidden native row.
+        let selectedBackground = colors.surface2;
         const paintBackdrop = () => {
+          selected = nativeSelected || routeSelected;
           workspaceRow.style.background = selected
             ? selectedBackground
             : hovered
               ? colors.surface1
               : "transparent";
           workspaceRow.setAttribute("aria-selected", String(selected));
+          paintScrim();
         };
+        paintBackdrop();
+        rowCleanups.push(
+          watchWorkspaceRoute(() => {
+            const next = routeMatches();
+            if (next === routeSelected) return;
+            routeSelected = next;
+            paintBackdrop();
+          }),
+        );
+        const hostLabel = host?.label?.trim() || workspace.serverId;
+        const hoverCard = workspaceHoverCard(workspaceRow, workspace, hostLabel);
+        rowCleanups.push(hoverCard.close);
         workspaceRow.addEventListener("mouseenter", () => {
           hovered = true;
           paintBackdrop();
+          if (!draggedWorkspace) hoverCard.open();
         });
         workspaceRow.addEventListener("mouseleave", () => {
           hovered = false;
           paintBackdrop();
+          hoverCard.scheduleClose();
         });
         content.setAttribute(
           "aria-label",
@@ -1046,20 +1554,57 @@ export function renderProjectSidebar(
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
           });
-          const badge = element(
-            "span",
-            details,
-            `${host?.label ?? workspace.serverId}${online ? "" : ` · ${tr("离线")}`}`,
-          );
-          Object.assign(badge.style, {
-            color: colors.foregroundMuted,
-            fontSize: "11px",
-            marginTop: "3px",
+          const meta = element("span", details);
+          Object.assign(meta.style, {
+            display: "flex",
+            alignItems: "center",
+            minWidth: "0",
+            marginTop: "2px",
           });
+          hostBadge(
+            meta,
+            host?.label?.trim() || workspace.serverId,
+            online ? "" : ` · ${tr("离线")}`,
+          );
         };
         let mirrored: Element | undefined;
         let initialized = false;
         let unmirror = () => {};
+        /**
+         * 原生只在侧栏同时展示多个 Host 时才画 host 徽标，而万象工作台始终跨 Host 合并显示。
+         * 克隆行里没有徽标时，按原生 meta 行的样式补一行「服务器图标 + 主机名」。
+         */
+        const ensureHostBadge = (clone: Element) => {
+          if (clone.querySelector('[data-testid^="host-badge-"]')) return;
+          const title = Array.from(clone.querySelectorAll("div"))
+            .filter(
+              (entry) => !entry.firstElementChild && entry.textContent?.trim() === workspace.name,
+            )
+            .pop();
+          const titleRow = title?.parentElement;
+          const column = titleRow?.parentElement;
+          if (!titleRow || !column) return;
+          const existing = titleRow.nextElementSibling;
+          const meta = existing ?? element("div", column);
+          if (existing) {
+            const separator = element("span", meta, "·");
+            Object.assign(separator.style, {
+              color: colors.foregroundMuted,
+              fontSize: "12px",
+              lineHeight: "16px",
+              flexShrink: "0",
+            });
+          } else {
+            Object.assign(meta.style, {
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              minWidth: "0",
+              marginTop: "1px",
+            });
+          }
+          hostBadge(meta, hostLabel);
+        };
         const attach = (source?: Element) => {
           if (initialized && source === mirrored) return;
           initialized = true;
@@ -1067,16 +1612,19 @@ export function renderProjectSidebar(
           unmirror();
           if (source) {
             Object.assign(content.style, { display: "block", padding: "0" });
-            unmirror = mirrorNativeWorkspace(source, content, (active, background) => {
-              selected = active;
-              selectedBackground =
-                background && background !== "transparent" && background !== "rgba(0, 0, 0, 0)"
-                  ? background
-                  : colors.surface1;
-              paintBackdrop();
-            });
+            unmirror = mirrorNativeWorkspace(
+              source,
+              content,
+              (active, background) => {
+                nativeSelected = active;
+                if (background && background !== "transparent" && background !== "rgba(0, 0, 0, 0)")
+                  selectedBackground = background;
+                paintBackdrop();
+              },
+              ensureHostBadge,
+            );
           } else {
-            selected = false;
+            nativeSelected = false;
             paintBackdrop();
             unmirror = () => {};
             fallback();
@@ -1088,16 +1636,20 @@ export function renderProjectSidebar(
           attach,
         });
         rowCleanups.push(() => unmirror());
+        paintScrim();
         const actions = element("div", workspaceRow);
         actions.setAttribute("data-toolkit-tree-actions", "true");
         Object.assign(actions.style, {
+          position: "absolute",
+          top: "0",
+          right: "5px",
+          bottom: "0",
           display: "flex",
-          alignSelf: "stretch",
           alignItems: "center",
-          paddingRight: "4px",
         });
         let more: Element;
         const openMenu = async () => {
+          hoverCard.close();
           if (openNativeWorkspaceMenu(workspace, more)) return;
           // The original project may be collapsed or paginated. Reveal its row without moving
           // any React-owned DOM, then let the native context menu handle all operations.
@@ -1166,8 +1718,8 @@ export function renderProjectSidebar(
           false,
         );
         more.setAttribute("aria-label", `${tr("工作区操作")} · ${workspace.name}`);
-        Object.assign(more.style, { padding: "5px", display: "flex", alignItems: "center" });
         icon(more, "more");
+        actionButton(more, "surface2");
         workspaceRow.addEventListener("contextmenu", (event) => {
           (event as { preventDefault(): void }).preventDefault();
           void openMenu();
@@ -1175,6 +1727,7 @@ export function renderProjectSidebar(
         if (snapshot.editable && options.moveWorkspace) {
           workspaceRow.setAttribute("draggable", "true");
           workspaceRow.addEventListener("dragstart", (event) => {
+            hoverCard.close();
             draggedId = null;
             draggedWorkspace = workspace;
             (

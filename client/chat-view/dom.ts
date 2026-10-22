@@ -24,6 +24,7 @@ export interface Element {
   setSelectionRange(start: number, end: number): void;
   scrollIntoView(options: { block: string; behavior: string }): void;
   style: Record<string, string>;
+  classList: { add(...tokens: string[]): void };
   getAttribute(name: string): string | null;
   setAttribute(name: string, value: string): void;
   removeAttribute(name: string): void;

@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { CatalogSnapshot } from "./catalog";
+import { emptyProjectNodes, type CatalogSnapshot } from "./catalog";
 import { memberKey, type TreeCommand, type TreeNodeAction } from "../../shared/project-tree/model";
 import {
   adjacentMove,
+  edgeMove,
   folderDestinations,
   nodeActions,
   nodePath,
@@ -102,6 +103,20 @@ export function NodeActionsDialog({
       if (command) void execute(command);
       return;
     }
+    if ((next === "top" || next === "bottom") && node) {
+      const command = edgeMove(snapshot.tree, node, next);
+      if (command) void execute(command);
+      return;
+    }
+    if (next === "hide" && node) {
+      void execute({ type: "hide", id: node.id, hidden: !node.hidden });
+      return;
+    }
+    if (next === "hideEmpty") {
+      const ids = emptyProjectNodes(snapshot).map((entry) => entry.id);
+      if (ids.length) void execute({ type: "hideEmpty", ids });
+      return;
+    }
     if (next === "rename") setName(node?.name ?? "");
     if (next === "folder") {
       setName("");
@@ -164,7 +179,7 @@ export function NodeActionsDialog({
             {error ? <Text style={{ color: colors.foreground }}>{error}</Text> : null}
             {action === "menu" &&
               node &&
-              nodeActions(snapshot.tree, node).map((item) =>
+              nodeActions(snapshot.tree, node, emptyProjectNodes(snapshot).length).map((item) =>
                 button(tr(item.label), () => choose(item.action), disabled || !!item.disabled),
               )}
             {(action === "rename" || action === "folder") && (

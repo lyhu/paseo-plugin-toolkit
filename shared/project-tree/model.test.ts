@@ -167,3 +167,21 @@ it("places a newly registered host project without pulling its remote-equivalent
     members: [{ serverId: "other", projectId: "b" }],
   });
 });
+
+it("hides several project nodes in one command and rejects unknown ids", () => {
+  let tree = applyTreeCommand(emptyTree(), {
+    type: "discover",
+    projects: [
+      { serverId: "pro", projectId: "a", name: "A" },
+      { serverId: "pro", projectId: "b", name: "B" },
+    ],
+  });
+  tree = applyTreeCommand(tree, {
+    type: "hideEmpty",
+    ids: tree.nodes.map((node) => node.id),
+  });
+  expect(tree.nodes.map((node) => node.hidden)).toEqual([true, true]);
+  expect(() => applyTreeCommand(tree, { type: "hideEmpty", ids: ["missing"] })).toThrow(
+    "目录节点不存在",
+  );
+});
