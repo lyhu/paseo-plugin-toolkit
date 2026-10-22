@@ -25,6 +25,7 @@ import {
   languageModeSchema,
   type ChatViewSettings,
 } from "../../shared/chat-view/settings";
+import { projectTreeSettings } from "../../shared/project-tree/contracts";
 
 type ReadySettings = Extract<SettingsState<typeof activitySettings.schema>, { status: "ready" }>;
 
@@ -110,6 +111,8 @@ function ReadyControls({
     void settings.save({ ...settings.values, palette: parsed.data }, settings.revision);
   };
   const locale = resolveLocale(settings.values.language);
+  // 万象工作台与其他功能一样放进“功能开关”，但沿用自己原有的 Host 级设置存储。
+  const projectTree = useSettings(projectTreeSettings);
   function labels<Value extends string>(
     choices: readonly { value: Value; labelKey: TranslationKey }[],
   ) {
@@ -119,6 +122,21 @@ function ReadyControls({
     <>
       <SettingsSection title={t(locale, "settings.sectionFeatures")}>
         <SettingsCard>
+          <SettingsSwitch
+            label={t(locale, "settings.projectTreeLabel")}
+            hint={t(locale, "settings.projectTreeHint")}
+            value={projectTree.status === "ready" && projectTree.values.enabled}
+            disabled={projectTree.status !== "ready" || projectTree.saving}
+            onValueChange={(enabled) => {
+              if (projectTree.status === "ready")
+                void projectTree.save({ enabled }, projectTree.revision);
+            }}
+          />
+          {projectTree.status === "ready" && projectTree.saveError ? (
+            <Text accessibilityRole="alert" style={errorStyle}>
+              {projectTree.saveError}
+            </Text>
+          ) : null}
           <SettingsSwitch
             label={t(locale, "settings.quickQuestionsLabel")}
             hint={t(locale, "settings.quickQuestionsHint")}
