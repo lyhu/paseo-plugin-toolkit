@@ -49,6 +49,7 @@ export function registerProjectTree(client: PluginClientContext) {
       writeDevicePreference(preferenceKey("cache"), JSON.stringify({ tree, catalogs }));
   });
   let mode = "custom";
+  let showHidden = false;
   const listeners = new Set<() => void>();
   const collapsed = new Set<string>();
   let configuration: Promise<void> | null = null;
@@ -56,9 +57,10 @@ export function registerProjectTree(client: PluginClientContext) {
     if (configuration) return configuration;
     sourceId = id;
     configuration = (async () => {
-      await loadDevicePreferences(["cache", "view", "collapsed"].map(preferenceKey));
+      await loadDevicePreferences(["cache", "view", "collapsed", "showHidden"].map(preferenceKey));
       if (stopped) return;
       mode = readDevicePreference(preferenceKey("view")) === "native" ? "native" : "custom";
+      showHidden = readDevicePreference(preferenceKey("showHidden")) === "true";
       let cached: ReturnType<typeof catalogCacheSchema.parse> | undefined;
       try {
         cached = catalogCacheSchema.parse(
@@ -82,6 +84,11 @@ export function registerProjectTree(client: PluginClientContext) {
   function setMode(next: "custom" | "native") {
     mode = next;
     if (sourceId) writeDevicePreference(preferenceKey("view"), next);
+    for (const listener of listeners) listener();
+  }
+  function setShowHidden(next: boolean) {
+    showHidden = next;
+    if (sourceId) writeDevicePreference(preferenceKey("showHidden"), String(next));
     for (const listener of listeners) listener();
   }
   const subscribeMode = (listener: () => void) => {
@@ -126,7 +133,7 @@ export function registerProjectTree(client: PluginClientContext) {
     catalog.connection(false);
     try {
       if (syncing) await syncing;
-      if (stopped || !enabled) throw new Error(tr("项目树已停用。"));
+      if (stopped || !enabled) throw new Error(tr("万象工作台已停用。"));
       const next = await client.rpc(changeProjectTree, {
         revision: catalog.read().tree.revision,
         command,
@@ -155,7 +162,7 @@ export function registerProjectTree(client: PluginClientContext) {
     catalog.update(serverId, await readHostCatalog(api, serverId));
     await synchronize();
     if (stopped || !enabled || !catalog.read().editable)
-      throw new Error(tr("项目树已停用或配置 Host 已断开。"));
+      throw new Error(tr("万象工作台已停用或配置 Host 已断开。"));
     const known = new Set([
       ...Object.values(catalog.read().catalogs)
         .flatMap((entry) => entry.projects)
@@ -275,6 +282,11 @@ export function registerProjectTree(client: PluginClientContext) {
       () => mode,
       () => mode,
     );
+    const selectedHidden = useSyncExternalStore(
+      subscribeMode,
+      () => showHidden,
+      () => showHidden,
+    );
     const mounted = useRef<ReturnType<typeof mountProjectSidebar> | null>(null);
     const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
       renderProjectSidebar(container, {
@@ -296,6 +308,10 @@ export function registerProjectTree(client: PluginClientContext) {
         run,
         native() {
           setMode("native");
+        },
+        showHidden: selectedHidden,
+        toggleHidden() {
+          setShowHidden(!selectedHidden);
         },
         move(id, parentId, beforeId) {
           void run({ type: "move", id, parentId, ...(beforeId ? { beforeId } : {}) }).catch(
@@ -341,7 +357,7 @@ export function registerProjectTree(client: PluginClientContext) {
     useEffect(() => {
       if (props.layout.platform !== "web" || !snapshot.initialized) return;
       const remove = mountProjectTreeMenu({
-        title: tr("项目树"),
+        title: tr("万象工作台"),
         theme: props.theme,
         open: () => setMode("custom"),
       });
@@ -356,7 +372,7 @@ export function registerProjectTree(client: PluginClientContext) {
     return (
       <SidebarRow
         icon="FolderTree"
-        label={tr("项目树")}
+        label={tr("万象工作台")}
         onPress={() => {
           props.openScreen({ screenId: "project-tree" });
         }}
@@ -433,6 +449,11 @@ export function registerProjectTree(client: PluginClientContext) {
   function Screen(props: PluginScreenProps) {
     useLocale();
     const snapshot = useCatalog(props.host.id);
+    const selectedHidden = useSyncExternalStore(
+      subscribeMode,
+      () => showHidden,
+      () => showHidden,
+    );
     const [error, setError] = useState("");
     const [closed, setClosed] = useState(() => new Set(collapsed));
     useEffect(() => {
@@ -471,6 +492,7 @@ export function registerProjectTree(client: PluginClientContext) {
         .filter(
           (node) =>
             node.parentId === parentId &&
+            (!node.hidden || selectedHidden) &&
             (node.kind === "folder" || projectAvailable(snapshot, node.members, node.id)),
         )
         .map((node) => (
@@ -567,7 +589,7 @@ export function registerProjectTree(client: PluginClientContext) {
         contentContainerStyle={{ padding: props.layout.compact ? 16 : 24, gap: 12 }}
       >
         <Text style={{ color: colors.foreground, fontSize: 22, fontWeight: "600" }}>
-          {tr("项目树")}
+          {tr("万象工作台")}
         </Text>
         {props.layout.platform === "web" && (
           <View style={{ flexDirection: "row", gap: 16 }}>
@@ -580,11 +602,17 @@ export function registerProjectTree(client: PluginClientContext) {
           </View>
         )}
         {error ? <Text style={{ color: colors.foreground }}>{error}</Text> : null}
+        <Pressable onPress={() => setShowHidden(!selectedHidden)}>
+          <Text style={{ color: colors.accent }}>
+            {selectedHidden ? "✓ " : ""}
+            {tr("显示隐藏节点")}
+          </Text>
+        </Pressable>
         <Text style={{ color: colors.foregroundMuted }}>
           {tr("配置 Host")}: {props.host.label}
         </Text>
         <Text style={{ color: colors.foregroundMuted }}>
-          {tr("所有客户端请选择同一配置 Host；仅在该 Host 启用项目树。")}
+          {tr("所有客户端请选择同一配置 Host；仅在该 Host 启用万象工作台。")}
         </Text>
         {snapshot.organizationError ? (
           <Text style={{ color: colors.foregroundMuted }}>{snapshot.organizationError}</Text>
@@ -619,8 +647,12 @@ export function registerProjectTree(client: PluginClientContext) {
     );
   }
   const register = () => [
-    client.addScreen({ id: "project-tree", title: tr("项目树"), Component: Screen }),
-    client.addSidebarHeaderItem({ id: "project-tree", title: tr("项目树"), Component: Sidebar }),
+    client.addScreen({ id: "project-tree", title: tr("万象工作台"), Component: Screen }),
+    client.addSidebarHeaderItem({
+      id: "project-tree",
+      title: tr("万象工作台"),
+      Component: Sidebar,
+    }),
   ];
   function Settings(props: PluginSurfaceProps) {
     useLocale();
@@ -628,13 +660,13 @@ export function registerProjectTree(client: PluginClientContext) {
     return (
       <View style={{ padding: 16, gap: 12 }}>
         <Text style={{ color: props.theme.colors.foreground }}>
-          {tr("将当前 Host 作为项目树配置 Host")}: {props.host.label}
+          {tr("将当前 Host 作为万象工作台配置 Host")}: {props.host.label}
         </Text>
         <Text style={{ color: props.theme.colors.foregroundMuted }}>
-          {tr("所有客户端请选择同一配置 Host；仅在该 Host 启用项目树。")}
+          {tr("所有客户端请选择同一配置 Host；仅在该 Host 启用万象工作台。")}
         </Text>
         <Switch
-          accessibilityLabel={tr("启用项目树")}
+          accessibilityLabel={tr("启用万象工作台")}
           disabled={settings.status !== "ready" || settings.saving}
           value={settings.status === "ready" && settings.values.enabled}
           onValueChange={(enabled) => {
@@ -646,7 +678,7 @@ export function registerProjectTree(client: PluginClientContext) {
         ) : null}
         {settings.status === "ready" && settings.values.enabled && (
           <Pressable onPress={() => client.openScreen({ screenId: "project-tree" })}>
-            <Text style={{ color: props.theme.colors.accent }}>{tr("打开项目树")}</Text>
+            <Text style={{ color: props.theme.colors.accent }}>{tr("打开万象工作台")}</Text>
           </Pressable>
         )}
       </View>
@@ -654,7 +686,7 @@ export function registerProjectTree(client: PluginClientContext) {
   }
   const removeSettings = client.addSettingsScreen({
     id: "project-tree",
-    title: tr("项目树"),
+    title: tr("万象工作台"),
     icon: "FolderTree",
     Component: Settings,
   });
