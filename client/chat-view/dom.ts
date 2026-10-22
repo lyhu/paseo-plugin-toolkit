@@ -18,12 +18,14 @@ export interface Element {
   scrollTop: number;
   scrollHeight: number;
   firstElementChild: Element | null;
+  lastElementChild: Element | null;
   value?: string;
   focus(): void;
   dispatchEvent(event: unknown): boolean;
   setSelectionRange(start: number, end: number): void;
   scrollIntoView(options: { block: string; behavior: string }): void;
   style: Record<string, string>;
+  classList: { add(...tokens: string[]): void };
   getAttribute(name: string): string | null;
   setAttribute(name: string, value: string): void;
   removeAttribute(name: string): void;
@@ -41,6 +43,7 @@ export interface Element {
   contains(other: unknown): boolean;
   appendChild(element: Element): void;
   insertBefore(element: Element, before: Element | null): void;
+  cloneNode(deep?: boolean): Element;
   addEventListener(name: string, callback: (event: unknown) => void): void;
   removeEventListener(name: string, callback: (event: unknown) => void): void;
   remove(): void;

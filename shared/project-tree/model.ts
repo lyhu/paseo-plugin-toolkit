@@ -5,6 +5,7 @@ const common = {
   id: z.string().min(1),
   name: z.string().trim().min(1).max(120),
   parentId: z.string().nullable(),
+  hidden: z.boolean().optional(),
 };
 export const nodeSchema = z.discriminatedUnion("kind", [
   z.object({ ...common, kind: z.literal("folder") }),
@@ -40,6 +41,8 @@ export const commandSchema = z.discriminatedUnion("type", [
     parentId: common.parentId,
   }),
   z.object({ type: z.literal("rename"), id: common.id, name: common.name }),
+  z.object({ type: z.literal("hide"), id: common.id, hidden: z.boolean() }),
+  z.object({ type: z.literal("hideEmpty"), ids: z.array(common.id).min(1) }),
   z.object({
     type: z.literal("move"),
     id: common.id,
@@ -70,8 +73,12 @@ export type TreeNodeAction =
   | "menu"
   | "rename"
   | "move"
+  | "hide"
+  | "hideEmpty"
   | "up"
   | "down"
+  | "top"
+  | "bottom"
   | "merge"
   | "split"
   | "delete";
@@ -172,6 +179,21 @@ export function applyTreeCommand(previous: Tree, input: TreeCommand): Tree {
     case "rename":
       find(command.id).name = command.name;
       break;
+    case "hide": {
+      const node = find(command.id);
+      if (node.kind !== "project") throw new Error("只能隐藏项目节点");
+      if (command.hidden) node.hidden = true;
+      else delete node.hidden;
+      break;
+    }
+    case "hideEmpty": {
+      for (const id of command.ids) {
+        const node = find(id);
+        if (node.kind !== "project") throw new Error("只能隐藏项目节点");
+        node.hidden = true;
+      }
+      break;
+    }
     case "move": {
       const node = find(command.id);
       node.parentId = command.parentId;
