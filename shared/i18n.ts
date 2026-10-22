@@ -1,20 +1,22 @@
 import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./chat-view/i18n";
 
 const english: Record<string, string> = {
+  未命名会话: "Untitled session",
+  显示会话: "Show sessions",
+  隐藏会话: "Hide sessions",
+  "更多会话({0})": "More sessions ({0})",
+  "收起会话({0})": "Collapse sessions ({0})",
   "重命名 workspace": "Rename workspace",
   工作区操作: "Workspace actions",
   工作区名称: "Workspace name",
   "配置 Host": "Configuration Host",
-  "所有客户端请选择同一配置 Host；仅在该 Host 启用项目树。":
-    "Choose the same configuration Host on all clients; enable project tree only on that Host.",
-  "将当前 Host 作为项目树配置 Host": "Use this Host for project tree configuration",
-  启用项目树: "Enable project tree",
-  打开项目树: "Open project tree",
+  "所有客户端请选择同一配置 Host；仅在该 Host 启用万象工作台。":
+    "Choose the same configuration Host on all clients; enable Wanxiang Workbench only on that Host.",
   "配置 Host 当前不可编辑，请等待恢复连接。":
     "Configuration Host is unavailable for editing. Wait for reconnection.",
-  "项目树已停用。": "Project tree is disabled.",
-  "项目树已停用或配置 Host 已断开。":
-    "Project tree is disabled or its configuration Host disconnected.",
+  "万象工作台已停用。": "Wanxiang Workbench is disabled.",
+  "万象工作台已停用或配置 Host 已断开。":
+    "Wanxiang Workbench is disabled or its configuration Host disconnected.",
   "工作区已创建，请刷新后检查归属。": "Workspace created. Refresh to check its project.",
   "工作区已创建，但实际项目归属发生变化；请通过项目节点的菜单确认合并。":
     "Workspace created, but its project changed. Confirm the merge from its project menu.",
@@ -24,6 +26,10 @@ const english: Record<string, string> = {
   新建分类文件夹: "New folder",
   重命名: "Rename",
   "移动到…": "Move to…",
+  隐藏项目节点: "Hide project",
+  显示项目节点: "Show project",
+  "隐藏空 workspace 项目节点": "Hide empty projects",
+  显示隐藏节点: "Show hidden nodes",
   删除文件夹: "Delete folder",
   "合并到…": "Merge into…",
   取消合并: "Split group",
@@ -51,11 +57,12 @@ const english: Record<string, string> = {
   整理此显示组: "Organize this display group",
   切换原生视图: "Switch to native view",
   项目操作: "Project actions",
+  复制分支名称: "Copy branch name",
+  复制路径: "Copy path",
 
-  项目树: "Project tree",
-  项目树设置: "Project tree settings",
+  万象工作台: "Wanxiang Workbench",
+  万象工作台设置: "Wanxiang Workbench settings",
   "新增树节点...": "Add tree node...",
-  切换原始视图: "Switch to original view",
   管理: "Manage",
   原生视图: "Native view",
   自定义视图: "Custom view",
@@ -104,6 +111,8 @@ const english: Record<string, string> = {
   快捷提问话术: "Quick question text",
   上移: "Move up",
   下移: "Move down",
+  置顶: "Move to top",
+  置底: "Move to bottom",
   "模型：{0}": "Model: {0}",
   总结模型: "Summary model",
   快捷入口已启用: "Workspace shortcut enabled",

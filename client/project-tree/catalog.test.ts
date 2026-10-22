@@ -1,7 +1,39 @@
-import { expect, it } from "vitest";
-import { createCatalog, projectAvailable, projectWorkspaces } from "./catalog";
+import { expect, it, vi } from "vitest";
+import { createCatalog, projectAvailable, projectWorkspaces, readHostCatalog } from "./catalog";
 import { applyTreeCommand } from "../../shared/project-tree/model";
 const host = { serverId: "mini", label: "Mini", status: "online" } as const;
+it("loads paginated history by workspace identity, excluding unrelated and internal sessions", async () => {
+  const session = (id: string, workspaceId?: string, internal = false) => ({
+    agent: { id, workspaceId, internal, title: id, updatedAt: "2026-10-22T00:00:00Z" },
+  });
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({
+      entries: [session("first", "w"), session("other", "other"), session("legacy")],
+      pageInfo: { nextCursor: "next" },
+    })
+    .mockResolvedValueOnce({
+      entries: [session("second", "w"), session("internal", "w", true)],
+      pageInfo: { nextCursor: null },
+    });
+  const api = {
+    projects: { list: async () => ({ projects: [] }) },
+    workspaces: {
+      list: async () => ({
+        entries: [
+          { id: "w", projectId: "p", name: "W", workspaceDirectory: "/same" },
+          { id: "background", background: true },
+        ],
+        pageInfo: { nextCursor: null },
+      }),
+    },
+    agents: { list },
+  };
+  const result = await readHostCatalog(api as never, "mini");
+  expect(result.sessions?.map((session) => session.id)).toEqual(["first", "second"]);
+  expect(list.mock.calls[1]![0].page.cursor).toBe("next");
+  expect(list.mock.calls[0]![0].filter).toEqual({ includeArchived: true });
+});
 it("places only the dragged workspace in its target display group and retains Host identity across refreshes", () => {
   const catalog = createCatalog();
   catalog.hosts([host, { serverId: "pro", label: "Pro", status: "online" }]);

@@ -15,5 +15,8 @@ export const projectTreeSettings = defineSettings({
   id: "project-tree",
   scope: "host",
   version: 1,
-  schema: z.object({ enabled: z.boolean().default(false) }),
+  schema: z.object({
+    enabled: z.boolean().default(false),
+    showSessionsByDefault: z.boolean().default(false),
+  }),
 });

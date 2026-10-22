@@ -8,7 +8,7 @@
 
 | Module             | What it does                                                                             | Default                |
 | ------------------ | ---------------------------------------------------------------------------------------- | ---------------------- |
-| Project tree       | Custom folders, cross-Host display groups, and compact workspace rows                    | Off                    |
+| Wanxiang Workbench | Custom folders, cross-Host display groups, and compact workspace rows                    | Off                    |
 | Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions | On                     |
 | Sticky questions   | Keeps the active user question visible above the composer while scrolling                | On                     |
 | Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows              | Off                    |
@@ -85,9 +85,9 @@ paseo plugin enable toolkit
 - **Runtime Errors**: Inspect plugin runtime logs with `paseo plugin logs toolkit`.
 - **Multi-host Environments**: Select the target host when managing multiple Paseo hosts. Source code, settings, question libraries, and credentials are kept isolated per host.
 
-## Custom Project Tree
+## Wanxiang Workbench
 
-Enable **Settings → Plugins → toolkit → Project tree** on one stable configuration Host only. Connect every device to that Host and any other workspace Hosts.
+Turn on **Wanxiang Workbench** in **Settings → Plugins → toolkit → Settings**, on one stable configuration Host only. Connect every device to that Host and any other workspace Hosts.
 
 Folders support three levels, renaming, ordering, and moving. Deleting a folder promotes its contents. Merge Host-local projects into display groups with workspace rows directly underneath; directories, agents, and terminals remain in place.
 
@@ -95,9 +95,9 @@ Desktop and browser sidebars use native-like icons, indentation, `+`, and overfl
 
 Drag individual workspace rows onto another project header or workspace row to change their display group. Host, native Project, directory, and sessions stay intact; placement is persisted on the configuration Host. Workspace rows mirror available native row presentation and status, and forward overflow/right-click actions to the real native workspace menu. Collapsed or paginated native projects are revealed when needed; unavailable native rows offer SDK rename and native-view fallback.
 
-Project overflow menus contain Rename, Move to, Move up, Move down, Merge into, Split group, and New workspace. Inputs and destination pickers open beside the node; there is no separate management page. The header settings menu offers Add tree node and Switch to original view; folder menus also support ordering and deletion. Native workspace menus remain unchanged.
+Project overflow menus contain Rename, Move to, Move up, Move down, Move to top, Move to bottom, Merge into, Split group, Hide project, Hide empty projects, and New workspace. Hide empty projects hides every project node that currently has no workspace. Inputs and destination pickers open beside the node; there is no separate management page. The header settings menu offers Add tree node, Show hidden nodes, and Switch to original view; folder menus also support moving, pinning to top or bottom, ordering, and deletion. Native workspace menus remain unchanged. The Show hidden nodes switch is stored per device; hidden project nodes and their workspaces reappear dimmed when it is on.
 
-On desktop and web, open Project tree from the Workspaces settings menu; there is no separate navigation row. Switch back using the project-tree header settings menu. Disabling the plugin or an adapter failure restores the original list. iOS and Android retain the navigation row and use a separate project-tree screen that still requires physical-device verification. Offline configuration Hosts preserve the device cache and workspace navigation to other online Hosts; structural edits pause. Device preferences and cache are namespaced by configuration Host.
+On desktop and web, open Wanxiang Workbench from the Workspaces settings menu; there is no separate navigation row. Switch back using the Wanxiang Workbench header settings menu. Disabling the plugin or an adapter failure restores the original list. iOS and Android retain the navigation row and use a separate Wanxiang Workbench screen that still requires physical-device verification. Offline configuration Hosts preserve the device cache and workspace navigation to other online Hosts; structural edits pause. Device preferences and cache are namespaced by configuration Host.
 
 Tree organization is stored at `$PASEO_HOME/toolkit/project-tree.json`; its enable switch uses plugin settings. Sidebar replacement and native menu forwarding depend on Paseo 0.12 web structure and require verification when upgrading. Old workspaces are never automatically archived.
 
@@ -176,7 +176,7 @@ Click **Enhance** above the composer or trigger `/enhance`:
 
 Toolkit **Settings** provides granular control over individual features and display options:
 
-- **Feature Toggles**: Quick questions, sticky questions, compact activity, Mermaid diagrams, read-only protection, and prompt enhancement can be toggled independently.
+- **Feature Toggles**: Wanxiang Workbench, quick questions, sticky questions, compact activity, Mermaid diagrams, read-only protection, and prompt enhancement can be toggled independently.
 - **Multi-language Support**: Supports **简体中文**, **English**, and **Auto** (browser language detection). Panels, dialogs, progress bars, and alerts switch instantly.
 - **Content Integrity**: UI language switching only affects interface labels. User question text, conversation content, and model outputs are preserved in their original languages.
 
