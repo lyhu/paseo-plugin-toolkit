@@ -2,32 +2,33 @@
 
 [English](README.md) | [简体中文](README_zh.md) | [Product PRD (zh)](docs/product/prd.md) | [Docs Center](docs/README.md) | [Glossary](GLOSSARY.md)
 
-`paseo-plugin-toolkit` provides a curated workspace quick-question library, rich conversation display enhancements, and unified AI model configuration for Paseo. The plugin installation ID is `toolkit`.
+`paseo-plugin-toolkit` provides a cross-Host workbench, personal AI sessions, a workspace quick-question library, conversation display tools, and shared AI model configuration for Paseo. The plugin installation ID is `toolkit`.
 
 ## Features
 
-| Module             | What it does                                                                             | Default                |
-| ------------------ | ---------------------------------------------------------------------------------------- | ---------------------- |
-| Workbench          | Custom folders, cross-Host display groups, and compact workspace rows                    | Off                    |
-| Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions | On                     |
-| Sticky questions   | Keeps the active user question visible above the composer while scrolling                | On                     |
-| Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows              | Off                    |
-| Mermaid            | Renders supported diagram code blocks as interactive diagrams in assistant responses     | Off                    |
-| Read-only messages | Hides sent-message revert actions in the web UI to avoid accidental branch overwrites    | On                     |
-| Prompt enhancement | Expands brief user drafts into structured prompts using project context                  | Off                    |
-| Shared models      | Configures host-default and workspace-override models for summaries and enhancement      | Requires configuration |
+| Module             | What it does                                                                                  | Default                            |
+| ------------------ | --------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Workbench          | Project and Host views, personal AI, memory, skills, history search, and display organization | Screen available; sidebar tree off |
+| Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions      | On                                 |
+| Sticky questions   | Keeps the active user question visible above the composer while scrolling                     | On                                 |
+| Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows                   | Off                                |
+| Mermaid            | Renders supported diagram code blocks as interactive diagrams in assistant responses          | Off                                |
+| Read-only messages | Hides sent-message revert actions in the web UI to avoid accidental branch overwrites         | On                                 |
+| Prompt enhancement | Expands brief user drafts into structured prompts using project context                       | Off                                |
+| Shared models      | Configures host-default and workspace-override models for summaries and enhancement           | Requires configuration             |
 
 ## Requirements and Platform Support
 
-Supported Paseo versions: **0.12.x** (`>=0.12.0 <0.13.0`). Update both client and daemon. Built against Paseo SDK 0.12.0.
+Supported Paseo versions: **0.13.x** (`>=0.13.0 <0.14.0`). Update both client and daemon. Built against Paseo SDK 0.13.0.
 
-| Feature                            | Desktop / Browser                           | iOS / Android                                                     |
-| ---------------------------------- | ------------------------------------------- | ----------------------------------------------------------------- |
-| Quick questions and model settings | Available                                   | Cross-platform components; physical-device verification suggested |
-| Sticky questions                   | Available in active conversation views      | Unavailable (relies on web viewport adapter)                      |
-| Compact activity and Mermaid       | Available                                   | Cross-platform renderers; physical-device verification suggested  |
-| Read-only messages                 | Available                                   | Unavailable (relies on web viewport adapter)                      |
-| Prompt enhancement                 | Composer button, draft replacement and undo | `/enhance` slash command and clipboard fallback                   |
+| Feature                            | Desktop / Browser                                          | iOS / Android                                                                    |
+| ---------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Workbench                          | Browser runtime verified; uses native workspace navigation | React Native component tests; simulator and physical-device verification pending |
+| Quick questions and model settings | Available                                                  | Cross-platform components; physical-device verification suggested                |
+| Sticky questions                   | Available in active conversation views                     | Unavailable (relies on web viewport adapter)                                     |
+| Compact activity and Mermaid       | Available                                                  | Cross-platform renderers; physical-device verification suggested                 |
+| Read-only messages                 | Available                                                  | Unavailable (relies on web viewport adapter)                                     |
+| Prompt enhancement                 | Composer button, draft replacement and undo                | `/enhance` slash command and clipboard fallback                                  |
 
 > **Tip**: When using Compact Activity, set tool-call detail to **Detailed** in Paseo settings. Overview mode merges information before plugins receive it, preventing detailed inspection.
 
@@ -87,19 +88,29 @@ paseo plugin enable toolkit
 
 ## Workbench
 
-Turn on **Workbench** in **Settings → Plugins → toolkit → Settings**, on one stable configuration Host only. Connect every device to that Host and any other workspace Hosts. **View name** on the same page is the sidebar heading, the Workspaces menu label, and the standalone screen title. It defaults to"我的工作台"; leaving it blank restores that default.
+Open **Workbench** from the sidebar for project, Host, personal AI, memory, skill, and history views. Connect all devices to one stable configuration Host; it owns display organization and preferences. Project and Host views use the same catalog. Clicking a workspace opens Paseo's native workspace, retaining its **Agent and Terminal tabs**. The personal AI chat view is a separate entry.
 
-Folders support three levels, renaming, ordering, and moving. Deleting a folder promotes its contents. Merge Host-local projects into display groups with workspace rows directly underneath; directories, agents, and terminals remain in place.
+The optional sidebar tree is enabled under **Settings → Plugins → toolkit → Settings**, on the configuration Host only. Its **View name** defaults to “我的工作台”. Folders have no product depth limit and support renaming, moving, ordering, and flattening. Deleting a folder promotes its contents. Cross-Host display groups and workspace placement change display organization without moving directories, agents, or terminals. Desktop/browser native-menu forwarding depends on the host's web structure; unsupported rows retain a native-view fallback.
 
-Desktop and browser sidebars use native-like icons, indentation, `+`, and overflow buttons. Drag rows or use their overflow menus. The project `+` opens Paseo’s native New workspace page, including its project, Host, directory and worktree controls. Multiple native groups first show their Host scope. Mobile node dialogs provide simplified directory creation.
+Tabs, favorites, scenario assignments, and focus tasks persist on the configuration Host. Display snapshots include the tree, tabs, favorites, and scenario assignments. Restore and undo use revision checks and preserve current focus tasks, personal memory, and actual resources. The restore preview explains the scope before confirmation. Configuration-Host outages retain cached browsing while writes are disabled.
 
-Drag individual workspace rows onto another project header or workspace row to change their display group. Host, native Project, directory, and sessions stay intact; placement is persisted on the configuration Host. Workspace rows mirror available native row presentation and status, and forward overflow/right-click actions to the real native workspace menu. Collapsed or paginated native projects are revealed when needed; unavailable native rows offer SDK rename and native-view fallback.
+Choose the four Workbench palettes in Paseo's official **Settings → Appearance** theme picker. Theme changes apply through Paseo, and the screen follows the active theme. The plugin also provides compact layouts; mobile behavior is covered by React Native component tests, not a booted simulator or physical-device acceptance test.
 
-Project overflow menus contain Rename, Move to, Move up, Move down, Move to top, Move to bottom, Merge into, Split group, Hide project, Hide empty projects, and New workspace. Hide empty projects hides every project node that currently has no workspace. Inputs and destination pickers open beside the node; there is no separate management page. The header settings menu offers Add tree node, Show hidden nodes, and Switch to original view; folder menus also support moving, pinning to top or bottom, ordering, and deletion. Native workspace menus remain unchanged. The Show hidden nodes switch is stored per device; hidden project nodes and their workspaces reappear dimmed when it is on.
+### Personal AI, memory, and skills
 
-On desktop and web, open the view from the Workspaces settings menu; the menu uses the configured view name, which defaults to "我的工作台". There is no separate navigation row. Switch back using the header settings menu. Disabling the plugin or an adapter failure restores the original list. iOS and Android retain the navigation row and use a separate screen with the same view name; that screen still requires physical-device verification. Offline configuration Hosts preserve the device cache and workspace navigation to other online Hosts; structural edits pause. Device preferences and cache are namespaced by configuration Host.
+Initialize personal AI explicitly to create its workspace under `$PASEO_HOME/workbench`. Repeated initialization reuses that workspace. Select a discovered **Provider and model**; sessions use Paseo's `provider/model` selection and run as real agents. Provider configuration and ordinary tool approvals still apply.
 
-Tree organization is stored at `$PASEO_HOME/toolkit/project-tree.json`; its enable switch uses plugin settings. Sidebar replacement and native menu forwarding depend on Paseo 0.12 web structure and require verification when upgrading. Old workspaces are never automatically archived.
+Personal memory records support editing, confirmation, enable/disable, and deletion. Only confirmed, enabled records matching the context scope are included. Personal AI receives the personal scope, with a bounded context budget. Records are reference material with provenance, not execution authorization. History indexing and memory are separate: indexing does not automatically turn conversations into memory.
+
+Skills are real `SKILL.md` files. Enabled skills live in `.agents/skills`; disabled skills move outside that discovery directory and are excluded from personal AI tool context. New sessions receive enabled skill content within a budget. Existing sessions may retain previously loaded content: start a new session after changing skills. Plugin reload or restart expires existing Workbench tool connections; create a new personal AI session afterward.
+
+### Confirmed creation and history search
+
+Creating a project, workspace, or session first saves an editable plan with its target Host, directory or workspace, Provider/model, and prompt. **Confirm and execute** performs the real SDK operation. AI tools can prepare plans and read their results; they cannot execute them. Completed, failed, partial, cancelled, and unknown outcomes remain distinct, and handled plans cannot run twice. Partial results preserve known resource identities. Unknown outcomes require checking the target before preparing another request.
+
+A local new project can create its final directory if the parent already exists. A remote target must already contain the selected directory; the plugin does not create it on the configuration Host. Remote operations use the target Host's SDK connection.
+
+History search covers explicitly indexed sessions and shows coverage and errors. It reads user and assistant text, excludes tool output, and preserves the previous complete index if cancellation, missing pages, or limits interrupt indexing. A session is limited to 10,000 text entries and 16 million characters per indexing run. Search results identify the source Host, workspace, and session. Unindexed or failed sessions are not presented as fully searched.
 
 ## Quick Questions
 
@@ -108,7 +119,7 @@ Click the **Quick questions** button above the chat composer to open the popover
 - Real-time search across the workspace question library.
 - Click the row's send icon to send immediately, or select a question to edit and refine it in the composer popover before sending.
 - Sending is allowed only when the conversation is idle.
-- While composing a new agent, the same button appears beside **Import session** above the draft composer. Selecting a question fills the draft, where you can edit it before sending. This draft entry requires Paseo 0.12 or later. Filling the draft requires the web or desktop app.
+- While composing a new agent, the same button appears beside **Import session** above the draft composer. Selecting a question fills the draft, where you can edit it before sending. Draft filling requires the web or desktop app.
 
 Click the **settings icon** in the top-right corner of the popover (or navigate via Command Center) to open the workspace maintenance panel:
 
@@ -184,11 +195,14 @@ Toolkit **Settings** provides granular control over individual features and disp
 
 Data is managed centrally under the host `PASEO_HOME` directory:
 
-| Path                                                      | Content                                                  |
-| --------------------------------------------------------- | -------------------------------------------------------- |
-| `~/.paseo/toolkit/models.json`                            | Host default model, workspace overrides, and credentials |
-| `~/.paseo/toolkit/quick-questions/<workspace-hash>.json`  | Workspace question library, limits, and summary prompt   |
-| `~/.paseo/plugin-settings/toolkit/chat-view-display.json` | Feature switches, language, and display preferences      |
+| Path                                                      | Content                                                                             |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `~/.paseo/toolkit/project-tree.json`                      | Display tree, snapshots, and undo history                                           |
+| `~/.paseo/toolkit/workbench/`                             | Preferences, memory, personal AI identity, creation plans, and history index shards |
+| `~/.paseo/workbench/`                                     | Personal AI workspace and enabled/disabled skill files                              |
+| `~/.paseo/toolkit/models.json`                            | Host default model, workspace overrides, and credentials                            |
+| `~/.paseo/toolkit/quick-questions/<workspace-hash>.json`  | Workspace question library, limits, and summary prompt                              |
+| `~/.paseo/plugin-settings/toolkit/chat-view-display.json` | Feature switches, language, and display preferences                                 |
 
 - **Permission Hardening**: Sensitive configuration files (models, credentials, question libraries) are created with restrictive `0600` file permissions.
 - **Zero Third-party Intermediaries**: Summaries and prompt enhancement run only on explicit user action. Requests are dispatched directly from the daemon host to your configured endpoint without external telemetry or intermediate relay services.
