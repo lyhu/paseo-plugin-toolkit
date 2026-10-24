@@ -46,7 +46,23 @@ export const readProjectTreeHistory = defineRpc({
   output: z.object({
     revision: z.number().int().nonnegative(),
     canUndo: z.boolean(),
-    snapshots: z.array(z.object({ id: z.string(), name: z.string(), createdAt: z.string() })),
+    workbenchRevision: z.number().int().nonnegative().optional(),
+    snapshots: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        createdAt: z.string(),
+        preview: z
+          .object({
+            nodesChanged: z.number().int().nonnegative(),
+            workspacePlacementsChanged: z.boolean(),
+            tabsChanged: z.boolean().optional(),
+            favoritesChanged: z.boolean().optional(),
+            scenariosChanged: z.boolean().optional(),
+          })
+          .optional(),
+      }),
+    ),
   }),
 });
 export const saveProjectTreeSnapshot = defineRpc({
@@ -59,11 +75,18 @@ export const saveProjectTreeSnapshot = defineRpc({
 });
 export const restoreProjectTreeSnapshot = defineRpc({
   name: "project-tree.snapshot.restore",
-  input: z.object({ revision: z.number().int().nonnegative(), snapshotId: z.string() }),
+  input: z.object({
+    revision: z.number().int().nonnegative(),
+    snapshotId: z.string(),
+    workbenchRevision: z.number().int().nonnegative().optional(),
+  }),
   output: treeSchema,
 });
 export const undoProjectTree = defineRpc({
   name: "project-tree.undo",
-  input: z.object({ revision: z.number().int().nonnegative() }),
+  input: z.object({
+    revision: z.number().int().nonnegative(),
+    workbenchRevision: z.number().int().nonnegative().optional(),
+  }),
   output: treeSchema,
 });
