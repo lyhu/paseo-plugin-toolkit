@@ -73,7 +73,15 @@ const base = {
       workspaceCount: 0,
     },
   ],
-  workspaces: [],
+  workspaces: [
+    {
+      id: "native-workspace",
+      serverId: "host-a",
+      projectId: "native-1",
+      name: "Main",
+      path: "/one",
+    },
+  ],
   sessions: [{ id: "agent", serverId: "host-a", workspaceId: "ai", title: "AI session" }],
   preferences: { layout: "C", tabs: [], favorites: [], focusTasks: [], scenarioProjects: {} },
   memories: [],
@@ -91,7 +99,8 @@ const props = {
   host: { id: "host-a", label: "Host A" },
   layout: { compact: false, platform: "web" },
   params: {},
-} as PluginScreenProps;
+  navigation: { openWorkspace: vi.fn(), openAgent: vi.fn() },
+} as unknown as PluginScreenProps;
 let root: ReturnType<typeof createRoot> | undefined;
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -153,4 +162,15 @@ it("assigns scenarios by display identity and keeps unclassified projects in All
   expect(document.body.textContent).not.toContain("Project One");
   await click("研发");
   expect(document.body.textContent).toContain("Project One");
+});
+
+it.each(["项目视图", "主机视图"])("opens native workspace tabs from %s", async (layout) => {
+  await mount();
+  await click(layout);
+  await click("Main · Host A");
+  expect(props.navigation!.openWorkspace).toHaveBeenCalledWith({
+    serverId: "host-a",
+    workspaceId: "native-workspace",
+  });
+  expect(props.navigation!.openAgent).not.toHaveBeenCalled();
 });

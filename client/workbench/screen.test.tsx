@@ -24,6 +24,7 @@ vi.mock("react-native", () => {
         children as never,
       );
   return {
+    StyleSheet: { hairlineWidth: 1 },
     View: component("div"),
     ScrollView: component("section"),
     Text: component("span"),
@@ -34,6 +35,7 @@ vi.mock("react-native", () => {
 vi.mock("@getpaseo/plugin/client", () => ({ getPaseoClient: vi.fn() }));
 vi.mock("../i18n", () => ({ tr: (value: string) => value, useLocale: () => "zh" }));
 import { WorkbenchScreen } from "./screen";
+import { Markdown } from "../chat-view/mermaid/markdown";
 const model: WorkbenchModel = {
   hosts: [{ id: "local", name: "Development Host", status: "online" }],
   projects: [
@@ -198,4 +200,71 @@ it("does not equate an enabled skill with confirmed current-session loading", ()
   );
   expect(html).toContain("当前会话加载状态未知");
   expect(html).toContain("技能变更从新会话生效");
+});
+
+it("uses display workspace placement instead of original project membership", () => {
+  const html = renderToStaticMarkup(
+    <WorkbenchScreen
+      {...props}
+      model={{
+        ...model,
+        projects: [{ ...model.projects[0], workspaceRefs: [{ serverId: "remote", id: "moved" }] }],
+        workspaces: [
+          ...model.workspaces,
+          {
+            id: "moved",
+            serverId: "remote",
+            projectId: "other-project",
+            name: "Moved workspace",
+            path: "/moved",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(html).toContain("Moved workspace");
+  expect(html).not.toContain(">Main");
+});
+
+it("reuses native Markdown formatting for headings, emphasis and code", () => {
+  const html = renderToStaticMarkup(
+    <Markdown
+      theme={props.theme}
+      compact={false}
+      text={"# Plan\n\n**Ready** and `code`\n\n```ts\nconst value = 1;\n```"}
+    />,
+  );
+  expect(html).toContain("Plan");
+  expect(html).toContain("Ready");
+  expect(html).toContain("const value = 1;");
+  expect(html).not.toContain("**Ready**");
+  expect(html).not.toContain("```ts");
+});
+
+it("shows the native target workspace and provider before confirming a session plan", () => {
+  const html = renderToStaticMarkup(
+    <WorkbenchScreen
+      {...props}
+      params={{ page: "ai" }}
+      model={{
+        ...model,
+        plans: [
+          {
+            id: "session-plan",
+            revision: 0,
+            title: "New agent",
+            kind: "session",
+            status: "pending",
+            serverId: "local",
+            workspaceId: "workspace",
+            provider: "codex",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(html).toContain("Main");
+  expect(html).toContain("workspace");
+  expect(html).toContain("codex");
+  expect(html).toContain("确认并执行");
 });

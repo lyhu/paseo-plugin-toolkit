@@ -122,10 +122,15 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
       : aiSessions[0];
   const openSession = (s: WorkbenchSession) =>
     props.navigation?.openAgent({ serverId: s.serverId, agentId: s.id });
-  const workspaceButtons = (project: WorkbenchProject | undefined) =>
+  const workspaceButtons = (project: WorkbenchProject | undefined, serverId?: string) =>
     model.workspaces
+      .filter((w) => !serverId || w.serverId === serverId)
       .filter((w) =>
-        project?.instances.some((i) => i.serverId === w.serverId && i.projectId === w.projectId),
+        project?.workspaceRefs
+          ? project.workspaceRefs.some((ref) => ref.serverId === w.serverId && ref.id === w.id)
+          : project?.instances.some(
+              (i) => i.serverId === w.serverId && i.projectId === w.projectId,
+            ),
       )
       .map((w) => (
         <Action
@@ -135,7 +140,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
             props.navigation?.openWorkspace({ serverId: w.serverId, workspaceId: w.id })
           }
         >
-          {w.name}
+          {w.name} · {model.hosts.find((host) => host.id === w.serverId)?.name ?? w.serverId}
         </Action>
       ));
   const projectCard = (project: WorkbenchProject) => (
@@ -283,6 +288,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                           {instance.branch ? ` · ${instance.branch}` : ""}
                         </Copy>
                       ))}
+                    <Row>{workspaceButtons(project, h.id)}</Row>
                   </View>
                 ))}
               <Row>
@@ -445,6 +451,28 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
             {plan.kind} · {model.hosts.find((h) => h.id === plan.serverId)?.name ?? plan.serverId}
           </Copy>
           {plan.path && <Copy>{plan.path}</Copy>}
+          {plan.projectId && (
+            <Copy muted>
+              {tr("项目")}:{" "}
+              {model.projects.find((project) =>
+                project.instances.some(
+                  (instance) =>
+                    instance.serverId === plan.serverId && instance.projectId === plan.projectId,
+                ),
+              )?.name ?? plan.projectId}
+            </Copy>
+          )}
+          {plan.workspaceId && (
+            <Copy muted>
+              {tr("工作区")}:{" "}
+              {model.workspaces.find(
+                (workspace) =>
+                  workspace.serverId === plan.serverId && workspace.id === plan.workspaceId,
+              )?.name ?? plan.workspaceId}{" "}
+              · {plan.workspaceId}
+            </Copy>
+          )}
+          {plan.provider && <Copy muted>Provider: {plan.provider}</Copy>}
           {plan.steps?.map((step, index) => (
             <Copy key={index}>
               {index + 1}. {step}
@@ -697,122 +725,144 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
             {model.preferences.layout === "B" ? (
               hostsView
             ) : model.preferences.layout === "C" ? (
-              <>
-                <Card>
-                  <Copy size={18} strong>
-                    {tr("当前焦点")}
-                  </Copy>
-                  <Row>
-                    <Action selected={!focusProject} onPress={() => setFocusProject("")}>
-                      {tr("个人")}
-                    </Action>
-                    {model.projects
-                      .filter((p) => !p.system)
-                      .map((p) => (
-                        <Action
-                          key={p.id}
-                          selected={focusProject === p.id}
-                          onPress={() => setFocusProject(p.id)}
-                        >
-                          {p.name}
-                        </Action>
-                      ))}
-                  </Row>
-                  {focusProject && (
+              <View
+                style={{
+                  flexDirection: props.layout.compact ? "column" : "row",
+                  alignItems: "flex-start",
+                  gap: 24,
+                }}
+              >
+                <View
+                  style={{
+                    flex: props.layout.compact ? undefined : 1,
+                    minWidth: 0,
+                    width: props.layout.compact ? "100%" : undefined,
+                  }}
+                >
+                  <Card>
+                    <Copy size={18} strong>
+                      {tr("当前焦点")}
+                    </Copy>
                     <Row>
-                      {workspaceButtons(model.projects.find((p) => p.id === focusProject)!)}
+                      <Action selected={!focusProject} onPress={() => setFocusProject("")}>
+                        {tr("个人")}
+                      </Action>
+                      {model.projects
+                        .filter((p) => !p.system)
+                        .map((p) => (
+                          <Action
+                            key={p.id}
+                            selected={focusProject === p.id}
+                            onPress={() => setFocusProject(p.id)}
+                          >
+                            {p.name}
+                          </Action>
+                        ))}
                     </Row>
-                  )}
-                  <Field label={tr("添加待办")} value={taskTitle} onChangeText={setTaskTitle} />
-                  <Action
-                    disabled={!taskTitle.trim() || !model.editable}
-                    onPress={() =>
-                      run(async () => {
-                        await model.savePreferences({
-                          focusTasks: [
-                            ...model.preferences.focusTasks,
-                            { id: `task-${Date.now()}`, title: taskTitle.trim(), done: false },
-                          ],
-                        });
-                        setTaskTitle("");
-                      })
-                    }
-                  >
-                    {tr("添加")}
-                  </Action>
-                  {editingTask && (
-                    <Card accent>
-                      <Field
-                        label={tr("编辑待办")}
-                        value={editingTask.title}
-                        onChangeText={(title) => setEditingTask({ ...editingTask, title })}
-                      />
+                    {focusProject && (
                       <Row>
+                        {workspaceButtons(model.projects.find((p) => p.id === focusProject)!)}
+                      </Row>
+                    )}
+                    <Field label={tr("添加待办")} value={taskTitle} onChangeText={setTaskTitle} />
+                    <Action
+                      disabled={!taskTitle.trim() || !model.editable}
+                      onPress={() =>
+                        run(async () => {
+                          await model.savePreferences({
+                            focusTasks: [
+                              ...model.preferences.focusTasks,
+                              { id: `task-${Date.now()}`, title: taskTitle.trim(), done: false },
+                            ],
+                          });
+                          setTaskTitle("");
+                        })
+                      }
+                    >
+                      {tr("添加")}
+                    </Action>
+                    {editingTask && (
+                      <Card accent>
+                        <Field
+                          label={tr("编辑待办")}
+                          value={editingTask.title}
+                          onChangeText={(title) => setEditingTask({ ...editingTask, title })}
+                        />
+                        <Row>
+                          <Action
+                            primary
+                            disabled={!editingTask.title.trim() || !model.editable}
+                            onPress={() =>
+                              run(async () => {
+                                await model.savePreferences({
+                                  focusTasks: model.preferences.focusTasks.map((task) =>
+                                    task.id === editingTask.id
+                                      ? { ...task, title: editingTask.title.trim() }
+                                      : task,
+                                  ),
+                                });
+                                setEditingTask(null);
+                              })
+                            }
+                          >
+                            {tr("保存")}
+                          </Action>
+                          <Action onPress={() => setEditingTask(null)}>{tr("取消")}</Action>
+                        </Row>
+                      </Card>
+                    )}
+                    {model.preferences.focusTasks.map((task) => (
+                      <Row key={task.id}>
                         <Action
-                          primary
-                          disabled={!editingTask.title.trim() || !model.editable}
+                          selected={task.done}
+                          disabled={!model.editable}
                           onPress={() =>
-                            run(async () => {
-                              await model.savePreferences({
-                                focusTasks: model.preferences.focusTasks.map((task) =>
-                                  task.id === editingTask.id
-                                    ? { ...task, title: editingTask.title.trim() }
-                                    : task,
+                            run(() =>
+                              model.savePreferences({
+                                focusTasks: model.preferences.focusTasks.map((t) =>
+                                  t.id === task.id ? { ...t, done: !t.done } : t,
                                 ),
-                              });
-                              setEditingTask(null);
-                            })
+                              }),
+                            )
                           }
                         >
-                          {tr("保存")}
+                          {task.done ? "✓ " : "○ "}
+                          {task.title}
                         </Action>
-                        <Action onPress={() => setEditingTask(null)}>{tr("取消")}</Action>
+                        <Action
+                          disabled={!model.editable}
+                          onPress={() => setEditingTask({ id: task.id, title: task.title })}
+                        >
+                          {tr("编辑")}
+                        </Action>
+                        <Action
+                          disabled={!model.editable}
+                          onPress={() =>
+                            run(() =>
+                              model.savePreferences({
+                                focusTasks: model.preferences.focusTasks.filter(
+                                  (t) => t.id !== task.id,
+                                ),
+                              }),
+                            )
+                          }
+                        >
+                          {tr("移除")}
+                        </Action>
                       </Row>
-                    </Card>
-                  )}
-                  {model.preferences.focusTasks.map((task) => (
-                    <Row key={task.id}>
-                      <Action
-                        selected={task.done}
-                        disabled={!model.editable}
-                        onPress={() =>
-                          run(() =>
-                            model.savePreferences({
-                              focusTasks: model.preferences.focusTasks.map((t) =>
-                                t.id === task.id ? { ...t, done: !t.done } : t,
-                              ),
-                            }),
-                          )
-                        }
-                      >
-                        {task.done ? "✓ " : "○ "}
-                        {task.title}
-                      </Action>
-                      <Action
-                        disabled={!model.editable}
-                        onPress={() => setEditingTask({ id: task.id, title: task.title })}
-                      >
-                        {tr("编辑")}
-                      </Action>
-                      <Action
-                        disabled={!model.editable}
-                        onPress={() =>
-                          run(() =>
-                            model.savePreferences({
-                              focusTasks: model.preferences.focusTasks.filter(
-                                (t) => t.id !== task.id,
-                              ),
-                            }),
-                          )
-                        }
-                      >
-                        {tr("移除")}
-                      </Action>
-                    </Row>
-                  ))}
-                </Card>
-                {chat}
-              </>
+                    ))}
+                  </Card>
+                </View>
+                <View
+                  style={{
+                    flex: props.layout.compact ? undefined : 2,
+                    minWidth: 0,
+                    width: props.layout.compact ? "100%" : undefined,
+                  }}
+                >
+                  {chat}
+                </View>
+              </View>
             ) : (
               <>
                 <Row>

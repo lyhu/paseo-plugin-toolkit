@@ -20,6 +20,7 @@ export interface WorkbenchProject {
   name: string;
   instances: ProjectInstance[];
   workspaceCount: number;
+  workspaceRefs?: { serverId: string; id: string }[];
   tags?: string[];
   system?: boolean;
 }
@@ -77,6 +78,7 @@ export interface WorkbenchSkill {
   content?: string;
 }
 export interface WorkbenchPlan {
+  provider?: string;
   id: string;
   revision: number;
   title: string;

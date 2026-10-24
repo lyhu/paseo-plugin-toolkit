@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { getPaseoClient } from "@getpaseo/plugin/client";
 import { mergeTimeline, timelineText, type TimelinePage, type Entry } from "./timeline";
-import { Action, Card, Copy, Empty, Field, Row } from "./components";
+import { Action, Card, Copy, Empty, Field, Row, useWorkbenchTheme } from "./components";
+import { Markdown } from "../chat-view/mermaid/markdown";
 import type { WorkbenchModel, WorkbenchSession } from "./types";
 import { tr } from "../i18n";
 
@@ -23,6 +24,7 @@ export function Conversation({
   openNative(): void;
   run(task: () => Promise<unknown>): void;
 }) {
+  const theme = useWorkbenchTheme();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
@@ -217,7 +219,7 @@ export function Conversation({
                 <Copy muted size={12} strong>
                   {tr(message.role)}
                 </Copy>
-                <Copy size={15}>{message.text}</Copy>
+                <Markdown text={message.text} theme={theme} compact={false} />
                 {message.candidate && (
                   <Row>
                     <Action
