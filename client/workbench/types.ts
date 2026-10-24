@@ -50,6 +50,7 @@ export interface FocusTask {
   done: boolean;
 }
 export interface WorkbenchPreferences {
+  scenarioProjects?: Record<string, string[]>;
   layout: WorkbenchLayout;
   tabs: WorkbenchTab[];
   favorites: string[];

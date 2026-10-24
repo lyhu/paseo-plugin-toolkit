@@ -21,6 +21,11 @@ const pages: [WorkbenchPage, string][] = [
   ["memory", "记忆"],
   ["skills", "技能"],
 ];
+const scenarios = [
+  ["dev", "研发"],
+  ["ops", "运维"],
+  ["review", "检修"],
+] as const;
 export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchModel }) {
   useLocale();
   const { model, theme } = props;
@@ -41,6 +46,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const [session, setSession] = useState<WorkbenchSession | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [provider, setProvider] = useState("");
   const [sessionTitle, setSessionTitle] = useState("");
   const [focusProject, setFocusProject] = useState("");
@@ -98,7 +104,8 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
     (project) =>
       !project.system &&
       (host === "all" || project.instances.some((i) => i.serverId === host)) &&
-      (scenario === "all" || project.tags?.includes(scenario)) &&
+      (scenario === "all" ||
+        model.preferences.scenarioProjects?.[scenario]?.includes(project.id)) &&
       (!selectedTab ||
         (selectedTab.kind === "favorites"
           ? model.preferences.favorites.includes(project.id)
@@ -175,6 +182,37 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
           </View>
         ))}
         <Row>{workspaceButtons(project)}</Row>
+        <Row>
+          <Copy muted size={12}>
+            {tr("场景")}
+          </Copy>
+          {scenarios.map(([id, label]) => {
+            const members = model.preferences.scenarioProjects?.[id] ?? [];
+            const selected = members.includes(project.id);
+            return (
+              <Action
+                key={id}
+                label={`${project.name} · ${tr(label)}`}
+                selected={selected}
+                disabled={!model.editable}
+                onPress={() =>
+                  run(() =>
+                    model.savePreferences({
+                      scenarioProjects: {
+                        ...model.preferences.scenarioProjects,
+                        [id]: selected
+                          ? members.filter((member) => member !== project.id)
+                          : [...members, project.id],
+                      },
+                    }),
+                  )
+                }
+              >
+                {tr(label)}
+              </Action>
+            );
+          })}
+        </Row>
       </Card>
     </View>
   );
@@ -360,6 +398,14 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
             <Conversation
               key={JSON.stringify([activeSession.serverId, activeSession.id])}
               session={activeSession}
+              draft={drafts[JSON.stringify([activeSession.serverId, activeSession.id])] ?? ""}
+              setDraft={(value) => {
+                const key = JSON.stringify([activeSession.serverId, activeSession.id]);
+                setDrafts((current) => ({
+                  ...current,
+                  [key]: typeof value === "function" ? value(current[key] ?? "") : value,
+                }));
+              }}
               model={model}
               projectId={focusProject || undefined}
               openNative={() => openSession(activeSession)}
@@ -906,25 +952,19 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                     </Action>
                   ))}
                 </Row>
-                {model.projects.some((p) => p.tags?.length) && (
-                  <Row>
-                    <Copy muted size={12}>
-                      {tr("场景")}
-                    </Copy>
-                    <Action selected={scenario === "all"} onPress={() => setScenario("all")}>
-                      {tr("全部")}
+                <Row>
+                  <Copy muted size={12}>
+                    {tr("场景")}
+                  </Copy>
+                  <Action selected={scenario === "all"} onPress={() => setScenario("all")}>
+                    {tr("全部")}
+                  </Action>
+                  {scenarios.map(([id, label]) => (
+                    <Action key={id} selected={scenario === id} onPress={() => setScenario(id)}>
+                      {tr(label)}
                     </Action>
-                    {[...new Set(model.projects.flatMap((p) => p.tags ?? []))].map((tag) => (
-                      <Action
-                        key={tag}
-                        selected={scenario === tag}
-                        onPress={() => setScenario(tag)}
-                      >
-                        {tag}
-                      </Action>
-                    ))}
-                  </Row>
-                )}
+                  ))}
+                </Row>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
                   {projects.map(projectCard)}
                 </View>

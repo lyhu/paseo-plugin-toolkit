@@ -9,8 +9,11 @@ import { workbenchThemes } from "./themes";
 import type { WorkbenchModelHook } from "./types";
 import { tr, useLocale } from "../i18n";
 export function registerWorkbench(client: PluginClientContext, useModel: WorkbenchModelHook) {
-  function Screen(props: PluginScreenProps) {
+  function BoundScreen(props: PluginScreenProps) {
     return <WorkbenchScreen {...props} model={useModel(props)} />;
+  }
+  function Screen(props: PluginScreenProps) {
+    return <BoundScreen key={props.host.id} {...props} />;
   }
   function Sidebar(props: PluginSidebarItemProps) {
     useLocale();

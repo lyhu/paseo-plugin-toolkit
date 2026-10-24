@@ -10,12 +10,16 @@ export function Conversation({
   session,
   model,
   projectId,
+  draft,
+  setDraft,
   openNative,
   run,
 }: {
   session: WorkbenchSession;
   model: WorkbenchModel;
   projectId?: string;
+  draft: string;
+  setDraft(value: string | ((current: string) => string)): void;
   openNative(): void;
   run(task: () => Promise<unknown>): void;
 }) {
@@ -24,7 +28,6 @@ export function Conversation({
   const [ready, setReady] = useState(false);
   const [running, setRunning] = useState(false);
   const [permission, setPermission] = useState(false);
-  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [retry, setRetry] = useState(0);
   const [hasOlder, setHasOlder] = useState(false);
@@ -46,7 +49,6 @@ export function Conversation({
     setRunning(false);
     setPermission(false);
     setHasOlder(false);
-    setDraft("");
     setSending(false);
     controller.current = null;
     try {
