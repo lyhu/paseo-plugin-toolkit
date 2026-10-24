@@ -108,13 +108,13 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.clearAllMocks();
 });
-function Harness() {
-  const [preferences, setPreferences] = useState(base.preferences);
+function Harness({ initial = base }: { initial?: WorkbenchModel }) {
+  const [preferences, setPreferences] = useState(initial.preferences);
   return (
     <WorkbenchScreen
       {...props}
       model={{
-        ...base,
+        ...initial,
         preferences,
         savePreferences: async (update) => {
           savePreferences(update);
@@ -124,11 +124,11 @@ function Harness() {
     />
   );
 }
-async function mount() {
+async function mount(initial?: WorkbenchModel) {
   const element = document.createElement("main");
   document.body.append(element);
   root = createRoot(element);
-  await act(async () => root!.render(<Harness />));
+  await act(async () => root!.render(<Harness initial={initial} />));
 }
 async function click(text: string) {
   const button = [...document.querySelectorAll("button")].find(
@@ -173,4 +173,38 @@ it.each(["项目视图", "主机视图"])("opens native workspace tabs from %s",
     workspaceId: "native-workspace",
   });
   expect(props.navigation!.openAgent).not.toHaveBeenCalled();
+});
+
+it("keeps an existing conversation primary and chooses an exact model from a collapsed searchable list", async () => {
+  const providers = Array.from({ length: 32 }, (_, index) => ({
+    id: JSON.stringify({ provider: "provider-a", model: `model-${index}` }),
+    label: `Provider A / Model ${index}`,
+  }));
+  const newSession = vi
+    .fn()
+    .mockResolvedValue({
+      id: "created",
+      serverId: "host-a",
+      workspaceId: "ai",
+      title: "New session",
+    });
+  await mount({ ...base, ai: { ...base.ai, providers }, newSession });
+  expect(document.querySelector('[aria-label="Conversation draft"]')).not.toBeNull();
+  expect(document.querySelector('[aria-label="选择模型"]')).toBeNull();
+  await click("新建会话");
+  const picker = document.querySelector<HTMLButtonElement>('[aria-label="选择模型"]')!;
+  expect(picker.textContent).toContain("Provider A / Model 0");
+  expect(document.body.textContent).not.toContain("Provider A / Model 29");
+  await act(async () => picker.click());
+  const input = document.querySelector<HTMLInputElement>('[aria-label="搜索模型"]')!;
+  await act(async () => {
+    input.value = "Model 29";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(document.body.textContent).not.toContain("Provider A / Model 28");
+  await click("Provider A / Model 29");
+  expect(document.querySelector('[aria-label="搜索模型"]')).toBeNull();
+  await click("创建会话");
+  expect(newSession).toHaveBeenCalledWith({ provider: providers[29].id, title: "工作台对话" });
+  expect(document.querySelector('[aria-label="选择模型"]')).toBeNull();
 });

@@ -48,6 +48,9 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
   const [session, setSession] = useState<WorkbenchSession | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [provider, setProvider] = useState("");
+  const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+  const [providerQuery, setProviderQuery] = useState("");
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("");
   const [focusProject, setFocusProject] = useState("");
   const [taskTitle, setTaskTitle] = useState("");
@@ -120,6 +123,13 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
     session?.serverId === model.ai.serverId && session.workspaceId === model.ai.workspaceId
       ? session
       : aiSessions[0];
+  const selectedProvider =
+    model.ai.providers.find((item) => item.id === provider) ?? model.ai.providers[0];
+  const visibleProviders = model.ai.providers.filter((item) =>
+    `${item.label} ${item.id}`
+      .toLocaleLowerCase()
+      .includes(providerQuery.trim().toLocaleLowerCase()),
+  );
   const openSession = (s: WorkbenchSession) =>
     props.navigation?.openAgent({ serverId: s.serverId, agentId: s.id });
   const workspaceButtons = (project: WorkbenchProject | undefined, serverId?: string) =>
@@ -315,28 +325,30 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
   const chat = (
     <View style={{ gap: 18 }}>
       <Section title="AI 工作区" detail={model.ai.root || tr("初始化后显示实际工作区路径")} />
-      <Card>
-        <Copy strong>{tr("参考项目")}</Copy>
-        <Copy muted size={12}>
-          {tr("个人记忆始终可用；选择项目后会加入该项目已确认的记忆。")}
-        </Copy>
-        <Row>
-          <Action selected={!focusProject} onPress={() => setFocusProject("")}>
-            {tr("仅个人记忆")}
-          </Action>
-          {model.projects
-            .filter((project) => !project.system)
-            .map((project) => (
-              <Action
-                key={project.id}
-                selected={focusProject === project.id}
-                onPress={() => setFocusProject(project.id)}
-              >
-                {project.name}
-              </Action>
-            ))}
-        </Row>
-      </Card>
+      {page === "ai" && (
+        <Card>
+          <Copy strong>{tr("参考项目")}</Copy>
+          <Copy muted size={12}>
+            {tr("个人记忆始终可用；选择项目后会加入该项目已确认的记忆。")}
+          </Copy>
+          <Row>
+            <Action selected={!focusProject} onPress={() => setFocusProject("")}>
+              {tr("仅个人记忆")}
+            </Action>
+            {model.projects
+              .filter((project) => !project.system)
+              .map((project) => (
+                <Action
+                  key={project.id}
+                  selected={focusProject === project.id}
+                  onPress={() => setFocusProject(project.id)}
+                >
+                  {project.name}
+                </Action>
+              ))}
+          </Row>
+        </Card>
+      )}
       {!model.ai.initialized ? (
         <Card>
           <Copy>{tr("创建独立的 AI 工作区，用于工作台对话、记忆和技能。")}</Copy>
@@ -351,55 +363,97 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
         </Card>
       ) : (
         <>
-          <Row>
-            {aiSessions.map((s) => (
-              <Action
-                key={JSON.stringify([s.serverId, s.id])}
-                selected={activeSession?.serverId === s.serverId && activeSession.id === s.id}
-                onPress={() => setSession(s)}
-              >
-                {s.title}
+          <Row between>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ScrollView horizontal>
+                <Row>
+                  {aiSessions.map((s) => (
+                    <Action
+                      key={JSON.stringify([s.serverId, s.id])}
+                      selected={activeSession?.serverId === s.serverId && activeSession.id === s.id}
+                      onPress={() => {
+                        setSession(s);
+                        setNewSessionOpen(false);
+                      }}
+                    >
+                      {s.title}
+                    </Action>
+                  ))}
+                </Row>
+              </ScrollView>
+            </View>
+            {activeSession && (
+              <Action onPress={() => setNewSessionOpen((open) => !open)}>
+                {newSessionOpen ? tr("收起新会话") : tr("新建会话")}
               </Action>
-            ))}
-          </Row>
-          <Card>
-            <Copy strong>{tr("新会话")}</Copy>
-            <Row>
-              {model.ai.providers.map((p) => (
-                <Action
-                  key={p.id}
-                  selected={(provider || model.ai.providers[0]?.id) === p.id}
-                  onPress={() => setProvider(p.id)}
-                >
-                  {p.label}
-                </Action>
-              ))}
-            </Row>
-            {!model.ai.providers.length && (
-              <Copy muted>{tr("此 Host 尚未提供可用的模型提供商。")}</Copy>
             )}
-            <Field
-              label={tr("会话标题")}
-              value={sessionTitle}
-              onChangeText={setSessionTitle}
-              placeholder={tr("工作台对话")}
-            />
-            <Action
-              disabled={!model.editable || pending || !model.ai.providers.length}
-              onPress={() =>
-                run(async () => {
-                  const created = await model.newSession({
-                    provider: provider || model.ai.providers[0].id,
-                    title: sessionTitle.trim() || tr("工作台对话"),
-                  });
-                  setSession(created);
-                  setSessionTitle("");
-                })
-              }
-            >
-              {tr("创建会话")}
-            </Action>
-          </Card>
+          </Row>
+          {(!activeSession || newSessionOpen) && (
+            <Card>
+              <Copy strong>{tr("新会话")}</Copy>
+              {selectedProvider && (
+                <Action
+                  label={tr("选择模型")}
+                  onPress={() => setProviderPickerOpen((open) => !open)}
+                >
+                  {selectedProvider.label} {providerPickerOpen ? "▴" : "▾"}
+                </Action>
+              )}
+              {providerPickerOpen && (
+                <View style={{ gap: 10 }}>
+                  <Field
+                    label={tr("搜索模型")}
+                    value={providerQuery}
+                    onChangeText={setProviderQuery}
+                    placeholder={tr("输入模型或提供商名称")}
+                  />
+                  <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ gap: 8 }}>
+                    {visibleProviders.map((item) => (
+                      <Action
+                        key={item.id}
+                        selected={selectedProvider?.id === item.id}
+                        onPress={() => {
+                          setProvider(item.id);
+                          setProviderPickerOpen(false);
+                          setProviderQuery("");
+                        }}
+                      >
+                        {item.label}
+                      </Action>
+                    ))}
+                    {!visibleProviders.length && <Copy muted>{tr("没有匹配的模型")}</Copy>}
+                  </ScrollView>
+                </View>
+              )}
+              {!model.ai.providers.length && (
+                <Copy muted>{tr("此 Host 尚未提供可用的模型提供商。")}</Copy>
+              )}
+              <Field
+                label={tr("会话标题")}
+                value={sessionTitle}
+                onChangeText={setSessionTitle}
+                placeholder={tr("工作台对话")}
+              />
+              <Action
+                disabled={!model.editable || pending || !model.ai.providers.length}
+                onPress={() =>
+                  run(async () => {
+                    const created = await model.newSession({
+                      provider: selectedProvider!.id,
+                      title: sessionTitle.trim() || tr("工作台对话"),
+                    });
+                    setSession(created);
+                    setSessionTitle("");
+                    setNewSessionOpen(false);
+                    setProviderPickerOpen(false);
+                    setProviderQuery("");
+                  })
+                }
+              >
+                {tr("创建会话")}
+              </Action>
+            </Card>
+          )}
           {activeSession && (
             <Conversation
               key={JSON.stringify([activeSession.serverId, activeSession.id])}

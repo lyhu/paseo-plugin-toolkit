@@ -219,7 +219,11 @@ export function Conversation({
                 <Copy muted size={12} strong>
                   {tr(message.role)}
                 </Copy>
-                <Markdown text={message.text} theme={theme} compact={false} />
+                {message.candidate ? (
+                  <Markdown text={message.text} theme={theme} compact={false} />
+                ) : (
+                  <Copy size={15}>{message.text}</Copy>
+                )}
                 {message.candidate && (
                   <Row>
                     <Action
