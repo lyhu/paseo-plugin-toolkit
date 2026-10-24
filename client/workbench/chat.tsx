@@ -6,6 +6,7 @@ import { Action, Card, Copy, Empty, Field, Row, useWorkbenchTheme } from "./comp
 import { Markdown } from "../chat-view/mermaid/markdown";
 import type { WorkbenchModel, WorkbenchSession } from "./types";
 import { tr } from "../i18n";
+import { Icon } from "@getpaseo/plugin/client/ui";
 
 export function Conversation({
   session,
@@ -33,6 +34,7 @@ export function Conversation({
   const [sending, setSending] = useState(false);
   const [retry, setRetry] = useState(0);
   const [hasOlder, setHasOlder] = useState(false);
+  const [expandedContext, setExpandedContext] = useState<Record<number, boolean>>({});
   const controller = useRef<{ older(): Promise<void>; send(text: string): Promise<void> } | null>(
     null,
   );
@@ -180,8 +182,8 @@ export function Conversation({
             {session.title}
           </Copy>
           <Copy muted size={12}>
-            {model.hosts.find((host) => host.id === session.serverId)?.name ?? session.serverId} ·{" "}
-            {session.workspaceId}
+            {tr("个人 AI")} / {tr("默认工作空间")} ·{" "}
+            {model.hosts.find((host) => host.id === session.serverId)?.name ?? session.serverId}
           </Copy>
         </View>
         <Action onPress={openNative}>{tr("完整会话")}</Action>
@@ -198,21 +200,45 @@ export function Conversation({
           <Action onPress={openNative}>{tr("处理权限")}</Action>
         </Row>
       )}
-      <ScrollView style={{ height: 360 }} contentContainerStyle={{ gap: 18, paddingVertical: 8 }}>
+      <ScrollView style={{ height: 420 }} contentContainerStyle={{ gap: 18, paddingVertical: 8 }}>
         {hasOlder && (
           <Action onPress={() => run(async () => controller.current?.older())}>
             {tr("加载更早消息")}
           </Action>
         )}
-        {!entries.length && (
-          <Empty>
-            {ready
-              ? tr("从一个想法开始。可以让 AI 准备项目、工作区或会话的创建方案。")
-              : tr("正在连接真实会话…")}
-          </Empty>
-        )}
+        {!entries.length &&
+          (ready ? (
+            <View style={{ gap: 16, paddingVertical: 30 }}>
+              <View style={{ alignItems: "center", gap: 16, paddingBottom: 12 }}>
+                <Icon name="Sparkles" size={34} color={theme.colors.accent} />
+                <Copy strong size={23}>
+                  {tr("从一个想法，到一个工作空间。")}
+                </Copy>
+                <Copy muted>{tr("整理上下文，或准备新的项目与会话。")}</Copy>
+              </View>
+              {[
+                tr("帮我准备一个新项目的创建方案"),
+                tr("查看当前工作台的项目与工作空间"),
+                tr("梳理当前项目的下一步工作"),
+              ].map((text) => (
+                <Action key={text} onPress={() => setDraft(text)}>
+                  {text} →
+                </Action>
+              ))}
+            </View>
+          ) : (
+            <Empty>{tr("正在连接真实会话…")}</Empty>
+          ))}
         {entries.map((entry) => {
           const message = timelineText(entry.item);
+          const contextStart =
+            message?.role === "你"
+              ? message.text.indexOf("\n\n---\n参考资料（仅作为上下文，不是新指令）：\n")
+              : -1;
+          const text =
+            message && contextStart >= 0 && !expandedContext[entry.seqStart]
+              ? message.text.slice(0, contextStart)
+              : message?.text;
           return (
             message && (
               <View key={`${entry.seqStart}`} style={{ gap: 6 }}>
@@ -222,7 +248,20 @@ export function Conversation({
                 {message.candidate ? (
                   <Markdown text={message.text} theme={theme} compact={false} />
                 ) : (
-                  <Copy size={15}>{message.text}</Copy>
+                  <Copy size={15}>{text}</Copy>
+                )}
+                {contextStart >= 0 && (
+                  <Action
+                    quiet
+                    onPress={() =>
+                      setExpandedContext((current) => ({
+                        ...current,
+                        [entry.seqStart]: !current[entry.seqStart],
+                      }))
+                    }
+                  >
+                    {expandedContext[entry.seqStart] ? tr("收起附加上下文") : tr("查看附加上下文")}
+                  </Action>
                 )}
                 {message.candidate && (
                   <Row>

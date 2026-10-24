@@ -425,7 +425,7 @@ export function registerProjectTree(client: PluginClientContext) {
           pollUsers += 1;
           if (demand) historyUsers += 1;
           if (demand === "all") workbenchUsers += 1;
-          if (pollUsers === 1) void refreshCatalog();
+          if (pollUsers === 1 || demand === "all") void refreshCatalog();
         })
         .catch((error: unknown) => {
           if (alive)

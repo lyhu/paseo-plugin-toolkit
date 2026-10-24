@@ -78,6 +78,7 @@ export interface WorkbenchSkill {
   content?: string;
 }
 export interface WorkbenchPlan {
+  sourceAgentId?: string;
   provider?: string;
   id: string;
   revision: number;

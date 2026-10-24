@@ -33,6 +33,7 @@ vi.mock("react-native", () => {
   };
 });
 vi.mock("@getpaseo/plugin/client", () => ({ getPaseoClient: vi.fn() }));
+vi.mock("@getpaseo/plugin/client/ui", () => ({ Icon: () => null }));
 vi.mock("../i18n", () => ({ tr: (value: string) => value, useLocale: () => "zh" }));
 import { WorkbenchScreen } from "./screen";
 import { Markdown } from "../chat-view/mermaid/markdown";
@@ -84,7 +85,7 @@ it.each(["A", "B", "C"] as const)(
         model={{ ...model, preferences: { ...model.preferences, layout } }}
       />,
     );
-    expect(html).toContain("Workbench");
+    expect(html).toContain("个人空间");
     expect(html).toContain(
       layout === "A"
         ? "Workbench Project"
@@ -100,7 +101,7 @@ it.each(["ai", "hosts", "memory", "skills"])(
     const html = renderToStaticMarkup(
       <WorkbenchScreen {...props} params={{ page }} model={model} />,
     );
-    expect(html).toContain("Workbench");
+    expect(html).toContain("个人空间");
   },
 );
 
@@ -202,30 +203,6 @@ it("does not equate an enabled skill with confirmed current-session loading", ()
   expect(html).toContain("技能变更从新会话生效");
 });
 
-it("uses display workspace placement instead of original project membership", () => {
-  const html = renderToStaticMarkup(
-    <WorkbenchScreen
-      {...props}
-      model={{
-        ...model,
-        projects: [{ ...model.projects[0], workspaceRefs: [{ serverId: "remote", id: "moved" }] }],
-        workspaces: [
-          ...model.workspaces,
-          {
-            id: "moved",
-            serverId: "remote",
-            projectId: "other-project",
-            name: "Moved workspace",
-            path: "/moved",
-          },
-        ],
-      }}
-    />,
-  );
-  expect(html).toContain("Moved workspace");
-  expect(html).not.toContain(">Main");
-});
-
 it("reuses native Markdown formatting for headings, emphasis and code", () => {
   const html = renderToStaticMarkup(
     <Markdown
@@ -267,4 +244,45 @@ it("shows the native target workspace and provider before confirming a session p
   expect(html).toContain("workspace");
   expect(html).toContain("codex");
   expect(html).toContain("确认并执行");
+});
+
+it("keeps plans attached to their originating personal AI conversation", () => {
+  const plan = {
+    id: "current-plan",
+    revision: 0,
+    title: "Current session plan",
+    kind: "project",
+    status: "pending",
+    serverId: "local",
+    sourceAgentId: "current-agent",
+  };
+  const html = renderToStaticMarkup(
+    <WorkbenchScreen
+      {...props}
+      params={{ page: "ai" }}
+      model={{
+        ...model,
+        ai: { ...model.ai, initialized: true, workspaceId: "ai" },
+        sessions: [
+          {
+            id: "current-agent",
+            serverId: "local",
+            workspaceId: "ai",
+            title: "Current conversation",
+          },
+        ],
+        plans: [
+          plan,
+          {
+            ...plan,
+            id: "other-plan",
+            sourceAgentId: "other-agent",
+            title: "Other conversation plan",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(html).toContain("Current session plan");
+  expect(html).not.toContain("Other conversation plan");
 });

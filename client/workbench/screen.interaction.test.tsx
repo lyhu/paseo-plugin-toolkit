@@ -60,6 +60,7 @@ vi.mock("./chat", () => ({
       onInput: (event: { currentTarget: HTMLInputElement }) => setDraft(event.currentTarget.value),
     }),
 }));
+vi.mock("@getpaseo/plugin/client/ui", () => ({ Icon: () => null }));
 vi.mock("../i18n", () => ({ tr: (value: string) => value, useLocale: () => "zh" }));
 import { WorkbenchScreen } from "./screen";
 const savePreferences = vi.fn();
@@ -132,7 +133,7 @@ async function mount(initial?: WorkbenchModel) {
 }
 async function click(text: string) {
   const button = [...document.querySelectorAll("button")].find(
-    (button) => button.textContent === text,
+    (button) => button.textContent === text || button.getAttribute("aria-label") === text,
   );
   expect(button).toBeTruthy();
   await act(async () => button!.click());
@@ -155,18 +156,35 @@ it("assigns scenarios by display identity and keeps unclassified projects in All
   await mount();
   await click("项目视图");
   expect(document.body.textContent).toContain("Project One");
+  await click("Project One · 项目设置");
   const assign = document.querySelector<HTMLButtonElement>('[aria-label="Project One · 研发"]')!;
   await act(async () => assign.click());
   expect(savePreferences).toHaveBeenLastCalledWith({ scenarioProjects: { dev: ["display-1"] } });
+  await click("筛选");
   await click("运维");
   expect(document.body.textContent).not.toContain("Project One");
   await click("研发");
   expect(document.body.textContent).toContain("Project One");
 });
 
+it("preserves an unsent draft when opening the AI creation shortcut", async () => {
+  await mount();
+  const input = document.querySelector<HTMLInputElement>('[aria-label="Conversation draft"]')!;
+  await act(async () => {
+    input.value = "Keep my current draft";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await click("项目视图");
+  await click("让 AI 创建项目");
+  expect(document.querySelector<HTMLInputElement>('[aria-label="Conversation draft"]')!.value).toBe(
+    "Keep my current draft",
+  );
+});
+
 it.each(["项目视图", "主机视图"])("opens native workspace tabs from %s", async (layout) => {
   await mount();
   await click(layout);
+  if (layout === "项目视图") await click("Project One");
   await click("Main · Host A");
   expect(props.navigation!.openWorkspace).toHaveBeenCalledWith({
     serverId: "host-a",
@@ -180,14 +198,12 @@ it("keeps an existing conversation primary and chooses an exact model from a col
     id: JSON.stringify({ provider: "provider-a", model: `model-${index}` }),
     label: `Provider A / Model ${index}`,
   }));
-  const newSession = vi
-    .fn()
-    .mockResolvedValue({
-      id: "created",
-      serverId: "host-a",
-      workspaceId: "ai",
-      title: "New session",
-    });
+  const newSession = vi.fn().mockResolvedValue({
+    id: "created",
+    serverId: "host-a",
+    workspaceId: "ai",
+    title: "New session",
+  });
   await mount({ ...base, ai: { ...base.ai, providers }, newSession });
   expect(document.querySelector('[aria-label="Conversation draft"]')).not.toBeNull();
   expect(document.querySelector('[aria-label="选择模型"]')).toBeNull();
@@ -207,4 +223,30 @@ it("keeps an existing conversation primary and chooses an exact model from a col
   await click("创建会话");
   expect(newSession).toHaveBeenCalledWith({ provider: providers[29].id, title: "工作台对话" });
   expect(document.querySelector('[aria-label="选择模型"]')).toBeNull();
+});
+
+it("expands display workspace placement without exposing its original project membership", async () => {
+  await mount({
+    ...base,
+    preferences: { ...base.preferences, layout: "A" },
+    projects: [{ ...base.projects[0], workspaceRefs: [{ serverId: "remote", id: "moved" }] }],
+    workspaces: [
+      ...base.workspaces,
+      {
+        id: "moved",
+        serverId: "remote",
+        projectId: "other-project",
+        name: "Moved workspace",
+        path: "/moved",
+      },
+    ],
+  });
+  await click("Project One");
+  expect(document.body.textContent).toContain("Moved workspace");
+  expect(document.body.textContent).not.toContain("Main · Host A");
+  await click("Moved workspace · remote");
+  expect(props.navigation!.openWorkspace).toHaveBeenCalledWith({
+    serverId: "remote",
+    workspaceId: "moved",
+  });
 });

@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { View } from "react-native";
-import { Action, Card, Copy, Empty, Field, Row, Section } from "./components";
+import { Action, Badge, Card, Copy, Empty, Field, Row, useWorkbenchTheme } from "./components";
 import type { WorkbenchMemory, WorkbenchModel } from "./types";
 import { tr } from "../i18n";
+import { Icon } from "@getpaseo/plugin/client/ui";
 type Props = {
   model: WorkbenchModel;
   run(task: () => Promise<unknown>): void;
   openMemory(memory: WorkbenchMemory): void;
+  compact?: boolean;
+  columns?: number;
 };
-export function MemoryLibrary({ model, run, openMemory }: Props) {
+export function MemoryLibrary({ model, run, openMemory, compact = false }: Props) {
   const [editing, setEditing] = useState<Partial<WorkbenchMemory> | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
@@ -17,7 +20,16 @@ export function MemoryLibrary({ model, run, openMemory }: Props) {
   );
   return (
     <View style={{ gap: 18 }}>
-      <Section title="记忆" detail={tr("候选记忆确认后，才会加入对应范围的新消息上下文。")}>
+      <Row between>
+        <View style={{ gap: 6, flex: 1 }}>
+          <Copy muted size={12} strong>
+            A MEMORY THAT GROWS WITH YOU
+          </Copy>
+          <Copy size={compact ? 27 : 32} strong>
+            {tr("把经历，留成下一次的起点。")}
+          </Copy>
+          <Copy muted>{tr("每条记忆都有来源；你决定什么值得留下。")}</Copy>
+        </View>
         <Action
           primary
           disabled={!model.editable}
@@ -27,7 +39,10 @@ export function MemoryLibrary({ model, run, openMemory }: Props) {
         >
           {tr("添加记忆")}
         </Action>
-      </Section>
+      </Row>
+      <Copy muted size={12}>
+        {tr("候选记忆确认后，才会加入对应范围的新消息上下文。")}
+      </Copy>
       <Row>
         {[
           ["all", "全部"],
@@ -35,7 +50,7 @@ export function MemoryLibrary({ model, run, openMemory }: Props) {
           ["personal", "个人"],
           ...model.projects.map((p) => [p.id, p.name]),
         ].map(([id, name]) => (
-          <Action key={id} selected={filter === id} onPress={() => setFilter(id)}>
+          <Action quiet key={id} selected={filter === id} onPress={() => setFilter(id)}>
             {tr(name)}
           </Action>
         ))}
@@ -111,8 +126,11 @@ export function MemoryLibrary({ model, run, openMemory }: Props) {
             {model.projects.find((p) => p.id === memory.scope)?.name ??
               tr(memory.scope === "personal" ? "个人" : memory.scope)}
           </Copy>
+          <Copy muted size={12}>
+            {tr("来源")}：{memory.source ?? tr("手动记录")}
+          </Copy>
           <Row>
-            <Action disabled={!model.editable} onPress={() => setEditing(memory)}>
+            <Action quiet disabled={!model.editable} onPress={() => setEditing(memory)}>
               {tr("编辑")}
             </Action>
             {!memory.confirmed && (
@@ -125,13 +143,18 @@ export function MemoryLibrary({ model, run, openMemory }: Props) {
               </Action>
             )}
             <Action
+              quiet
               disabled={!model.editable}
               onPress={() => run(() => model.saveMemory({ ...memory, enabled: !memory.enabled }))}
             >
               {memory.enabled ? tr("停用") : tr("启用")}
             </Action>
-            {memory.session && <Action onPress={() => openMemory(memory)}>{tr("查看来源")}</Action>}
-            <Action disabled={!model.editable} onPress={() => setDeleting(memory.id)}>
+            {memory.session && (
+              <Action quiet onPress={() => openMemory(memory)}>
+                {tr("查看来源")}
+              </Action>
+            )}
+            <Action quiet disabled={!model.editable} onPress={() => setDeleting(memory.id)}>
               {tr("删除")}
             </Action>
           </Row>
@@ -157,7 +180,13 @@ export function MemoryLibrary({ model, run, openMemory }: Props) {
     </View>
   );
 }
-export function SkillsLibrary({ model, run }: Omit<Props, "openMemory">) {
+export function SkillsLibrary({
+  model,
+  run,
+  compact = false,
+  columns = 3,
+}: Omit<Props, "openMemory">) {
+  const theme = useWorkbenchTheme();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -165,7 +194,16 @@ export function SkillsLibrary({ model, run }: Omit<Props, "openMemory">) {
   const [expanded, setExpanded] = useState<string | null>(null);
   return (
     <View style={{ gap: 18 }}>
-      <Section title="技能" detail={tr("技能变更从新会话生效；运行中的会话可能已经加载旧内容。")}>
+      <Row between>
+        <View style={{ gap: 6, flex: 1 }}>
+          <Copy muted size={12} strong>
+            SKILLS / EXTEND YOUR ASSISTANT
+          </Copy>
+          <Copy size={compact ? 27 : 32} strong>
+            {tr("从系统能力，到你的工作习惯。")}
+          </Copy>
+          <Copy muted>{tr("预装常用技能，也为将来的扩展留出位置。")}</Copy>
+        </View>
         <Action
           primary
           disabled={!model.editable || !model.ai.initialized}
@@ -173,7 +211,10 @@ export function SkillsLibrary({ model, run }: Omit<Props, "openMemory">) {
         >
           {tr("添加技能")}
         </Action>
-      </Section>
+      </Row>
+      <Copy muted size={12}>
+        {tr("技能变更从新会话生效；运行中的会话可能已经加载旧内容。")}
+      </Copy>
       {adding && (
         <Card accent>
           <Field label={tr("名称")} value={name} onChangeText={setName} />
@@ -215,40 +256,59 @@ export function SkillsLibrary({ model, run }: Omit<Props, "openMemory">) {
         </Card>
       )}
       {!model.skills.length && <Empty>{tr("初始化 AI 工作区后，在这里管理技能。")}</Empty>}
-      {model.skills.map((skill) => (
-        <Card key={skill.id}>
-          <Row between>
-            <Copy strong size={17}>
-              {skill.name}
-            </Copy>
-            <Copy muted size={12}>
-              {skill.builtin ? tr("内置") : tr("自定义")} ·{" "}
-              {skill.enabled ? tr("启用") : tr("停用")}
-            </Copy>
-          </Row>
-          <Copy muted>{skill.description}</Copy>
-          <Copy muted size={12}>
-            {skill.path}
-          </Copy>
-          <Copy muted size={12}>
-            {skill.loaded ? tr("已确认当前会话加载") : tr("当前会话加载状态未知")}
-          </Copy>
-          <Row>
-            <Action
-              disabled={!model.editable}
-              onPress={() => run(() => model.toggleSkill(skill.id, !skill.enabled))}
-            >
-              {skill.enabled ? tr("停用") : tr("启用")}
-            </Action>
-            {skill.content && (
-              <Action onPress={() => setExpanded(expanded === skill.id ? null : skill.id)}>
-                {tr("查看内容")}
-              </Action>
-            )}
-          </Row>
-          {expanded === skill.id && <Copy>{skill.content}</Copy>}
-        </Card>
-      ))}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 16 }}>
+        {model.skills.map((skill) => (
+          <View
+            key={skill.id}
+            style={{
+              flexGrow: 1,
+              minWidth: 0,
+              flexBasis: compact ? "100%" : `${(100 - (columns - 1) * 1.4) / columns}%`,
+              maxWidth: compact ? undefined : `${(100 - (columns - 1) * 1.4) / columns}%`,
+            }}
+          >
+            <Card>
+              <Row between>
+                <View
+                  style={{ padding: 10, borderRadius: 10, backgroundColor: theme.colors.surface2 }}
+                >
+                  <Icon name="Blocks" size={22} color={theme.colors.accent} />
+                </View>
+                <Badge>{skill.builtin ? tr("系统预装") : tr("自定义")}</Badge>
+              </Row>
+              <Copy strong size={19}>
+                {skill.name}
+              </Copy>
+              <Copy muted>{skill.description}</Copy>
+              <Copy muted size={12}>
+                {skill.path}
+              </Copy>
+              <Copy muted size={12}>
+                {skill.loaded ? tr("已确认当前会话加载") : tr("当前会话加载状态未知")}
+              </Copy>
+              <Row>
+                <Action
+                  quiet
+                  selected={skill.enabled}
+                  disabled={!model.editable}
+                  onPress={() => run(() => model.toggleSkill(skill.id, !skill.enabled))}
+                >
+                  {skill.enabled ? tr("停用") : tr("启用")}
+                </Action>
+                {skill.content && (
+                  <Action
+                    quiet
+                    onPress={() => setExpanded(expanded === skill.id ? null : skill.id)}
+                  >
+                    {tr("查看内容")}
+                  </Action>
+                )}
+              </Row>
+              {expanded === skill.id && <Copy>{skill.content}</Copy>}
+            </Card>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
