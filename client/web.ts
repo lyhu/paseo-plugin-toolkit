@@ -760,7 +760,18 @@ export function renderProjectSidebar(
     toggleHidden?(): void;
     history?: {
       canUndo: boolean;
-      snapshots: Array<{ id: string; name: string; createdAt: string }>;
+      snapshots: Array<{
+        id: string;
+        name: string;
+        createdAt: string;
+        preview?: {
+          nodesChanged: number;
+          workspacePlacementsChanged: boolean;
+          tabsChanged?: boolean;
+          favoritesChanged?: boolean;
+          scenariosChanged?: boolean;
+        };
+      }>;
     };
     saveSnapshot?(name: string): Promise<void>;
     restoreSnapshot?(snapshotId: string): Promise<void>;
@@ -1219,7 +1230,10 @@ export function renderProjectSidebar(
                     action: () =>
                       confirmPanel(
                         settings,
-                        tr("恢复展示配置；新发现的项目会保留，当前展示配置会先自动备份。"),
+                        tr("恢复展示配置；新发现的项目会保留，当前展示配置会先自动备份。") +
+                          (saved.preview
+                            ? ` ${saved.preview.nodesChanged} 个节点变更；${[saved.preview.workspacePlacementsChanged && "工作区位置", saved.preview.tabsChanged && "标签页", saved.preview.favoritesChanged && "收藏", saved.preview.scenariosChanged && "场景"].filter(Boolean).join("、") || "其余配置不变"}。`
+                            : ""),
                         tr("恢复快照"),
                         () => {
                           void options.restoreSnapshot?.(saved.id).catch(() => {});

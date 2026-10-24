@@ -11,8 +11,8 @@ import { registerWorkbenchState } from "./server/workbench/state";
 import { registerWorkbenchSearch } from "./server/workbench/search";
 import { memoryContext } from "./shared/workbench/state";
 export default function contribute(server: PluginServerContext) {
-  registerProjectTree(server);
   const workbench = registerWorkbenchState(server);
+  registerProjectTree(server, workbench);
   const disposeSearch = registerWorkbenchSearch(server);
   const disposeAI = registerWorkbenchAI(server, {
     readContext: async () => memoryContext(workbench.read().memories, "personal"),

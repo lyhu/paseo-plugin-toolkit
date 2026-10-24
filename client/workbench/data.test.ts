@@ -45,7 +45,7 @@ const mocks = vi.hoisted(() => ({
   write: vi.fn(),
 }));
 vi.mock("@getpaseo/plugin/client", () => ({
-  getPaseoClient: () => ({ providers: { listAvailable: mocks.providers } }),
+  getPaseoClient: () => ({ providers: { waitForReady: mocks.providers } }),
 }));
 vi.mock("../project-tree/device", () => ({
   loadDevicePreferences: mocks.load,
@@ -76,9 +76,9 @@ async function setup() {
   vi.stubGlobal("document", dom.window.document);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mocks.providers.mockResolvedValue({
-    providers: [
-      { provider: "codex", available: true },
-      { provider: "unavailable", available: false },
+    entries: [
+      { provider: "codex", enabled: true, models: [{ id: "test", label: "Test" }] },
+      { provider: "unavailable", enabled: false, models: [] },
     ],
   });
   mocks.load.mockResolvedValue(undefined);
@@ -173,7 +173,7 @@ it("hydrates host catalog, device layout and providers, and saves with the lates
   const h = await setup();
   expect(h.model.loading).toBe(false);
   expect(h.model.preferences.layout).toBe("B");
-  expect(h.model.ai.providers).toEqual([{ id: "codex", label: "codex" }]);
+  expect(h.model.ai.providers).toEqual([{ id: "codex/test", label: "codex · Test" }]);
   expect(h.model.workspaces.map((w) => [w.serverId, w.id])).toEqual([
     ["pro", "w"],
     ["mini", "w"],
@@ -266,7 +266,7 @@ it("maps search and indexing results to full host addresses and marks offline hi
     workspaceId: "remote",
     agentId: "new",
   });
-  await expect(h.model.newSession({ provider: "codex", title: "New" })).resolves.toEqual({
+  await expect(h.model.newSession({ provider: "codex/test", title: "New" })).resolves.toEqual({
     id: "new",
     serverId: "mini",
     workspaceId: "remote",
@@ -342,4 +342,16 @@ it("keeps a failed write retryable without advancing the local revision", async 
     expect.objectContaining({ revision: 5 }),
   );
   expect(h.model.preferences.favorites).toEqual(["retry"]);
+});
+
+it("returns cached metadata with explicit coverage when history Host is offline", async () => {
+  const h = await setup(),
+    original = h.rpc.getMockImplementation()!;
+  h.rpc.mockImplementation(async (contract, input) => {
+    if (contract === searchWorkbenchHistory) throw new Error("offline");
+    return original(contract, input);
+  });
+  const found = await h.model.search(h.model.projects[0]!.name, "all");
+  expect(found.results.some((r) => r.kind === "project")).toBe(true);
+  expect(found.coverage).toContain("正文搜索暂不可用");
 });

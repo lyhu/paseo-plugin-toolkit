@@ -15,7 +15,6 @@ import {
   catalogCacheSchema,
   createCatalog,
   projectWorkspaces,
-  projectTreeChildren,
   projectAvailable,
   readHostCatalog,
   type CatalogWorkspace,
@@ -28,6 +27,10 @@ import {
   changeProjectTree,
   DEFAULT_PROJECT_TREE_VIEW_NAME,
   readProjectTree,
+  readProjectTreeHistory,
+  saveProjectTreeSnapshot,
+  restoreProjectTreeSnapshot,
+  undoProjectTree,
   projectTreeSettings,
   projectTreeViewName,
 } from "../../shared/project-tree/contracts";
@@ -37,6 +40,9 @@ import {
   type TreeCommand,
   type TreeNodeAction,
 } from "../../shared/project-tree/model";
+import { visibleTreeRows } from "../../shared/project-tree/projection";
+import { registerWorkbench } from "../workbench/register";
+import { useWorkbenchModel } from "../workbench/data";
 import { NodeActionsDialog } from "./node-actions";
 import { mountProjectTreeMenu } from "./native-menu";
 
@@ -77,15 +83,19 @@ export function registerProjectTree(client: PluginClientContext) {
   let viewName = DEFAULT_PROJECT_TREE_VIEW_NAME;
   let configuration: Promise<void> | null = null;
   function configureSource(id: string) {
-    if (configuration) return configuration;
+    if (configuration && sourceId === id) return configuration;
     sourceId = id;
+    epoch += 1;
+    collapsed.clear();
+    sessionVisibility.clear();
+    sessionLimits.clear();
     configuration = (async () => {
       await loadDevicePreferences(
         ["cache", "view", "collapsed", "showHidden", "sessionProjects", "sessionVisibility"].map(
           preferenceKey,
         ),
       );
-      if (stopped) return;
+      if (stopped || sourceId !== id) return;
       mode = readDevicePreference(preferenceKey("view")) === "native" ? "native" : "custom";
       showHidden = readDevicePreference(preferenceKey("showHidden")) === "true";
       let cached: ReturnType<typeof catalogCacheSchema.parse> | undefined;
@@ -149,6 +159,60 @@ export function registerProjectTree(client: PluginClientContext) {
   let epoch = 0;
   let pollUsers = 0;
   let historyUsers = 0;
+  let workbenchUsers = 0;
+  let history = {
+    canUndo: false,
+    workbenchRevision: undefined as number | undefined,
+    snapshots: [] as Array<{
+      id: string;
+      name: string;
+      createdAt: string;
+      preview?: {
+        nodesChanged: number;
+        workspacePlacementsChanged: boolean;
+        tabsChanged?: boolean;
+        favoritesChanged?: boolean;
+        scenariosChanged?: boolean;
+      };
+    }>,
+  };
+  async function refreshHistory() {
+    const result = await client.rpc(readProjectTreeHistory, {});
+    history = {
+      canUndo: result.canUndo,
+      snapshots: result.snapshots,
+      workbenchRevision: result.workbenchRevision,
+    };
+    for (const listener of listeners) listener();
+  }
+  async function changeHistory(action: "save" | "restore" | "undo", value = "") {
+    if (busy || !catalog.read().editable) throw new Error("配置 Host 当前不可编辑。");
+    busy = true;
+    try {
+      if (syncing) await syncing;
+      const revision = catalog.read().tree.revision;
+      const next =
+        action === "save"
+          ? await client.rpc(saveProjectTreeSnapshot, { revision, name: value })
+          : action === "restore"
+            ? await client.rpc(restoreProjectTreeSnapshot, {
+                revision,
+                snapshotId: value,
+                workbenchRevision: history.workbenchRevision,
+              })
+            : await client.rpc(undoProjectTree, {
+                revision,
+                workbenchRevision: history.workbenchRevision,
+              });
+      catalog.organize(next);
+      await refreshHistory();
+    } catch (cause) {
+      catalog.connection(false, cause instanceof Error ? cause.message : String(cause));
+      throw cause;
+    } finally {
+      busy = false;
+    }
+  }
   let pollGeneration = 0;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let liveHosts: readonly PluginHostSummary[] = [];
@@ -168,7 +232,10 @@ export function registerProjectTree(client: PluginClientContext) {
               revision: remote.revision,
               command: { type: "discover", projects },
             });
-      if (!stopped && enabled && pollUsers && started === epoch) catalog.organize(next);
+      if (!stopped && enabled && pollUsers && started === epoch) {
+        catalog.organize(next);
+        await refreshHistory();
+      }
     })().finally(() => {
       syncing = null;
     });
@@ -189,6 +256,7 @@ export function registerProjectTree(client: PluginClientContext) {
       if (!stopped && enabled) {
         catalog.organize(next);
         catalog.connection(true);
+        await refreshHistory();
       }
     } catch (error) {
       if (!stopped && enabled)
@@ -303,8 +371,8 @@ export function registerProjectTree(client: PluginClientContext) {
           try {
             const limits = sessionDemand(host.serverId);
             const result = await readHostCatalog(getPaseoClient(host.serverId), host.serverId, {
-              sessions: limits.size > 0,
-              sessionLimits: limits,
+              sessions: workbenchUsers > 0 || limits.size > 0,
+              ...(workbenchUsers ? { maxSessionPages: 2 } : { sessionLimits: limits }),
               active: () =>
                 active() &&
                 liveHosts.some(
@@ -342,7 +410,7 @@ export function registerProjectTree(client: PluginClientContext) {
       }, delay);
     }
   }
-  function useCatalog(configurationHost: string, history = false) {
+  function useCatalog(configurationHost: string, demand: boolean | "all" = false) {
     const hosts = useHosts();
     const signature = JSON.stringify(hosts);
     useEffect(() => {
@@ -355,7 +423,8 @@ export function registerProjectTree(client: PluginClientContext) {
           if (!alive || stopped) return;
           acquired = true;
           pollUsers += 1;
-          if (history) historyUsers += 1;
+          if (demand) historyUsers += 1;
+          if (demand === "all") workbenchUsers += 1;
           if (pollUsers === 1) void refreshCatalog();
         })
         .catch((error: unknown) => {
@@ -366,7 +435,8 @@ export function registerProjectTree(client: PluginClientContext) {
         alive = false;
         if (acquired) {
           pollUsers -= 1;
-          if (history) historyUsers -= 1;
+          if (demand) historyUsers -= 1;
+          if (demand === "all") workbenchUsers -= 1;
           if (!pollUsers) {
             pollGeneration += 1;
             epoch += 1;
@@ -379,7 +449,7 @@ export function registerProjectTree(client: PluginClientContext) {
       return stop;
       // Host summaries are immutable values; avoid restarting demand for a new array identity.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [signature, configurationHost, history]);
+    }, [signature, configurationHost, demand]);
     return useSyncExternalStore(catalog.subscribe, catalog.read, catalog.read);
   }
   function Sidebar(props: PluginSidebarItemProps) {
@@ -405,10 +475,19 @@ export function registerProjectTree(client: PluginClientContext) {
       () => viewName,
       () => viewName,
     );
+    const treeHistory = useSyncExternalStore(
+      subscribeMode,
+      () => history,
+      () => history,
+    );
     const mounted = useRef<ReturnType<typeof mountProjectSidebar> | null>(null);
     const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
       renderProjectSidebar(container, {
         snapshot,
+        history: treeHistory,
+        saveSnapshot: (name) => changeHistory("save", name),
+        restoreSnapshot: (id) => changeHistory("restore", id),
+        undo: () => changeHistory("undo"),
         theme: props.theme,
         collapsed,
         sessionLimits,
@@ -600,6 +679,15 @@ export function registerProjectTree(client: PluginClientContext) {
       () => showHidden,
     );
     const [error, setError] = useState("");
+    const [snapshotName, setSnapshotName] = useState("");
+    const treeHistory = useSyncExternalStore(
+      subscribeMode,
+      () => history,
+      () => history,
+    );
+    const historyAction = (action: "save" | "restore" | "undo", value = "") => {
+      void changeHistory(action, value).catch((cause) => setError(String(cause)));
+    };
     const [closed, setClosed] = useState(() => new Set(collapsed));
     useEffect(() => {
       if (snapshot.initialized) setClosed(new Set(collapsed));
@@ -635,99 +723,74 @@ export function registerProjectTree(client: PluginClientContext) {
           theme={props.theme}
         />
       );
-    const renderNodes = (parentId: string | null, depth: number): React.ReactNode =>
-      projectTreeChildren(snapshot, parentId)
+    const treeRows = visibleTreeRows(snapshot.tree, {
+      showHidden: selectedHidden,
+      collapsed: closed,
+    });
+    const renderNodes = () =>
+      treeRows
         .filter(
-          (node) =>
-            (!node.hidden || selectedHidden) &&
-            (node.kind === "folder" || projectAvailable(snapshot, node.members, node.id)),
+          ({ node }) => node.kind === "folder" || projectAvailable(snapshot, node.members, node.id),
         )
-        .map((node) => (
-          <View key={node.id} style={{ gap: 6, paddingLeft: depth ? 12 : 0 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36 }}>
-              <Pressable
-                accessibilityLabel={node.name}
-                onPress={() =>
-                  setClosed((previous) => {
-                    const next = new Set(previous);
-                    if (next.has(node.id)) next.delete(node.id);
-                    else next.add(node.id);
-                    collapsed.clear();
-                    for (const id of next) collapsed.add(id);
-                    writeDevicePreference(preferenceKey("collapsed"), JSON.stringify([...next]));
-                    return next;
-                  })
-                }
-                style={{
-                  flex: 1,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingVertical: 8,
-                }}
-              >
-                <Icon
-                  name={closed.has(node.id) ? "ChevronRight" : "ChevronDown"}
-                  size={14}
-                  color={colors.foregroundMuted}
-                />
-                <Icon
-                  name={node.kind === "folder" ? "Folder" : "FolderGit2"}
-                  size={18}
-                  color={colors.accent}
-                />
-                <Text
-                  numberOfLines={1}
-                  style={{ color: colors.foreground, fontWeight: "500", flex: 1 }}
+        .map(({ node, depth, showContainer, hidden }) => (
+          <View
+            key={node.id}
+            style={{ gap: 6, paddingLeft: depth * 12, opacity: hidden ? 0.6 : 1 }}
+          >
+            {showContainer && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40 }}>
+                <Pressable
+                  style={{ flex: 1, flexDirection: "row", gap: 8 }}
+                  onPress={() =>
+                    setClosed((previous) => {
+                      const next = new Set(previous);
+                      if (next.has(node.id)) next.delete(node.id);
+                      else next.add(node.id);
+                      collapsed.clear();
+                      for (const id of next) collapsed.add(id);
+                      writeDevicePreference(preferenceKey("collapsed"), JSON.stringify([...next]));
+                      return next;
+                    })
+                  }
                 >
-                  {node.name}
-                </Text>
-              </Pressable>
-              <Pressable
-                disabled={!snapshot.editable}
-                accessibilityLabel={`${tr("新建 workspace")} · ${node.name}`}
-                style={{ padding: 6 }}
-                onPress={() =>
-                  setIntent({
-                    nodeId: node.id,
-                    action: node.kind === "folder" ? "folder" : "new",
-                    key: Date.now(),
-                  })
-                }
-              >
-                <Icon name="Plus" size={16} color={colors.foregroundMuted} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel={`${tr("项目操作")} · ${node.name}`}
-                style={{ padding: 6 }}
-                onPress={() => setIntent({ nodeId: node.id, action: "menu", key: Date.now() })}
-              >
-                <Icon name="MoreVertical" size={16} color={colors.foregroundMuted} />
-              </Pressable>
-            </View>
-            {!closed.has(node.id) &&
-              (node.kind === "folder"
-                ? renderNodes(node.id, depth + 1)
-                : projectWorkspaces(snapshot, node.members, node.id).map((workspace) => {
-                    const host = snapshot.hosts.find(
-                      (entry) => entry.serverId === workspace.serverId,
-                    );
-                    const online = host?.status === "online";
-                    return (
-                      <Pressable
-                        key={`${workspace.serverId}:${workspace.id}`}
-                        disabled={!online}
-                        onPress={() => open(workspace)}
-                        style={{ padding: 10, opacity: online ? 1 : 0.5 }}
-                      >
-                        <Text style={{ color: colors.foreground }}>{workspace.name}</Text>
-                        <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>
-                          {host?.label ?? workspace.serverId}
-                          {online ? "" : ` · ${tr("离线")}`}
-                        </Text>
-                      </Pressable>
-                    );
-                  }))}
+                  <Icon
+                    name={closed.has(node.id) ? "ChevronRight" : "ChevronDown"}
+                    size={16}
+                    color={colors.foregroundMuted}
+                  />
+                  <Text style={{ color: colors.foreground, fontSize: 15 }}>
+                    {node.name}
+                    {node.hidden ? " · 隐藏" : ""}
+                    {node.flattened ? " · 平铺" : ""}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel={`${tr("项目操作")} · ${node.name}`}
+                  onPress={() => setIntent({ nodeId: node.id, action: "menu", key: Date.now() })}
+                >
+                  <Icon name="MoreVertical" size={18} color={colors.foregroundMuted} />
+                </Pressable>
+              </View>
+            )}
+            {node.kind === "project" &&
+              (!showContainer || !closed.has(node.id)) &&
+              projectWorkspaces(snapshot, node.members, node.id).map((workspace) => {
+                const host = snapshot.hosts.find((h) => h.serverId === workspace.serverId);
+                return (
+                  <Pressable
+                    key={JSON.stringify([workspace.serverId, workspace.id])}
+                    disabled={host?.status !== "online"}
+                    onPress={() => open(workspace)}
+                    style={{ padding: 10, opacity: host?.status === "online" ? 1 : 0.5 }}
+                  >
+                    <Text style={{ color: colors.foreground, fontSize: 15 }}>{workspace.name}</Text>
+                    <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>
+                      {host?.label ?? workspace.serverId}
+                      {host?.status === "online" ? "" : " · 离线"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
           </View>
         ));
     return (
@@ -786,7 +849,56 @@ export function registerProjectTree(client: PluginClientContext) {
             </Text>
           ) : null,
         )}
-        {renderNodes(null, 0)}
+        <View style={{ gap: 8 }}>
+          <Text style={{ color: colors.foreground, fontSize: 16 }}>视图快照</Text>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>
+            保存树、标签页、收藏和场景配置，不撤销真实项目、工作区或会话。
+          </Text>
+          <TextInput
+            accessibilityLabel="快照名称"
+            value={snapshotName}
+            onChangeText={setSnapshotName}
+            placeholder="快照名称"
+            placeholderTextColor={colors.foregroundMuted}
+            style={{
+              color: colors.foreground,
+              borderColor: colors.border,
+              borderWidth: 1,
+              padding: 10,
+            }}
+          />
+          <View style={{ flexDirection: "row", gap: 16 }}>
+            <Pressable
+              disabled={!snapshot.editable || !snapshotName.trim()}
+              onPress={() => historyAction("save", snapshotName.trim())}
+            >
+              <Text style={{ color: colors.accent }}>保存快照</Text>
+            </Pressable>
+            <Pressable
+              disabled={!snapshot.editable || !treeHistory.canUndo}
+              onPress={() => historyAction("undo")}
+            >
+              <Text style={{ color: colors.accent, opacity: treeHistory.canUndo ? 1 : 0.5 }}>
+                撤销上一次视图修改
+              </Text>
+            </Pressable>
+          </View>
+          {treeHistory.snapshots.map((item) => (
+            <Pressable
+              key={item.id}
+              disabled={!snapshot.editable}
+              onPress={() => historyAction("restore", item.id)}
+            >
+              <Text style={{ color: colors.accent }}>
+                恢复 · {item.name}
+                {item.preview
+                  ? `（${item.preview.nodesChanged} 个节点变更${item.preview.tabsChanged ? "，标签页" : ""}${item.preview.favoritesChanged ? "，收藏" : ""}${item.preview.scenariosChanged ? "，场景" : ""}）`
+                  : ""}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {renderNodes()}
         {!snapshot.tree.nodes.length && (
           <Text style={{ color: colors.foregroundMuted }}>{tr("正在读取项目…")}</Text>
         )}
@@ -794,6 +906,9 @@ export function registerProjectTree(client: PluginClientContext) {
     );
   }
   const register = () => [
+    registerWorkbench(client, (props) =>
+      useWorkbenchModel(client, props, useCatalog(props.host.id, "all"), refreshCatalog),
+    ),
     client.addScreen({ id: "project-tree", title: viewName, Component: Screen }),
     client.addSidebarHeaderItem({
       id: "project-tree",
