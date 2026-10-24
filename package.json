@@ -25,12 +25,13 @@
     "format:check": "oxfmt --check ."
   },
   "dependencies": {
-    "@getpaseo/client": "0.12.0",
-    "@getpaseo/protocol": "0.12.0",
+    "@getpaseo/client": "^0.13.0",
+    "@getpaseo/protocol": "^0.13.0",
+    "@modelcontextprotocol/sdk": "^1.25.3",
     "prismjs": "^1.30.0"
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.12.0",
+    "@getpaseo/plugin": "^0.13.0",
     "@tanstack/react-query": "^5.90.0",
     "@types/jsdom": "21.1.7",
     "@types/node": "^22.20.5",
