@@ -80,6 +80,7 @@ export function createOperationStore(filename: string) {
       change(plan);
       let target: PaseoApi | undefined;
       let mutationStarted = false;
+      let mutationFailed = false;
       try {
         const hosts = await paseo.hosts.list();
         target =
@@ -102,6 +103,18 @@ export function createOperationStore(filename: string) {
             idempotencyKey: plan.id,
             source: { kind: "directory", path: payload.path!, projectId: payload.projectId },
             title: payload.name,
+            onEvent(snapshot) {
+              if (snapshot.phase === "failed") mutationFailed = true;
+              if (snapshot.workspace && snapshot.phase !== "accepted") {
+                plan.result = {
+                  serverId: payload.serverId,
+                  workspaceId: snapshot.workspace.id,
+                  projectId: snapshot.workspace.projectId,
+                  path: snapshot.workspace.workspaceDirectory ?? payload.path,
+                };
+                change(plan);
+              }
+            },
           });
           plan.result = {
             serverId: payload.serverId,
@@ -113,11 +126,25 @@ export function createOperationStore(filename: string) {
         }
         if (payload.provider) {
           mutationStarted = true;
+          mutationFailed = false;
           const agent = await workspace.agents.create({
             idempotencyKey: `${plan.id}-agent`,
             config: { provider: payload.provider },
             title: payload.name,
             prompt: payload.prompt,
+            onEvent(snapshot) {
+              if (snapshot.phase === "failed") mutationFailed = true;
+              if (snapshot.agent && snapshot.phase !== "accepted") {
+                plan.result = {
+                  ...plan.result,
+                  serverId: payload.serverId,
+                  workspaceId: workspace.id,
+                  projectId: workspace.projectId ?? undefined,
+                  agentId: snapshot.agent.id,
+                };
+                change(plan);
+              }
+            },
           });
           plan.result = {
             ...plan.result,
@@ -130,7 +157,11 @@ export function createOperationStore(filename: string) {
         plan.status = "completed";
       } catch (error) {
         plan.error = error instanceof Error ? error.message : String(error);
-        plan.status = plan.result ? "partial" : mutationStarted ? "unknown" : "failed";
+        plan.status = plan.result
+          ? "partial"
+          : mutationStarted && !mutationFailed
+            ? "unknown"
+            : "failed";
       } finally {
         if (target && target !== paseo) target.dispose();
       }

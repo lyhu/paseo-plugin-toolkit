@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, symlinkSync, mkdirSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoApi, PaseoWorkspaceCreateOptions } from "@getpaseo/client";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createOperationStore } from "./operations";
@@ -34,7 +34,7 @@ function fakeApi() {
       client: vi.fn(),
     },
     workspaces: {
-      create: vi.fn(async () => workspace),
+      create: vi.fn(async (_options: PaseoWorkspaceCreateOptions) => workspace),
       open: vi.fn(async () => workspace),
       ref: vi.fn(() => workspace),
     },
@@ -81,6 +81,7 @@ describe("creation operations", () => {
       idempotencyKey: plan.id,
       source: { kind: "directory", path: "/remote/path", projectId: undefined },
       title: "Work",
+      onEvent: expect.any(Function),
     });
     expect(remote.raw.dispose).toHaveBeenCalledOnce();
     expect(result.result?.agentId).toBe("agent");
@@ -121,6 +122,73 @@ describe("creation operations", () => {
     await Promise.resolve();
     const recovered = createOperationStore(filename).get(plan.id);
     expect(recovered.status).toBe("unknown");
+  });
+  it("records a confirmed workspace event before a later failure", async () => {
+    const filename = join(home(), "operations.json");
+    const store = createOperationStore(filename);
+    const { api, raw } = fakeApi();
+    raw.workspaces.create.mockImplementation(async (options) => {
+      options.onEvent?.({
+        phase: "workspace_ready",
+        workspace: {
+          id: "created-workspace",
+          projectId: "created-project",
+          workspaceDirectory: "/existing",
+        },
+      } as never);
+      options.onEvent?.({ phase: "failed" } as never);
+      throw new Error("setup failed after workspace creation");
+    });
+    const plan = store.prepare({
+      kind: "workspace",
+      serverId: "self",
+      name: "Work",
+      path: "/existing",
+    });
+    const result = await store.execute(plan.id, 0, api);
+    expect(result.status).toBe("partial");
+    expect(result.result?.workspaceId).toBe("created-workspace");
+    expect(createOperationStore(filename).get(plan.id).result).toEqual(result.result);
+  });
+  it("distinguishes authoritative failure from a connection with unknown outcome", async () => {
+    const store = createOperationStore(join(home(), "operations.json"));
+    const { api, raw } = fakeApi();
+    raw.workspaces.create
+      .mockImplementationOnce(async (options) => {
+        options.onEvent?.({ phase: "failed" } as never);
+        throw new Error("directory does not exist");
+      })
+      .mockRejectedValueOnce(new Error("connection lost"));
+    const payload = {
+      kind: "workspace" as const,
+      serverId: "self",
+      name: "Work",
+      path: "/missing",
+    };
+    const failed = store.prepare(payload);
+    expect((await store.execute(failed.id, 0, api)).status).toBe("failed");
+    const unknown = store.prepare(payload);
+    const outcome = await store.execute(unknown.id, 0, api);
+    expect(outcome.status).toBe("unknown");
+    await expect(store.execute(unknown.id, outcome.revision, api)).rejects.toThrow("不能重复执行");
+  });
+  it("does not mutate on an offline target or execute a cancelled plan", async () => {
+    const store = createOperationStore(join(home(), "operations.json"));
+    const { api, raw } = fakeApi();
+    raw.hosts.client.mockRejectedValue(new Error("host offline"));
+    const payload = {
+      kind: "workspace" as const,
+      serverId: "remote",
+      name: "Work",
+      path: "/existing",
+    };
+    const offline = store.prepare(payload);
+    expect((await store.execute(offline.id, 0, api)).status).toBe("failed");
+    expect(raw.workspaces.create).not.toHaveBeenCalled();
+    const cancelled = store.prepare(payload);
+    const saved = store.cancel(cancelled.id, 0);
+    await expect(store.execute(cancelled.id, saved.revision, api)).rejects.toThrow("不能重复执行");
+    expect(raw.hosts.client).toHaveBeenCalledOnce();
   });
 });
 
