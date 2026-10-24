@@ -45,6 +45,8 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
   const [sessionTitle, setSessionTitle] = useState("");
   const [focusProject, setFocusProject] = useState("");
   const [taskTitle, setTaskTitle] = useState("");
+  const [editingTask, setEditingTask] = useState<{ id: string; title: string } | null>(null);
+  const [hostView, setHostView] = useState<"grid" | "list">("grid");
   const [tabDraft, setTabDraft] = useState<WorkbenchTab | null>(null);
   const [themeHelp, setThemeHelp] = useState(false);
   const [planEdit, setPlanEdit] = useState<{
@@ -178,39 +180,91 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
   );
   const hostsView = (
     <View style={{ gap: 18 }}>
-      <Section title="主机" detail={tr("连接状态及此刻可读取的项目目录。离线数据可能过期。")} />
-      {model.hosts.map((h) => (
-        <Card key={h.id}>
-          <Row between>
-            <Copy size={19} strong>
-              {h.name}
-            </Copy>
-            <Copy muted>{h.status}</Copy>
-          </Row>
-          {h.error && <Copy danger>{h.error}</Copy>}
-          <Row>
-            <Copy>
-              {model.projects.filter((p) => p.instances.some((i) => i.serverId === h.id)).length}{" "}
-              {tr("个项目")}
-            </Copy>
-            <Copy>
-              {model.workspaces.filter((w) => w.serverId === h.id).length} {tr("个工作区")}
-            </Copy>
-            <Copy>
-              {model.sessions.filter((s) => s.serverId === h.id).length} {tr("个会话")}
-            </Copy>
-            <Action
-              onPress={() => {
-                setHost(h.id);
-                setPage("home");
-                run(() => model.savePreferences({ layout: "A" }));
-              }}
-            >
-              {tr("查看项目")}
-            </Action>
-          </Row>
-        </Card>
-      ))}
+      <Section title="主机" detail={tr("连接状态及此刻可读取的项目目录。离线数据可能过期。")}>
+        <Row>
+          <Action selected={hostView === "grid"} onPress={() => setHostView("grid")}>
+            {tr("矩阵")}
+          </Action>
+          <Action selected={hostView === "list"} onPress={() => setHostView("list")}>
+            {tr("列表")}
+          </Action>
+        </Row>
+      </Section>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
+        {model.hosts.map((h) => (
+          <View
+            key={h.id}
+            style={{
+              flexGrow: 1,
+              flexBasis: hostView === "list" || props.layout.compact ? "100%" : 380,
+            }}
+          >
+            <Card>
+              <Row between>
+                <Copy size={19} strong>
+                  {h.name}
+                </Copy>
+                <Copy muted>{h.status}</Copy>
+              </Row>
+              {h.error && <Copy danger>{h.error}</Copy>}
+              <Row>
+                <Copy>
+                  {
+                    model.projects.filter((p) => p.instances.some((i) => i.serverId === h.id))
+                      .length
+                  }{" "}
+                  {tr("个项目")}
+                </Copy>
+                <Copy>
+                  {model.workspaces.filter((w) => w.serverId === h.id).length} {tr("个工作区")}
+                </Copy>
+                <Copy>
+                  {model.sessions.filter((s) => s.serverId === h.id).length} {tr("个会话")}
+                </Copy>
+                <Action
+                  onPress={() => {
+                    setHost(h.id);
+                    setPage("home");
+                    run(() => model.savePreferences({ layout: "A" }));
+                  }}
+                >
+                  {tr("查看项目")}
+                </Action>
+              </Row>
+              {model.projects
+                .filter((p) => !p.system && p.instances.some((i) => i.serverId === h.id))
+                .slice(0, 6)
+                .map((project) => (
+                  <View key={project.id} style={{ gap: 4 }}>
+                    <Copy strong>{project.name}</Copy>
+                    {project.instances
+                      .filter((i) => i.serverId === h.id)
+                      .map((instance) => (
+                        <Copy key={instance.projectId} muted size={12}>
+                          {instance.path}
+                          {instance.branch ? ` · ${instance.branch}` : ""}
+                        </Copy>
+                      ))}
+                  </View>
+                ))}
+              <Row>
+                {model.sessions
+                  .filter((s) => s.serverId === h.id)
+                  .slice(0, 3)
+                  .map((s) => (
+                    <Action
+                      key={JSON.stringify([s.serverId, s.id])}
+                      disabled={!props.navigation}
+                      onPress={() => openSession(s)}
+                    >
+                      {s.title}
+                    </Action>
+                  ))}
+              </Row>
+            </Card>
+          </View>
+        ))}
+      </View>
       {!model.hosts.length && <Empty>{tr("尚未发现主机。请先连接 Paseo Host。")}</Empty>}
     </View>
   );
@@ -626,6 +680,36 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                   >
                     {tr("添加")}
                   </Action>
+                  {editingTask && (
+                    <Card accent>
+                      <Field
+                        label={tr("编辑待办")}
+                        value={editingTask.title}
+                        onChangeText={(title) => setEditingTask({ ...editingTask, title })}
+                      />
+                      <Row>
+                        <Action
+                          primary
+                          disabled={!editingTask.title.trim() || !model.editable}
+                          onPress={() =>
+                            run(async () => {
+                              await model.savePreferences({
+                                focusTasks: model.preferences.focusTasks.map((task) =>
+                                  task.id === editingTask.id
+                                    ? { ...task, title: editingTask.title.trim() }
+                                    : task,
+                                ),
+                              });
+                              setEditingTask(null);
+                            })
+                          }
+                        >
+                          {tr("保存")}
+                        </Action>
+                        <Action onPress={() => setEditingTask(null)}>{tr("取消")}</Action>
+                      </Row>
+                    </Card>
+                  )}
                   {model.preferences.focusTasks.map((task) => (
                     <Row key={task.id}>
                       <Action
@@ -643,6 +727,12 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                       >
                         {task.done ? "✓ " : "○ "}
                         {task.title}
+                      </Action>
+                      <Action
+                        disabled={!model.editable}
+                        onPress={() => setEditingTask({ id: task.id, title: task.title })}
+                      >
+                        {tr("编辑")}
                       </Action>
                       <Action
                         disabled={!model.editable}
@@ -863,7 +953,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
               )}
               {model.clearSearchIndex && (
                 <Action onPress={() => run(model.clearSearchIndex!)}>
-                  {tr("清除本机正文索引")}
+                  {tr("清除配置 Host 正文索引")}
                 </Action>
               )}
             </Row>
