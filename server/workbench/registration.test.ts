@@ -5,7 +5,12 @@ import { expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import contribute from "../../index.server";
-import { initializePersonalAI, createPersonalAISession } from "../../shared/workbench/ai";
+import {
+  initializePersonalAI,
+  createPersonalAISession,
+  saveWorkbenchSkill,
+  toggleWorkbenchSkill,
+} from "../../shared/workbench/ai";
 import { saveWorkbenchMemory, readWorkbenchState } from "../../shared/workbench/state";
 import { readSearchStatus } from "../../shared/workbench/search";
 import { listCreationPlans } from "../../shared/workbench/operations";
@@ -15,6 +20,7 @@ it("registers services together, limits personal context to confirmed enabled me
   vi.stubEnv("PASEO_HOME", home);
   const handlers = new Map<unknown, (input: any, context?: any) => any>();
   let mcp: { url: string; headers: Record<string, string> } | undefined;
+  let systemPrompt = "";
   const workspace = {
     id: "workspace",
     projectId: "project",
@@ -22,6 +28,7 @@ it("registers services together, limits personal context to confirmed enabled me
     agents: {
       create: async (input: any) => {
         mcp = input.config.mcpServers["toolkit-workbench"];
+        systemPrompt = input.config.systemPrompt;
         return { id: input.agentId };
       },
     },
@@ -55,6 +62,13 @@ it("registers services together, limits personal context to confirmed enabled me
       });
     }
     await handlers.get(initializePersonalAI)!({}, { paseo });
+    for (const [slug, content] of [
+      ["visible-skill", "ENABLED_SKILL_CONTENT"],
+      ["hidden-skill", "DISABLED_SKILL_CONTENT"],
+    ]) {
+      handlers.get(saveWorkbenchSkill)!({ slug, name: slug, description: slug, content });
+    }
+    handlers.get(toggleWorkbenchSkill)!({ slug: "hidden-skill", enabled: false });
     await handlers.get(createPersonalAISession)!(
       { provider: "codex", title: "Personal" },
       { paseo },
@@ -65,6 +79,10 @@ it("registers services together, limits personal context to confirmed enabled me
       }),
     );
     const context = JSON.stringify(await client.callTool({ name: "read_context", arguments: {} }));
+    expect(context).toContain("ENABLED_SKILL_CONTENT");
+    expect(context).not.toContain("DISABLED_SKILL_CONTENT");
+    expect(systemPrompt).toContain("ENABLED_SKILL_CONTENT");
+    expect(systemPrompt).not.toContain("DISABLED_SKILL_CONTENT");
     expect(context).toContain("VISIBLE");
     for (const hidden of ["DISABLED", "UNCONFIRMED", "OTHER_SCOPE"])
       expect(context).not.toContain(hidden);

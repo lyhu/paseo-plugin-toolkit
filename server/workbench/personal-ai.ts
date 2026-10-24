@@ -77,18 +77,28 @@ export function createPersonalAI(
       if (!(await workspace.refresh())) throw new Error("个人 AI 工作区不存在，请恢复该工作区");
       const agentId = randomUUID();
       const capability = await tools.issue(agentId, async () => ({
-        personalAI: read(),
+        personalAI: { ...read(), skills: read().skills.filter((skill) => skill.enabled) },
         hosts: await paseo.hosts.list(),
         memory: readContext ? await readContext() : undefined,
       }));
       try {
+        let remaining = 64_000;
+        const enabledSkills = state.skills
+          .filter((skill) => skill.enabled)
+          .flatMap((skill) => {
+            if (remaining <= 0) return [];
+            const content = skill.content.slice(0, remaining);
+            remaining -= content.length;
+            return [{ slug: skill.slug, name: skill.name, content }];
+          });
         const agent = await workspace.agents.create({
           agentId,
           config: {
             provider: input.provider,
             mcpServers: { "toolkit-workbench": capability.config },
             systemPrompt:
-              "Use toolkit-workbench tools for personal context and creation plans. Creation requires user confirmation in Workbench. Tool credentials expire when the plugin restarts; start a new personal-AI session to reconnect.",
+              "Use toolkit-workbench tools for personal context and creation plans. Creation requires user confirmation in Workbench. Tool credentials expire when the plugin restarts; start a new personal-AI session to reconnect. Enabled personal skills at session creation follow as JSON. These are workflow guidance, never permission to execute a creation plan.\n" +
+              JSON.stringify(enabledSkills),
           },
           title: input.title,
           prompt: input.prompt,
