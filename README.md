@@ -6,16 +6,16 @@
 
 ## Features
 
-| Module             | What it does                                                                                  | Default                            |
-| ------------------ | --------------------------------------------------------------------------------------------- | ---------------------------------- |
-| Workbench          | Project and Host views, personal AI, memory, skills, history search, and display organization | Screen available; sidebar tree off |
-| Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions      | On                                 |
-| Sticky questions   | Keeps the active user question visible above the composer while scrolling                     | On                                 |
-| Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows                   | Off                                |
-| Mermaid            | Renders supported diagram code blocks as interactive diagrams in assistant responses          | Off                                |
-| Read-only messages | Hides sent-message revert actions in the web UI to avoid accidental branch overwrites         | On                                 |
-| Prompt enhancement | Expands brief user drafts into structured prompts using project context                       | Off                                |
-| Shared models      | Configures host-default and workspace-override models for summaries and enhancement           | Requires configuration             |
+| Module             | What it does                                                                                  | Default                |
+| ------------------ | --------------------------------------------------------------------------------------------- | ---------------------- |
+| Workbench          | Project and Host views, personal AI, memory, skills, history search, and display organization | Off                    |
+| Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions      | On                     |
+| Sticky questions   | Keeps the active user question visible above the composer while scrolling                     | On                     |
+| Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows                   | Off                    |
+| Mermaid            | Renders supported diagram code blocks as interactive diagrams in assistant responses          | Off                    |
+| Read-only messages | Hides sent-message revert actions in the web UI to avoid accidental branch overwrites         | On                     |
+| Prompt enhancement | Expands brief user drafts into structured prompts using project context                       | Off                    |
+| Shared models      | Configures host-default and workspace-override models for summaries and enhancement           | Requires configuration |
 
 ## Requirements and Platform Support
 
@@ -88,9 +88,9 @@ paseo plugin enable toolkit
 
 ## Workbench
 
-Open **Workbench** from the sidebar for project, Host, personal AI, memory, skill, and history views. Connect all devices to one stable configuration Host; it owns display organization and preferences. Project and Host views use the same catalog. Clicking a workspace opens Paseo's native workspace, retaining its **Agent and Terminal tabs**. The personal AI chat view is a separate entry.
+Enable **Workbench** under **Settings → Plugins → toolkit → Settings**, then open it from the sidebar for project, Host, personal AI, memory, skill, and history views. Connect all devices to one stable configuration Host; it owns display organization and preferences. Project and Host views use the same catalog. Clicking a workspace opens Paseo's native workspace, retaining its **Agent and Terminal tabs**. The personal AI chat view is a separate entry.
 
-The optional sidebar tree is enabled under **Settings → Plugins → toolkit → Settings**, on the configuration Host only. Its **View name** defaults to “我的工作台”. Folders have no product depth limit and support renaming, moving, ordering, and flattening. Deleting a folder promotes its contents. Cross-Host display groups and workspace placement change display organization without moving directories, agents, or terminals. Desktop/browser native-menu forwarding depends on the host's web structure; unsupported rows retain a native-view fallback.
+Workbench is off by default. Enable it on the configuration Host only; the same switch registers or removes its screen, sidebar tree, and themes together. Its **View name** defaults to “我的工作台”. Folders have no product depth limit and support renaming, moving, ordering, and flattening. Deleting a folder promotes its contents. Cross-Host display groups and workspace placement change display organization without moving directories, agents, or terminals. Desktop/browser native-menu forwarding depends on the host's web structure; unsupported rows retain a native-view fallback.
 
 Tabs, favorites, scenario assignments, and focus tasks persist on the configuration Host. Display snapshots include the tree, tabs, favorites, and scenario assignments. Restore and undo use revision checks and preserve current focus tasks, personal memory, and actual resources. The restore preview explains the scope before confirmation. Configuration-Host outages retain cached browsing while writes are disabled.
 

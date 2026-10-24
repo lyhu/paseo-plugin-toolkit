@@ -2,9 +2,9 @@
 
 ## English
 
-Toolkit adds a cross-Host workbench, personal AI sessions, workspace quick questions, and conversation display tools to Paseo. Workbench has project and Host views, favorites, scenario assignments, focus tasks, personal memory, skills, and indexed history search. Opening a workspace retains Paseo’s native Agent and Terminal tabs. The optional sidebar tree supports nested folders without a product depth limit and cross-Host display groups. Display snapshots restore organization, tabs, favorites, and scenario assignments while preserving focus tasks, memory, and actual resources.
+Toolkit adds a cross-Host workbench, personal AI sessions, workspace quick questions, and conversation display tools to Paseo. Workbench has project and Host views, favorites, scenario assignments, focus tasks, personal memory, skills, and indexed history search. Opening a workspace retains Paseo’s native Agent and Terminal tabs. Its sidebar tree supports nested folders without a product depth limit and cross-Host display groups. Display snapshots restore organization, tabs, favorites, and scenario assignments while preserving focus tasks, memory, and actual resources.
 
-Use one stable configuration Host for shared organization. Initialize personal AI explicitly and select a discovered Provider/model to create a real session. Only confirmed, enabled memory in the matching scope enters context. Skills are real files; disable removes them from discovery and future context. Existing sessions may retain loaded content, so start a new session after skill changes. Reloading the plugin also requires a new personal AI session to reconnect its tools. Provider permissions still apply.
+Workbench is off by default. Enable it on one stable configuration Host for shared organization; one switch controls the screen, sidebar tree, and themes. Initialize personal AI explicitly and select a discovered Provider/model to create a real session. Only confirmed, enabled memory in the matching scope enters context. Skills are real files; disable removes them from discovery and future context. Existing sessions may retain loaded content, so start a new session after skill changes. Reloading the plugin also requires a new personal AI session to reconnect its tools. Provider permissions still apply.
 
 Creation requests become editable plans before the user confirms execution. Remote operations target the selected Host and require an existing directory there. Partial and unknown outcomes are shown without automatically repeating creation. History search covers explicitly indexed sessions, shows coverage, and reads user and assistant text rather than tool output. The configuration Host stores memory and indexed text; personal AI sends selected context to the chosen Provider. Four Workbench palettes are available through Paseo’s Settings → Appearance.
 
@@ -14,9 +14,9 @@ Requires Paseo 0.13.x on client and daemon. The interface supports Chinese and E
 
 ## 简体中文
 
-Toolkit 为 Paseo 提供跨 Host 工作台、个人 AI 会话、工作区快捷提问和对话展示工具。工作台包含项目与主机视图、常用项目、场景归属、关注任务、个人记忆、技能和历史索引搜索。打开工作区保留原生 Agent 与 Terminal 标签。可选侧栏树支持没有产品层数上限的文件夹和跨 Host 显示组。展示快照恢复树、标签、常用项目与场景归属，并保留关注任务、记忆和真实资源。
+Toolkit 为 Paseo 提供跨 Host 工作台、个人 AI 会话、工作区快捷提问和对话展示工具。工作台包含项目与主机视图、常用项目、场景归属、关注任务、个人记忆、技能和历史索引搜索。打开工作区保留原生 Agent 与 Terminal 标签。侧栏树支持没有产品层数上限的文件夹和跨 Host 显示组。展示快照恢复树、标签、常用项目与场景归属，并保留关注任务、记忆和真实资源。
 
-使用一台稳定的配置 Host 保存共享组织。显式初始化个人 AI，并选择实际发现的 Provider/模型创建真实会话。只有已确认、已启用且作用域匹配的记忆进入上下文。技能保存为真实文件，禁用后移出发现目录和后续上下文；已有会话可能保留已加载内容，修改技能后需新建会话。插件重载后也需新建个人 AI 会话重新连接工具。Provider 权限确认仍然生效。
+工作台默认关闭，在一台稳定的配置 Host 启用并保存共享组织；同一开关控制页面、侧栏树和主题贡献。显式初始化个人 AI，并选择实际发现的 Provider/模型创建真实会话。只有已确认、已启用且作用域匹配的记忆进入上下文。技能保存为真实文件，禁用后移出发现目录和后续上下文；已有会话可能保留已加载内容，修改技能后需新建会话。插件重载后也需新建个人 AI 会话重新连接工具。Provider 权限确认仍然生效。
 
 创建请求先形成可编辑计划，由用户确认执行。远端操作发往所选 Host，目标目录须预先存在。部分完成和未知结果单独显示，不自动重复创建。历史搜索只覆盖显式索引的会话并显示覆盖范围，读取用户和助手文本，不包含工具输出。配置 Host 保存记忆与索引文本，个人 AI 将选定上下文发送给所选 Provider。四套工作台配色通过 Paseo 的“设置 → 外观”选择。
 
