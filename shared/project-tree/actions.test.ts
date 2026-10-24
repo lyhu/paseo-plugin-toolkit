@@ -27,6 +27,7 @@ it("orders mixed siblings and disables moves beyond the first and last rows", ()
     "下移",
     "置顶",
     "置底",
+    "合并展示层级",
     "合并到…",
     "取消合并",
     "隐藏项目节点",
@@ -37,7 +38,7 @@ it("orders mixed siblings and disables moves beyond the first and last rows", ()
     nodeActions(tree, tree.nodes[1]!)
       .filter((item) => item.separatorBefore)
       .map((item) => item.label),
-  ).toEqual(["移动到…", "合并到…", "隐藏项目节点", "新建 workspace"]);
+  ).toEqual(["移动到…", "合并展示层级", "合并到…", "隐藏项目节点", "新建 workspace"]);
   expect(
     nodeActions(tree, tree.nodes[1]!).find((item) => item.action === "hideEmpty")?.disabled,
   ).toBe(true);
@@ -51,6 +52,8 @@ it("orders mixed siblings and disables moves beyond the first and last rows", ()
     "下移",
     "置顶",
     "置底",
+    "合并展示层级",
+    "隐藏分类分支",
     "新建分类文件夹",
     "删除文件夹",
   ]);
@@ -71,7 +74,7 @@ it("orders mixed siblings and disables moves beyond the first and last rows", ()
   );
 });
 
-it("does not offer a folder's descendants or destinations that exceed the three-level limit", () => {
+it("excludes descendants but allows arbitrarily deep destinations", () => {
   const tree: Tree = {
     revision: 0,
     nodes: [
@@ -81,6 +84,6 @@ it("does not offer a folder's descendants or destinations that exceed the three-
       { kind: "folder", id: "d", name: "D", parentId: null },
     ],
   };
-  expect(folderDestinations(tree, tree.nodes[0]!).map((node) => node.id)).toEqual([]);
-  expect(folderDestinations(tree, tree.nodes[3]!).map((node) => node.id)).toEqual(["a", "b"]);
+  expect(folderDestinations(tree, tree.nodes[0]!).map((node) => node.id)).toEqual(["d"]);
+  expect(folderDestinations(tree, tree.nodes[3]!).map((node) => node.id)).toEqual(["a", "b", "c"]);
 });

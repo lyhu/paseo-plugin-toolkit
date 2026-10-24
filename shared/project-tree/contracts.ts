@@ -39,3 +39,31 @@ export function projectTreeViewName(value: string | null | undefined): string {
   const trimmed = value?.trim() ?? "";
   return trimmed ? trimmed.slice(0, 40) : DEFAULT_PROJECT_TREE_VIEW_NAME;
 }
+
+export const readProjectTreeHistory = defineRpc({
+  name: "project-tree.history",
+  input: z.object({}),
+  output: z.object({
+    revision: z.number().int().nonnegative(),
+    canUndo: z.boolean(),
+    snapshots: z.array(z.object({ id: z.string(), name: z.string(), createdAt: z.string() })),
+  }),
+});
+export const saveProjectTreeSnapshot = defineRpc({
+  name: "project-tree.snapshot.save",
+  input: z.object({
+    revision: z.number().int().nonnegative(),
+    name: z.string().trim().min(1).max(120),
+  }),
+  output: treeSchema,
+});
+export const restoreProjectTreeSnapshot = defineRpc({
+  name: "project-tree.snapshot.restore",
+  input: z.object({ revision: z.number().int().nonnegative(), snapshotId: z.string() }),
+  output: treeSchema,
+});
+export const undoProjectTree = defineRpc({
+  name: "project-tree.undo",
+  input: z.object({ revision: z.number().int().nonnegative() }),
+  output: treeSchema,
+});

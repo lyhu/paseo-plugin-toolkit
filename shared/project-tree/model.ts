@@ -6,6 +6,7 @@ const common = {
   name: z.string().trim().min(1).max(120),
   parentId: z.string().nullable(),
   hidden: z.boolean().optional(),
+  flattened: z.boolean().optional(),
 };
 export const nodeSchema = z.discriminatedUnion("kind", [
   z.object({ ...common, kind: z.literal("folder") }),
@@ -17,6 +18,7 @@ export const nodeSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export const treeSchema = z.object({
+  schemaVersion: z.literal(2).optional(),
   revision: z.number().int().nonnegative(),
   nodes: z.array(nodeSchema),
   workspacePlacements: z
@@ -42,6 +44,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("rename"), id: common.id, name: common.name }),
   z.object({ type: z.literal("hide"), id: common.id, hidden: z.boolean() }),
+  z.object({ type: z.literal("flatten"), id: common.id, flattened: z.boolean() }),
   z.object({ type: z.literal("hideEmpty"), ids: z.array(common.id).min(1) }),
   z.object({
     type: z.literal("move"),
@@ -73,6 +76,7 @@ export type TreeNodeAction =
   | "menu"
   | "rename"
   | "move"
+  | "flatten"
   | "hide"
   | "hideEmpty"
   | "up"
@@ -86,7 +90,7 @@ export const emptyTree = (): Tree => ({ revision: 0, nodes: [] });
 export const memberKey = (member: ProjectMember) =>
   JSON.stringify([member.serverId, member.projectId]);
 
-/** Validates the complete resulting tree, including depth of descendants after a move. */
+/** Iterative validation has no product depth limit and checks each ancestry edge once. */
 export function validateTree(tree: Tree): Tree {
   const nodes = new Map(tree.nodes.map((node) => [node.id, node]));
   if (nodes.size !== tree.nodes.length) throw new Error("目录节点重复");
@@ -98,19 +102,19 @@ export function validateTree(tree: Tree): Tree {
     if (nodes.get(placement.nodeId)?.kind !== "project") throw new Error("目标项目显示组不存在");
     workspaces.add(key);
   }
+  const checked = new Set<string>();
   for (const node of tree.nodes) {
-    const seen = new Set([node.id]);
-    let depth = node.kind === "folder" ? 1 : 0;
-    let parentId = node.parentId;
-    while (parentId) {
-      if (seen.has(parentId)) throw new Error("不能移动到自身或子文件夹中");
-      seen.add(parentId);
-      const parent = nodes.get(parentId);
+    const path = new Set<string>();
+    let current: TreeNode | undefined = node;
+    while (current && !checked.has(current.id)) {
+      if (path.has(current.id)) throw new Error("不能移动到自身或子文件夹中");
+      path.add(current.id);
+      if (current.parentId === null) break;
+      const parent = nodes.get(current.parentId);
       if (parent?.kind !== "folder") throw new Error("目标文件夹不存在");
-      depth += 1;
-      parentId = parent.parentId;
+      current = parent;
     }
-    if (depth > 3) throw new Error("分类文件夹最多三层");
+    for (const id of path) checked.add(id);
     if (node.kind === "project")
       for (const member of node.members) {
         const key = memberKey(member);
@@ -181,9 +185,14 @@ export function applyTreeCommand(previous: Tree, input: TreeCommand): Tree {
       break;
     case "hide": {
       const node = find(command.id);
-      if (node.kind !== "project") throw new Error("只能隐藏项目节点");
       if (command.hidden) node.hidden = true;
       else delete node.hidden;
+      break;
+    }
+    case "flatten": {
+      const node = find(command.id);
+      if (command.flattened) node.flattened = true;
+      else delete node.flattened;
       break;
     }
     case "hideEmpty": {

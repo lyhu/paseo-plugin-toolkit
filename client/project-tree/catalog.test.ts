@@ -228,3 +228,28 @@ it("publishes a multi-host batch once and deduplicates repeated errors", () => {
   expect(catalog.read()).toBe(previous);
   expect(notify).toHaveBeenCalledTimes(2);
 });
+
+it("bounds recent-session paging and marks partial counts", async () => {
+  const list = vi.fn(async () => ({
+    entries: [{ agent: { id: "s", workspaceId: "w", title: "Recent", updatedAt: "2026-10-24" } }],
+    pageInfo: { nextCursor: "next" },
+  }));
+  const api = {
+    projects: { list: async () => ({ projects: [] }) },
+    workspaces: {
+      list: async () => ({
+        entries: [{ id: "w", projectId: "p", name: "W", workspaceDirectory: "/w" }],
+        pageInfo: { nextCursor: null },
+      }),
+    },
+    agents: { list },
+  };
+  const result = await readHostCatalog(api as never, "mini", {
+    maxSessionPages: 1,
+    sessionLimits: new Map([["w", 5]]),
+  });
+  expect(list).toHaveBeenCalledOnce();
+  expect(result.sessions).toHaveLength(1);
+  expect(result.sessionsTruncated).toBe(true);
+  expect(result.sessionCounts).toEqual({ w: 1 });
+});

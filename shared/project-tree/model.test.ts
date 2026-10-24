@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { applyTreeCommand, emptyTree, treeSchema } from "./model";
+import { applyTreeCommand, emptyTree, treeSchema, validateTree } from "./model";
 
 it("moves one workspace's display position across Hosts, preserves identities and carries placements through a merge", () => {
   let tree = applyTreeCommand(emptyTree(), {
@@ -100,7 +100,7 @@ it("places new folders first among their siblings and keeps existing order", () 
   expect(previous.nodes).toHaveLength(2);
 });
 
-it("limits folder depth after a subtree move and prevents cycles without mutating the previous tree", () => {
+it("allows deep folder moves and prevents cycles without mutating the previous tree", () => {
   let tree = emptyTree();
   for (const [id, parentId] of [
     ["a", null],
@@ -110,9 +110,11 @@ it("limits folder depth after a subtree move and prevents cycles without mutatin
     ["e", "d"],
   ] as const)
     tree = applyTreeCommand(tree, { type: "folder", id, name: id, parentId });
-  expect(() => applyTreeCommand(tree, { type: "move", id: "d", parentId: "b" })).toThrow(
-    "最多三层",
-  );
+  expect(
+    applyTreeCommand(tree, { type: "move", id: "d", parentId: "b" }).nodes.find(
+      (node) => node.id === "d",
+    )?.parentId,
+  ).toBe("b");
   expect(() => applyTreeCommand(tree, { type: "move", id: "a", parentId: "c" })).toThrow(
     "自身或子文件夹",
   );
@@ -184,4 +186,18 @@ it("hides several project nodes in one command and rejects unknown ids", () => {
   expect(() => applyTreeCommand(tree, { type: "hideEmpty", ids: ["missing"] })).toThrow(
     "目录节点不存在",
   );
+});
+
+it("validates ten thousand nested folders without recursion and rejects corrupt ancestry", () => {
+  const nodes = Array.from({ length: 10000 }, (_, i) => ({
+    kind: "folder" as const,
+    id: String(i),
+    name: String(i),
+    parentId: i ? String(i - 1) : null,
+  }));
+  expect(validateTree({ revision: 0, nodes }).nodes).toHaveLength(10000);
+  expect(() =>
+    validateTree({ revision: 0, nodes: [{ ...nodes[0]!, parentId: "missing" }] }),
+  ).toThrow();
+  expect(() => validateTree({ revision: 0, nodes: [{ ...nodes[0]!, parentId: "0" }] })).toThrow();
 });

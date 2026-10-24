@@ -26,6 +26,7 @@ export interface HostCatalog {
   workspaces: CatalogWorkspace[];
   sessions?: CatalogSession[];
   sessionCounts?: Record<string, number>;
+  sessionsTruncated?: boolean;
 }
 export interface CatalogSession {
   id: string;
@@ -38,6 +39,7 @@ export const catalogCacheSchema = z.object({
   catalogs: z.record(
     z.string(),
     z.object({
+      sessionsTruncated: z.boolean().optional(),
       sessionCounts: z.record(z.string(), z.number().int().nonnegative()).optional(),
       sessions: z
         .array(
@@ -92,6 +94,7 @@ export async function readHostCatalog(
   serverId: string,
   demand: {
     sessions?: boolean;
+    maxSessionPages?: number;
     active?: () => boolean;
     sessionLimits?: ReadonlyMap<string, number>;
   } = {},
@@ -131,6 +134,8 @@ export async function readHostCatalog(
   const retained = new Map<string, number>();
   const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
   cursor = undefined;
+  let sessionPages = 0;
+  let sessionsTruncated = false;
   if (demand.sessions !== false)
     do {
       checkActive();
@@ -158,9 +163,19 @@ export async function readHostCatalog(
       const next = page.pageInfo.nextCursor;
       if (next && next === cursor) throw new Error("Session pagination did not advance");
       cursor = next ?? undefined;
+      sessionPages++;
+      if (
+        cursor &&
+        demand.maxSessionPages !== undefined &&
+        sessionPages >= demand.maxSessionPages
+      ) {
+        sessionsTruncated = true;
+        break;
+      }
     } while (cursor);
   return {
     sessions,
+    ...(sessionsTruncated ? { sessionsTruncated } : {}),
     ...(demand.sessionLimits ? { sessionCounts } : {}),
     projects: projects.map((project) => ({
       serverId,

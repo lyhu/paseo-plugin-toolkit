@@ -56,6 +56,11 @@ export function nodeActions(
     { action: "down", label: "下移", disabled: !adjacentMove(tree, node, "down") },
     { action: "top", label: "置顶", disabled: !edgeMove(tree, node, "top") },
     { action: "bottom", label: "置底", disabled: !edgeMove(tree, node, "bottom") },
+    {
+      action: "flatten",
+      label: node.flattened ? "恢复节点层级" : "合并展示层级",
+      separatorBefore: true,
+    },
     ...(node.kind === "project"
       ? [
           {
@@ -78,6 +83,7 @@ export function nodeActions(
           { action: "new" as const, label: "新建 workspace", separatorBefore: true },
         ]
       : [
+          { action: "hide" as const, label: node.hidden ? "显示分类分支" : "隐藏分类分支" },
           { action: "folder" as const, label: "新建分类文件夹", separatorBefore: true },
           { action: "delete" as const, label: "删除文件夹", separatorBefore: true },
         ]),
@@ -85,8 +91,16 @@ export function nodeActions(
 }
 
 export function nodePath(tree: Tree, node: TreeNode): string {
-  const parent = tree.nodes.find((entry) => entry.id === node.parentId);
-  return parent ? `${nodePath(tree, parent)} / ${node.name}` : node.name;
+  const nodes = new Map(tree.nodes.map((entry) => [entry.id, entry]));
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let current: TreeNode | undefined = node;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    names.push(current.name);
+    current = current.parentId === null ? undefined : nodes.get(current.parentId);
+  }
+  return names.reverse().join(" / ");
 }
 
 export function folderDestinations(tree: Tree, node: TreeNode) {

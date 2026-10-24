@@ -24,6 +24,7 @@ const actionIcons = {
   merge: "Merge",
   split: "Split",
   hide: "EyeOff",
+  flatten: "Layers",
   hideEmpty: "FolderX",
   new: "Plus",
   folder: "FolderPlus",
@@ -137,6 +138,10 @@ export function NodeActionsDialog({
     if ((next === "top" || next === "bottom") && node) {
       const command = edgeMove(snapshot.tree, node, next);
       if (command) void execute(command);
+      return;
+    }
+    if (next === "flatten" && node) {
+      void execute({ type: "flatten", id: node.id, flattened: !node.flattened });
       return;
     }
     if (next === "hide" && node) {
