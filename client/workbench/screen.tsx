@@ -35,6 +35,8 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
   const [search, setSearch] = useState<WorkbenchSearchResponse | null>(null);
   const [searching, setSearching] = useState(false);
   const searchEpoch = useRef(0);
+  const searchModel = useRef(model.search);
+  searchModel.current = model.search;
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
@@ -60,8 +62,8 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
     }
     setSearching(true);
     const timer = setTimeout(() => {
-      void model
-        .search(query, scope)
+      void searchModel
+        .current(query, scope)
         .then((result) => {
           if (epoch === searchEpoch.current) setSearch(result);
         })
@@ -76,7 +78,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
       clearTimeout(timer);
       searchEpoch.current++;
     };
-  }, [query, scope, model.search]);
+  }, [query, scope]);
   function run(task: () => Promise<unknown>) {
     if (pendingRef.current) return;
     pendingRef.current = true;
@@ -105,7 +107,10 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
   const aiSessions = model.sessions.filter(
     (s) => s.workspaceId === model.ai.workspaceId && s.serverId === model.ai.serverId,
   );
-  const activeSession = session ?? aiSessions[0];
+  const activeSession =
+    session?.serverId === model.ai.serverId && session.workspaceId === model.ai.workspaceId
+      ? session
+      : aiSessions[0];
   const openSession = (s: WorkbenchSession) =>
     props.navigation?.openAgent({ serverId: s.serverId, agentId: s.id });
   const workspaceButtons = (project: WorkbenchProject | undefined) =>
@@ -115,7 +120,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
       )
       .map((w) => (
         <Action
-          key={`${w.serverId}/${w.id}`}
+          key={JSON.stringify([w.serverId, w.id])}
           disabled={!props.navigation}
           onPress={() =>
             props.navigation?.openWorkspace({ serverId: w.serverId, workspaceId: w.id })
@@ -159,7 +164,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
           {project.instances.length} {tr("个实例")} · {project.workspaceCount} {tr("个工作区")}
         </Copy>
         {project.instances.map((i) => (
-          <View key={`${i.serverId}/${i.projectId}`} style={{ gap: 3 }}>
+          <View key={JSON.stringify([i.serverId, i.projectId])} style={{ gap: 3 }}>
             <Copy strong>{model.hosts.find((h) => h.id === i.serverId)?.name ?? i.serverId}</Copy>
             <Copy muted size={12}>
               {i.path}
@@ -211,7 +216,29 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
   );
   const chat = (
     <View style={{ gap: 18 }}>
-      <Section title="AI 工作区" detail={model.ai.root ?? tr("初始化后显示实际工作区路径")} />
+      <Section title="AI 工作区" detail={model.ai.root || tr("初始化后显示实际工作区路径")} />
+      <Card>
+        <Copy strong>{tr("参考项目")}</Copy>
+        <Copy muted size={12}>
+          {tr("个人记忆始终可用；选择项目后会加入该项目已确认的记忆。")}
+        </Copy>
+        <Row>
+          <Action selected={!focusProject} onPress={() => setFocusProject("")}>
+            {tr("仅个人记忆")}
+          </Action>
+          {model.projects
+            .filter((project) => !project.system)
+            .map((project) => (
+              <Action
+                key={project.id}
+                selected={focusProject === project.id}
+                onPress={() => setFocusProject(project.id)}
+              >
+                {project.name}
+              </Action>
+            ))}
+        </Row>
+      </Card>
       {!model.ai.initialized ? (
         <Card>
           <Copy>{tr("创建独立的 AI 工作区，用于工作台对话、记忆和技能。")}</Copy>
@@ -229,8 +256,8 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
           <Row>
             {aiSessions.map((s) => (
               <Action
-                key={s.id}
-                selected={activeSession?.id === s.id}
+                key={JSON.stringify([s.serverId, s.id])}
+                selected={activeSession?.serverId === s.serverId && activeSession.id === s.id}
                 onPress={() => setSession(s)}
               >
                 {s.title}
@@ -277,7 +304,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
           </Card>
           {activeSession && (
             <Conversation
-              key={`${activeSession.serverId}/${activeSession.id}`}
+              key={JSON.stringify([activeSession.serverId, activeSession.id])}
               session={activeSession}
               model={model}
               projectId={focusProject || undefined}
@@ -361,7 +388,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
               <Action onPress={() => setPlanEdit(null)}>{tr("取消修改")}</Action>
             </View>
           )}
-          {["draft", "pending", "proposed", "failed"].includes(plan.status) && (
+          {plan.status === "pending" && (
             <Row>
               <Action
                 primary
@@ -448,7 +475,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
           <Card>
             <Copy>
               {tr(
-                "在 Paseo 设置 → 外观中选择 Workbench Graphite、Midnight、Forest 或 Sand。主题同时应用到完整应用界面。",
+                "在 Paseo 设置 → 外观中选择 工作台 · 石墨白、深空蓝、松石绿或暖砂金。主题同时应用到完整应用界面。",
               )}
             </Copy>
           </Card>
@@ -538,7 +565,8 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                             setQuery("");
                             setTab("all");
                             setHost(result.serverId ?? "all");
-                            setFocusProject(result.projectId ?? result.id);
+                            setFocusProject(result.kind === "project" ? result.id : "");
+                            run(() => model.savePreferences({ layout: "C" }));
                           }
                         }}
                       >
@@ -800,7 +828,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
             )}
             <Section title="最近会话" />
             {model.sessions.slice(0, 8).map((s) => (
-              <Card key={`${s.serverId}/${s.id}`}>
+              <Card key={JSON.stringify([s.serverId, s.id])}>
                 <Row between>
                   <View>
                     <Copy strong>{s.title}</Copy>
