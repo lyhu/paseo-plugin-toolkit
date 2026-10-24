@@ -1,5 +1,6 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
+import { providerModelSchema } from "./ai";
 
 const identity = z.string().trim().min(1).max(500);
 export const creationPayloadSchema = z
@@ -10,7 +11,7 @@ export const creationPayloadSchema = z
     path: z.string().trim().min(1).max(4096).optional(),
     projectId: identity.optional(),
     workspaceId: identity.optional(),
-    provider: identity.optional(),
+    provider: providerModelSchema.optional(),
     prompt: z.string().max(24_000).optional(),
   })
   .superRefine((value, ctx) => {

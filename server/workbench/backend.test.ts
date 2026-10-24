@@ -9,6 +9,7 @@ import { createOperationStore } from "./operations";
 import { createWorkbenchTools } from "./tools";
 import { createPersonalAI } from "./personal-ai";
 import { createSkillStore } from "./skills";
+import { createPersonalAISession } from "../../shared/workbench/ai";
 
 const homes: string[] = [];
 function home() {
@@ -42,6 +43,22 @@ function fakeApi() {
   return { api: api as unknown as PaseoApi, raw: api, workspace };
 }
 describe("creation operations", () => {
+  it("rejects a provider without its model before saving or executing", () => {
+    expect(
+      createPersonalAISession.input.safeParse({ provider: "codex", title: "Test" }).success,
+    ).toBe(false);
+    const store = createOperationStore(join(home(), "operations.json"));
+    expect(() =>
+      store.prepare({
+        kind: "session",
+        serverId: "self",
+        workspaceId: "workspace",
+        provider: "codex",
+        name: "Test",
+      }),
+    ).toThrow("provider/model");
+    expect(store.list()).toEqual([]);
+  });
   it("requires revision confirmation, executes exactly once and routes remote operations", async () => {
     const store = createOperationStore(join(home(), "operations.json"));
     const local = fakeApi();
@@ -52,7 +69,7 @@ describe("creation operations", () => {
       serverId: "remote",
       name: "Work",
       path: "/remote/path",
-      provider: "codex",
+      provider: "codex/test-model",
     });
     expect(remote.raw.workspaces.create).not.toHaveBeenCalled();
     const first = store.execute(plan.id, plan.revision, local.api);
@@ -78,7 +95,7 @@ describe("creation operations", () => {
       serverId: "self",
       name: "Project",
       path: directory,
-      provider: "codex",
+      provider: "codex/test-model",
     });
     expect(existsSync(directory)).toBe(false);
     const result = await store.execute(plan.id, 0, api);
@@ -133,11 +150,11 @@ describe("personal AI and skills", () => {
     expect(disabled.enabled).toBe(false);
     expect(existsSync(skill.path)).toBe(false);
     expect(existsSync(disabled.path)).toBe(true);
-    await ai.createSession(api, { provider: "codex", title: "Personal" });
+    await ai.createSession(api, { provider: "codex/test-model", title: "Personal" });
     expect(workspace.agents.create).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
-          provider: "codex",
+          provider: "codex/test-model",
           mcpServers: { "toolkit-workbench": expect.objectContaining({ type: "http" }) },
         }),
       }),

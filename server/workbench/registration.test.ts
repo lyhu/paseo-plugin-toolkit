@@ -70,7 +70,7 @@ it("registers services together, limits personal context to confirmed enabled me
     }
     handlers.get(toggleWorkbenchSkill)!({ slug: "hidden-skill", enabled: false });
     await handlers.get(createPersonalAISession)!(
-      { provider: "codex", title: "Personal" },
+      { provider: "codex/test-model", title: "Personal" },
       { paseo },
     );
     await client.connect(

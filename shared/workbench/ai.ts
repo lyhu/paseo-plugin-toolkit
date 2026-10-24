@@ -1,6 +1,12 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
+export const providerModelSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .regex(/^[^/\s]+\/.+$/, "请选择 Provider 和模型（provider/model）");
+
 export const skillInputSchema = z.object({
   slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
   name: z.string().trim().min(1).max(120),
@@ -41,7 +47,7 @@ export const initializePersonalAI = defineRpc({
 export const createPersonalAISession = defineRpc({
   name: "workbench.ai.session",
   input: z.object({
-    provider: z.string().trim().min(1),
+    provider: providerModelSchema,
     title: z.string().trim().min(1).max(120),
     prompt: z.string().max(24_000).optional(),
   }),
