@@ -165,7 +165,7 @@ export function SkillsLibrary({ model, run }: Omit<Props, "openMemory">) {
   const [expanded, setExpanded] = useState<string | null>(null);
   return (
     <View style={{ gap: 18 }}>
-      <Section title="技能" detail={tr("启用的技能会作为 AI 上下文。内置技能由工作台维护。")}>
+      <Section title="技能" detail={tr("技能变更从新会话生效；运行中的会话可能已经加载旧内容。")}>
         <Action
           primary
           disabled={!model.editable || !model.ai.initialized}
@@ -229,6 +229,9 @@ export function SkillsLibrary({ model, run }: Omit<Props, "openMemory">) {
           <Copy muted>{skill.description}</Copy>
           <Copy muted size={12}>
             {skill.path}
+          </Copy>
+          <Copy muted size={12}>
+            {skill.loaded ? tr("已确认当前会话加载") : tr("当前会话加载状态未知")}
           </Copy>
           <Row>
             <Action

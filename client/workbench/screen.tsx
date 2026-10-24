@@ -557,7 +557,6 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                   <Action
                     key={layout}
                     selected={model.preferences.layout === layout}
-                    disabled={!model.editable}
                     onPress={() => run(() => model.savePreferences({ layout }))}
                   >
                     {[tr("项目视图"), tr("主机视图"), tr("专注视图")][i]}
@@ -629,6 +628,21 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                     </Row>
                     <Copy muted size={12}>
                       {result.detail}
+                    </Copy>
+                    <Copy muted size={12}>
+                      {tr(
+                        {
+                          project: "项目",
+                          workspace: "工作区",
+                          session: "会话",
+                          host: "主机",
+                          memory: "记忆",
+                        }[result.kind],
+                      )}
+                      {result.serverId
+                        ? ` · ${model.hosts.find((host) => host.id === result.serverId)?.name ?? result.serverId}`
+                        : ""}
+                      {result.workspaceId ? ` · ${result.workspaceId}` : ""}
                     </Copy>
                   </View>
                 ))}
@@ -840,7 +854,9 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                       <Action
                         primary
                         disabled={
-                          !tabDraft.name.trim() || (tabDraft.kind === "host" && !tabDraft.hostId)
+                          !model.editable ||
+                          !tabDraft.name.trim() ||
+                          (tabDraft.kind === "host" && !tabDraft.hostId)
                         }
                         onPress={() =>
                           run(async () => {
@@ -860,6 +876,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                       <Action onPress={() => setTabDraft(null)}>{tr("取消")}</Action>
                       {model.preferences.tabs.some((t) => t.id === tabDraft.id) && (
                         <Action
+                          disabled={!model.editable}
                           onPress={() =>
                             run(async () => {
                               await model.savePreferences({
@@ -932,7 +949,10 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                       {tr("继续")}
                     </Action>
                     {model.indexSession && (
-                      <Action disabled={pending} onPress={() => run(() => model.indexSession!(s))}>
+                      <Action
+                        disabled={pending || !model.editable}
+                        onPress={() => run(() => model.indexSession!(s))}
+                      >
                         {tr("索引正文")}
                       </Action>
                     )}
@@ -944,6 +964,7 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
             <Row>
               {model.cancelIndex && (
                 <Action
+                  disabled={!model.editable}
                   onPress={() => {
                     void model.cancelIndex!().catch((cause) => setError(String(cause)));
                   }}
@@ -952,7 +973,10 @@ export function WorkbenchScreen(props: PluginScreenProps & { model: WorkbenchMod
                 </Action>
               )}
               {model.clearSearchIndex && (
-                <Action onPress={() => run(model.clearSearchIndex!)}>
+                <Action
+                  disabled={!model.editable || pending}
+                  onPress={() => run(model.clearSearchIndex!)}
+                >
                   {tr("清除配置 Host 正文索引")}
                 </Action>
               )}

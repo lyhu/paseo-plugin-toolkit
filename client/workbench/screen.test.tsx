@@ -175,3 +175,27 @@ it("renders compact dark layouts using the host palette", () => {
   expect(html).toContain("&quot;padding&quot;:16");
   expect(html).toContain("&quot;flexBasis&quot;:&quot;100%&quot;");
 });
+
+it("does not equate an enabled skill with confirmed current-session loading", () => {
+  const html = renderToStaticMarkup(
+    <WorkbenchScreen
+      {...props}
+      params={{ page: "skills" }}
+      model={{
+        ...model,
+        skills: [
+          {
+            id: "skill",
+            name: "Diagnostics",
+            description: "Inspect resources",
+            path: "/work/skills/diagnostics",
+            enabled: true,
+            loaded: false,
+          },
+        ],
+      }}
+    />,
+  );
+  expect(html).toContain("当前会话加载状态未知");
+  expect(html).toContain("技能变更从新会话生效");
+});
