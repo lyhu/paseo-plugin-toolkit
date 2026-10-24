@@ -95,6 +95,9 @@ export function Action({
       onPress={onPress}
       style={({ pressed }) => ({
         minHeight: 44,
+        minWidth: 0,
+        maxWidth: "100%",
+        flexShrink: 1,
         justifyContent: "center",
         paddingHorizontal: 13,
         paddingVertical: 10,
