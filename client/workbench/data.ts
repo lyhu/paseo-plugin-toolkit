@@ -113,7 +113,7 @@ export function useWorkbenchModel(
         if (!cancelled)
           setProviders(
             result.entries
-              .filter((p) => p.enabled)
+              .filter((p) => p.enabled && p.status === "ready")
               .flatMap((p) =>
                 (p.models ?? [])
                   .filter((m) => m.isSelectable !== false)
@@ -302,7 +302,7 @@ export function useWorkbenchModel(
           );
           coverage += `；${found.coverage.filter((s) => s.status === "ready").length} 个会话正文已索引（历史快照）`;
         } catch {
-          coverage += "；配置 Host 不可用，正文搜索暂不可用";
+          coverage += "；正文搜索暂不可用；目录结果来自已读取数据";
         }
       }
       return { results: results.slice(0, 100), coverage };

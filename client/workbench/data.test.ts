@@ -77,7 +77,12 @@ async function setup() {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mocks.providers.mockResolvedValue({
     entries: [
-      { provider: "codex", enabled: true, models: [{ id: "test", label: "Test" }] },
+      {
+        provider: "codex",
+        status: "ready",
+        enabled: true,
+        models: [{ id: "test", label: "Test" }],
+      },
       { provider: "unavailable", enabled: false, models: [] },
     ],
   });
