@@ -87,3 +87,53 @@ it("excludes descendants but allows arbitrarily deep destinations", () => {
   expect(folderDestinations(tree, tree.nodes[0]!).map((node) => node.id)).toEqual(["d"]);
   expect(folderDestinations(tree, tree.nodes[3]!).map((node) => node.id)).toEqual(["a", "b", "c"]);
 });
+
+it("matches move validation for folder and project destinations in a mixed tree", () => {
+  const tree: Tree = {
+    revision: 0,
+    nodes: [
+      ...Array.from({ length: 30 }, (_, i) => ({
+        kind: "folder" as const,
+        id: `f${i}`,
+        name: `Folder ${i}`,
+        parentId: i < 3 ? null : `f${Math.floor(i / 3) - 1}`,
+        hidden: i % 3 === 0,
+        flattened: i % 2 === 0,
+      })),
+      ...Array.from({ length: 10 }, (_, i) => ({
+        kind: "project" as const,
+        id: `p${i}`,
+        name: `Project ${i}`,
+        parentId: `f${i + 10}`,
+        members: [{ serverId: "host", projectId: `p${i}` }],
+      })),
+    ],
+  };
+  for (const node of tree.nodes) {
+    const expected = tree.nodes.filter((candidate) => {
+      if (candidate.kind !== "folder") return false;
+      try {
+        applyTreeCommand(tree, { type: "move", id: node.id, parentId: candidate.id });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(folderDestinations(tree, node)).toEqual(expected);
+  }
+});
+it("finds destinations for a ten thousand level branch without recursive traversal", () => {
+  const tree: Tree = {
+    revision: 0,
+    nodes: Array.from({ length: 10000 }, (_, i) => ({
+      kind: "folder",
+      id: String(i),
+      name: String(i),
+      parentId: i ? String(i - 1) : null,
+    })),
+  };
+  expect(folderDestinations(tree, tree.nodes[0]!)).toEqual([]);
+  const destinations = folderDestinations(tree, tree.nodes[5000]!);
+  expect(destinations).toHaveLength(5000);
+  expect(destinations.at(-1)?.id).toBe("4999");
+});

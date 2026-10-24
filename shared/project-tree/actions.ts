@@ -1,10 +1,4 @@
-import {
-  applyTreeCommand,
-  type Tree,
-  type TreeCommand,
-  type TreeNode,
-  type TreeNodeAction,
-} from "./model";
+import type { Tree, TreeCommand, TreeNode, TreeNodeAction } from "./model";
 
 export function adjacentMove(
   tree: Tree,
@@ -103,14 +97,23 @@ export function nodePath(tree: Tree, node: TreeNode): string {
   return names.reverse().join(" / ");
 }
 
+/** Validated trees can move to every folder except the node and its descendants. */
 export function folderDestinations(tree: Tree, node: TreeNode) {
-  return tree.nodes.filter((entry) => {
-    if (entry.kind !== "folder") return false;
-    try {
-      applyTreeCommand(tree, { type: "move", id: node.id, parentId: entry.id });
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  if (!tree.nodes.some((entry) => entry.id === node.id)) return [];
+  const children = new Map<string, string[]>();
+  for (const entry of tree.nodes) {
+    if (entry.parentId === null) continue;
+    const siblings = children.get(entry.parentId) ?? [];
+    siblings.push(entry.id);
+    children.set(entry.parentId, siblings);
+  }
+  const descendants = new Set<string>();
+  const pending = [node.id];
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (descendants.has(id)) continue;
+    descendants.add(id);
+    for (const child of children.get(id) ?? []) pending.push(child);
+  }
+  return tree.nodes.filter((entry) => entry.kind === "folder" && !descendants.has(entry.id));
 }
