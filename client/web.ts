@@ -7,7 +7,6 @@ import {
   projectWorkspaces,
   workspaceSessions,
   workspaceSessionCount,
-  projectTreeChildren,
 } from "./project-tree/catalog";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { tr } from "./i18n";
@@ -16,6 +15,7 @@ import {
   nativeProjectGroups,
   type NativeProjectGroup,
 } from "./project-tree/native-groups";
+import { visibleTreeRows } from "../shared/project-tree/projection";
 import type { TreeCommand, TreeNode } from "../shared/project-tree/model";
 import {
   adjacentMove,
@@ -104,6 +104,7 @@ type GlyphKind =
   | "top"
   | "bottom"
   | "merge"
+  | "flatten"
   | "split"
   | "hide"
   | "show"
@@ -113,6 +114,7 @@ type GlyphKind =
   | "native";
 /** Lucide geometry, kept here so the web adapter renders the same icons as the native card. */
 const glyphShapes: Record<GlyphKind, Array<[string, Record<string, string>]>> = {
+  flatten: [["path", { d: "m12 3 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 16l9 5 9-5" }]],
   folder: [["path", { d: "M3 7V5h6l2 2h10v12H3Z" }]],
   session: [
     [
@@ -756,6 +758,13 @@ export function renderProjectSidebar(
     viewName?: string;
     showHidden?: boolean;
     toggleHidden?(): void;
+    history?: {
+      canUndo: boolean;
+      snapshots: Array<{ id: string; name: string; createdAt: string }>;
+    };
+    saveSnapshot?(name: string): Promise<void>;
+    restoreSnapshot?(snapshotId: string): Promise<void>;
+    undo?(): Promise<void>;
     move?(id: string, parentId: string | null, beforeId?: string): void;
     moveWorkspace?(workspace: CatalogWorkspace, targetId: string): void;
     renameWorkspace?(workspace: CatalogWorkspace): void;
@@ -1175,6 +1184,64 @@ export function renderProjectSidebar(
         icon: options.showHidden ? "check" : "show",
         action: () => options.toggleHidden?.(),
       },
+      ...(options.saveSnapshot
+        ? [
+            {
+              label: tr("保存展示快照"),
+              icon: "copy" as const,
+              separatorBefore: true,
+              disabled: !snapshot.editable,
+              action: () =>
+                renamePanel(
+                  settings,
+                  tr("保存展示快照"),
+                  "",
+                  (name) => {
+                    void options.saveSnapshot?.(name).catch(() => {});
+                  },
+                  tr("保存快照"),
+                ),
+            },
+          ]
+        : []),
+      ...(options.restoreSnapshot
+        ? [
+            {
+              label: tr("恢复展示快照"),
+              icon: "show" as const,
+              disabled: !snapshot.editable || !options.history?.snapshots.length,
+              action: () =>
+                showMenu(
+                  settings,
+                  (options.history?.snapshots ?? []).map((saved) => ({
+                    label: saved.name,
+                    icon: "copy" as const,
+                    action: () =>
+                      confirmPanel(
+                        settings,
+                        tr("恢复展示配置；新发现的项目会保留，当前展示配置会先自动备份。"),
+                        tr("恢复快照"),
+                        () => {
+                          void options.restoreSnapshot?.(saved.id).catch(() => {});
+                        },
+                      ),
+                  })),
+                ),
+            },
+          ]
+        : []),
+      ...(options.undo
+        ? [
+            {
+              label: tr("撤销展示操作"),
+              icon: "up" as const,
+              disabled: !snapshot.editable || !options.history?.canUndo,
+              action: () => {
+                void options.undo?.().catch(() => {});
+              },
+            },
+          ]
+        : []),
       { label: tr("切换原生视图"), icon: "native", action: options.native, separatorBefore: true },
     ]),
   );
@@ -1408,7 +1475,8 @@ export function renderProjectSidebar(
     anchor: Element,
     title: string,
     initial: string,
-    command: (name: string) => TreeCommand,
+    command: (name: string) => TreeCommand | void,
+    saveLabel?: string,
   ) => {
     const { menu, close } = showPanel(anchor, 150, "dialog");
     menu.setAttribute("aria-label", title);
@@ -1435,7 +1503,8 @@ export function renderProjectSidebar(
         return;
       }
       close();
-      execute(command(name));
+      const next = command(name);
+      if (next) execute(next);
     };
     input.addEventListener("keydown", (event) => {
       if ((event as { key: string }).key === "Enter") {
@@ -1443,19 +1512,25 @@ export function renderProjectSidebar(
         save();
       }
     });
-    button(menu, tr(initial ? "保存名称" : "创建文件夹"), save);
+    button(menu, saveLabel ?? tr(initial ? "保存名称" : "创建文件夹"), save);
     button(menu, tr("取消"), close);
     input.focus();
     input.setSelectionRange(0, initial.length);
   };
-  const confirmPanel = (anchor: Element, message: string, label: string, command: TreeCommand) => {
+  const confirmPanel = (
+    anchor: Element,
+    message: string,
+    label: string,
+    command: TreeCommand | (() => void),
+  ) => {
     const { menu, close } = showPanel(anchor, 170, "dialog");
     menu.setAttribute("aria-label", label);
     const description = element("p", menu, message);
     description.style.padding = "4px 8px";
     button(menu, label, () => {
       close();
-      execute(command);
+      if (typeof command === "function") command();
+      else execute(command);
     });
     button(menu, tr("取消"), close).focus();
   };
@@ -1513,6 +1588,9 @@ export function renderProjectSidebar(
             if (command) execute(command);
             break;
           }
+          case "flatten":
+            execute({ type: "flatten", id: node.id, flattened: !node.flattened });
+            break;
           case "hide":
             execute({ type: "hide", id: node.id, hidden: !node.hidden });
             break;
@@ -1616,10 +1694,12 @@ export function renderProjectSidebar(
         padding: "0 8px",
       });
     }
-  const renderNodes = (parentId: string | null, depth: number) => {
-    for (const node of projectTreeChildren(snapshot, parentId)) {
-      if (node.hidden && !options.showHidden) continue;
-      if (node.kind === "project" && !projectAvailable(snapshot, node.members, node.id)) continue;
+  for (const { node, depth, hidden, showContainer } of visibleTreeRows(snapshot.tree, {
+    showHidden: options.showHidden,
+    collapsed,
+  })) {
+    if (node.kind === "project" && !projectAvailable(snapshot, node.members, node.id)) continue;
+    if (showContainer) {
       const row = element("div", body);
       row.setAttribute("data-toolkit-tree-row", node.id);
       Object.assign(row.style, {
@@ -1630,7 +1710,7 @@ export function renderProjectSidebar(
         paddingLeft: `${depth * 14}px`,
         borderRadius: "7px",
         minHeight: "34px",
-        opacity: node.hidden ? ".55" : "1",
+        opacity: hidden ? ".55" : "1",
       });
       row.addEventListener("mouseenter", () => {
         row.setAttribute("data-toolkit-hovered", "true");
@@ -1791,483 +1871,468 @@ export function renderProjectSidebar(
           node.kind === "project" ? node.id : undefined,
         );
       }
-      if (collapsed.has(node.id)) continue;
-      if (node.kind === "folder") {
-        renderNodes(node.id, depth + 1);
+    }
+    if ((showContainer && collapsed.has(node.id)) || node.kind === "folder") continue;
+    const workspaceDepth = depth + (showContainer ? 1 : 0);
+    for (const workspace of projectWorkspaces(snapshot, node.members, node.id)) {
+      const host = snapshot.hosts.find((entry) => entry.serverId === workspace.serverId);
+      const online = host?.status === "online";
+      const sessionsOpen = Boolean(
+        options.openSession && workspaceSessionsVisible(workspace, node.id),
+      );
+      const sessions = sessionsOpen ? workspaceSessions(snapshot, workspace) : [];
+      const sessionCount = workspaceSessionCount(snapshot, workspace);
+      const previousRule = body.lastElementChild?.getAttribute("data-toolkit-workspace-rule-edge");
+      const cacheId = JSON.stringify([workspace.serverId, workspace.id]);
+      const key = JSON.stringify([
+        workspace,
+        host,
+        node.id,
+        node.parentId,
+        workspaceDepth,
+        hidden,
+        sessionsOpen,
+        sessions,
+        sessionCount,
+        options.sessionLimits?.get(cacheId) ?? 5,
+        previousRule === "bottom",
+      ]);
+      const previous = previousRows.get(cacheId);
+      previousRows.delete(cacheId);
+      if (previous?.context === context && previous.key === key) {
+        for (const entry of previous.elements) body.appendChild(entry);
+        if (previous.binding) bindings.push(previous.binding);
+        allCleanups.push(() => cleanRow(previous));
+        nextRows.set(cacheId, previous);
         continue;
       }
-      for (const workspace of projectWorkspaces(snapshot, node.members, node.id)) {
-        const host = snapshot.hosts.find((entry) => entry.serverId === workspace.serverId);
-        const online = host?.status === "online";
-        const sessionsOpen = Boolean(
-          options.openSession && workspaceSessionsVisible(workspace, node.id),
-        );
-        const sessions = sessionsOpen ? workspaceSessions(snapshot, workspace) : [];
-        const sessionCount = workspaceSessionCount(snapshot, workspace);
-        const previousRule = body.lastElementChild?.getAttribute(
-          "data-toolkit-workspace-rule-edge",
-        );
-        const cacheId = JSON.stringify([workspace.serverId, workspace.id]);
-        const key = JSON.stringify([
-          workspace,
-          host,
-          node.id,
-          node.parentId,
-          depth,
-          sessionsOpen,
-          sessions,
-          sessionCount,
-          options.sessionLimits?.get(cacheId) ?? 5,
-          previousRule === "bottom",
-        ]);
-        const previous = previousRows.get(cacheId);
-        previousRows.delete(cacheId);
-        if (previous?.context === context && previous.key === key) {
-          for (const entry of previous.elements) body.appendChild(entry);
-          if (previous.binding) bindings.push(previous.binding);
-          allCleanups.push(() => cleanRow(previous));
-          nextRows.set(cacheId, previous);
-          continue;
-        }
-        if (previous) cleanRow(previous);
-        const before = body.lastElementChild;
-        const rowCleanups: Array<() => void> = [];
-        const retained: RenderedWorkspace = { context, key, elements: [], cleanups: rowCleanups };
-        nextRows.set(cacheId, retained);
-        allCleanups.push(() => cleanRow(retained));
-        // Hairline above and below every workspace row. A following row skips its top
-        // rule when the previous row already ended with one, so neighbors share a line.
-        const workspaceRule = (edge: "top" | "bottom") => {
-          const rule = element("div", body);
-          rule.setAttribute("data-toolkit-workspace-rule", workspace.id);
-          rule.setAttribute("data-toolkit-workspace-rule-edge", edge);
-          rule.setAttribute("aria-hidden", "true");
-          Object.assign(rule.style, {
-            height: "1px",
-            margin: "4px 8px",
-            background: colors.border,
-            opacity: ".55",
-            pointerEvents: "none",
-          });
-        };
-        if (previousRule !== "bottom") workspaceRule("top");
-        const workspaceRow = element("div", body);
-        workspaceRow.setAttribute(
-          "data-toolkit-tree-row",
-          `workspace:${workspace.serverId}:${workspace.id}`,
-        );
-        workspaceRow.setAttribute("data-toolkit-workspace", workspace.id);
-        Object.assign(workspaceRow.style, {
+      if (previous) cleanRow(previous);
+      const before = body.lastElementChild;
+      const rowCleanups: Array<() => void> = [];
+      const retained: RenderedWorkspace = { context, key, elements: [], cleanups: rowCleanups };
+      nextRows.set(cacheId, retained);
+      allCleanups.push(() => cleanRow(retained));
+      // Hairline above and below every workspace row. A following row skips its top
+      // rule when the previous row already ended with one, so neighbors share a line.
+      const workspaceRule = (edge: "top" | "bottom") => {
+        const rule = element("div", body);
+        rule.setAttribute("data-toolkit-workspace-rule", workspace.id);
+        rule.setAttribute("data-toolkit-workspace-rule-edge", edge);
+        rule.setAttribute("aria-hidden", "true");
+        Object.assign(rule.style, {
+          height: "1px",
+          margin: "4px 8px",
+          background: colors.border,
+          opacity: ".55",
+          pointerEvents: "none",
+        });
+      };
+      if (previousRule !== "bottom") workspaceRule("top");
+      const workspaceRow = element("div", body);
+      workspaceRow.setAttribute(
+        "data-toolkit-tree-row",
+        `workspace:${workspace.serverId}:${workspace.id}`,
+      );
+      workspaceRow.setAttribute("data-toolkit-workspace", workspace.id);
+      Object.assign(workspaceRow.style, {
+        display: "flex",
+        alignItems: "center",
+        gap: "2px",
+        // Native workspace rows have no folder glyph. A leading accent folder collides
+        // with folder nodes and sits louder than the muted session bubbles under it.
+        // The status dot already marks the row; a hairline under the group separates it.
+        paddingLeft: `${workspaceDepth * 14 + 2}px`,
+        borderRadius: "8px",
+        opacity: online && !hidden ? "1" : ".55",
+        position: "relative",
+      });
+      const content = button(
+        workspaceRow,
+        "",
+        () => {
+          if (online) options.open(workspace);
+        },
+        false,
+      );
+      let hovered = false;
+      let nativeSelected = false;
+      const routeMatches = () => {
+        const active = activeWorkspaceFromLocation();
+        return active?.serverId === workspace.serverId && active.workspaceId === workspace.id;
+      };
+      let routeSelected = routeMatches();
+      let selected = routeSelected;
+      // Native selected rows use surfaceSidebarSelected (dark: surface2). The plugin
+      // theme omits that token, so keep the color read from the hidden native row.
+      let selectedBackground = colors.surface2;
+      const paintBackdrop = () => {
+        selected = nativeSelected || routeSelected;
+        workspaceRow.style.background = selected
+          ? selectedBackground
+          : hovered
+            ? colors.surface1
+            : "transparent";
+        workspaceRow.setAttribute("aria-selected", String(selected));
+      };
+      paintBackdrop();
+      rowCleanups.push(
+        watchWorkspaceRoute(() => {
+          const next = routeMatches();
+          if (next === routeSelected) return;
+          routeSelected = next;
+          paintBackdrop();
+        }),
+      );
+      const hostLabel = host?.label?.trim() || workspace.serverId;
+      const hoverCard = workspaceHoverCard(workspaceRow, workspace, hostLabel);
+      rowCleanups.push(hoverCard.close);
+      workspaceRow.addEventListener("mouseenter", () => {
+        hovered = true;
+        paintBackdrop();
+        if (!renderState.draggedWorkspace) hoverCard.open();
+      });
+      workspaceRow.addEventListener("mouseleave", () => {
+        hovered = false;
+        paintBackdrop();
+        hoverCard.scheduleClose();
+      });
+      content.setAttribute(
+        "aria-label",
+        `${workspace.name} · ${host?.label ?? workspace.serverId}`,
+      );
+      Object.assign(content.style, {
+        flex: "1",
+        minWidth: "0",
+        padding: "0",
+        lineHeight: "20px",
+      });
+      if (!online) content.setAttribute("disabled", "true");
+      const fallback = () => {
+        content.textContent = "";
+        Object.assign(content.style, {
           display: "flex",
           alignItems: "center",
-          gap: "2px",
-          // Native workspace rows have no folder glyph. A leading accent folder collides
-          // with folder nodes and sits louder than the muted session bubbles under it.
-          // The status dot already marks the row; a hairline under the group separates it.
-          paddingLeft: `${depth * 14 + 16}px`,
-          borderRadius: "8px",
-          opacity: online ? "1" : ".55",
-          position: "relative",
+          gap: "12px",
+          padding: "8px 4px 8px 12px",
         });
-        const content = button(
-          workspaceRow,
-          "",
-          () => {
-            if (online) options.open(workspace);
-          },
-          false,
-        );
-        let hovered = false;
-        let nativeSelected = false;
-        const routeMatches = () => {
-          const active = activeWorkspaceFromLocation();
-          return active?.serverId === workspace.serverId && active.workspaceId === workspace.id;
-        };
-        let routeSelected = routeMatches();
-        let selected = routeSelected;
-        // Native selected rows use surfaceSidebarSelected (dark: surface2). The plugin
-        // theme omits that token, so keep the color read from the hidden native row.
-        let selectedBackground = colors.surface2;
-        const paintBackdrop = () => {
-          selected = nativeSelected || routeSelected;
-          workspaceRow.style.background = selected
-            ? selectedBackground
-            : hovered
-              ? colors.surface1
-              : "transparent";
-          workspaceRow.setAttribute("aria-selected", String(selected));
-        };
-        paintBackdrop();
-        rowCleanups.push(
-          watchWorkspaceRoute(() => {
-            const next = routeMatches();
-            if (next === routeSelected) return;
-            routeSelected = next;
-            paintBackdrop();
-          }),
-        );
-        const hostLabel = host?.label?.trim() || workspace.serverId;
-        const hoverCard = workspaceHoverCard(workspaceRow, workspace, hostLabel);
-        rowCleanups.push(hoverCard.close);
-        workspaceRow.addEventListener("mouseenter", () => {
-          hovered = true;
-          paintBackdrop();
-          if (!renderState.draggedWorkspace) hoverCard.open();
+        const dot = element("span", content);
+        Object.assign(dot.style, {
+          width: "6px",
+          height: "6px",
+          flexShrink: "0",
+          borderRadius: "50%",
+          background: colors.foregroundMuted,
+          opacity: ".45",
         });
-        workspaceRow.addEventListener("mouseleave", () => {
-          hovered = false;
-          paintBackdrop();
-          hoverCard.scheduleClose();
+        const details = element("span", content);
+        Object.assign(details.style, { minWidth: "0", display: "flex", flexDirection: "column" });
+        const name = element("span", details, workspace.name);
+        Object.assign(name.style, {
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         });
-        content.setAttribute(
-          "aria-label",
-          `${workspace.name} · ${host?.label ?? workspace.serverId}`,
-        );
-        Object.assign(content.style, {
-          flex: "1",
+        const meta = element("span", details);
+        Object.assign(meta.style, {
+          display: "flex",
+          alignItems: "center",
           minWidth: "0",
-          padding: "0",
-          lineHeight: "20px",
+          marginTop: "2px",
         });
-        if (!online) content.setAttribute("disabled", "true");
-        const fallback = () => {
-          content.textContent = "";
-          Object.assign(content.style, {
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            padding: "8px 4px 8px 12px",
-          });
-          const dot = element("span", content);
-          Object.assign(dot.style, {
-            width: "6px",
-            height: "6px",
+        hostBadge(
+          meta,
+          host?.label?.trim() || workspace.serverId,
+          online ? "" : ` · ${tr("离线")}`,
+        );
+      };
+      let mirrored: Element | undefined;
+      let initialized = false;
+      let unmirror = () => {};
+      /**
+       * 原生只在侧栏同时展示多个 Host 时才画 host 徽标，而工作台始终跨 Host 合并显示。
+       * 克隆行里没有徽标时，按原生 meta 行的样式补一行「服务器图标 + 主机名」。
+       */
+      const ensureHostBadge = (clone: Element) => {
+        if (clone.querySelector('[data-testid^="host-badge-"]')) return;
+        const title = Array.from(clone.querySelectorAll("div"))
+          .filter(
+            (entry) => !entry.firstElementChild && entry.textContent?.trim() === workspace.name,
+          )
+          .pop();
+        const titleRow = title?.parentElement;
+        const column = titleRow?.parentElement;
+        if (!titleRow || !column) return;
+        const existing = titleRow.nextElementSibling;
+        const meta = existing ?? element("div", column);
+        if (existing) {
+          const separator = element("span", meta, "·");
+          Object.assign(separator.style, {
+            color: colors.foregroundMuted,
+            fontSize: "12px",
+            lineHeight: "16px",
             flexShrink: "0",
-            borderRadius: "50%",
-            background: colors.foregroundMuted,
-            opacity: ".45",
           });
-          const details = element("span", content);
-          Object.assign(details.style, { minWidth: "0", display: "flex", flexDirection: "column" });
-          const name = element("span", details, workspace.name);
-          Object.assign(name.style, {
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          });
-          const meta = element("span", details);
+        } else {
           Object.assign(meta.style, {
             display: "flex",
             alignItems: "center",
+            gap: "6px",
             minWidth: "0",
-            marginTop: "2px",
+            marginTop: "1px",
           });
-          hostBadge(
-            meta,
-            host?.label?.trim() || workspace.serverId,
-            online ? "" : ` · ${tr("离线")}`,
+        }
+        hostBadge(meta, hostLabel);
+      };
+      const attach = (source?: Element) => {
+        if (initialized && source === mirrored) return;
+        initialized = true;
+        mirrored = source;
+        unmirror();
+        if (source) {
+          Object.assign(content.style, { display: "block", padding: "0" });
+          unmirror = mirrorNativeWorkspace(
+            source,
+            content,
+            (active, background) => {
+              nativeSelected = active;
+              if (background && background !== "transparent" && background !== "rgba(0, 0, 0, 0)")
+                selectedBackground = background;
+              paintBackdrop();
+            },
+            ensureHostBadge,
           );
-        };
-        let mirrored: Element | undefined;
-        let initialized = false;
-        let unmirror = () => {};
-        /**
-         * 原生只在侧栏同时展示多个 Host 时才画 host 徽标，而工作台始终跨 Host 合并显示。
-         * 克隆行里没有徽标时，按原生 meta 行的样式补一行「服务器图标 + 主机名」。
-         */
-        const ensureHostBadge = (clone: Element) => {
-          if (clone.querySelector('[data-testid^="host-badge-"]')) return;
-          const title = Array.from(clone.querySelectorAll("div"))
-            .filter(
-              (entry) => !entry.firstElementChild && entry.textContent?.trim() === workspace.name,
-            )
-            .pop();
-          const titleRow = title?.parentElement;
-          const column = titleRow?.parentElement;
-          if (!titleRow || !column) return;
-          const existing = titleRow.nextElementSibling;
-          const meta = existing ?? element("div", column);
-          if (existing) {
-            const separator = element("span", meta, "·");
-            Object.assign(separator.style, {
-              color: colors.foregroundMuted,
-              fontSize: "12px",
-              lineHeight: "16px",
-              flexShrink: "0",
-            });
-          } else {
-            Object.assign(meta.style, {
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              minWidth: "0",
-              marginTop: "1px",
-            });
-          }
-          hostBadge(meta, hostLabel);
-        };
-        const attach = (source?: Element) => {
-          if (initialized && source === mirrored) return;
-          initialized = true;
-          mirrored = source;
-          unmirror();
-          if (source) {
-            Object.assign(content.style, { display: "block", padding: "0" });
-            unmirror = mirrorNativeWorkspace(
-              source,
-              content,
-              (active, background) => {
-                nativeSelected = active;
-                if (background && background !== "transparent" && background !== "rgba(0, 0, 0, 0)")
-                  selectedBackground = background;
-                paintBackdrop();
-              },
-              ensureHostBadge,
+        } else {
+          nativeSelected = false;
+          paintBackdrop();
+          unmirror = () => {};
+          fallback();
+        }
+      };
+      attach(originals.get(`sidebar-workspace-row-${workspace.serverId}:${workspace.id}`));
+      retained.binding = {
+        expected: `sidebar-workspace-row-${workspace.serverId}:${workspace.id}`,
+        attach,
+      };
+      bindings.push(retained.binding);
+      rowCleanups.push(() => unmirror());
+      // Overlay the overflow button so it does not reserve a column. The mirrored
+      // timestamp then sits on the row's right edge, and hides while the button shows.
+      const actions = element("div", workspaceRow);
+      actions.setAttribute("data-toolkit-tree-actions", "true");
+      Object.assign(actions.style, {
+        position: "absolute",
+        top: "0",
+        right: "5px",
+        bottom: "0",
+        display: "flex",
+        alignItems: "center",
+        flexShrink: "0",
+      });
+      let more: Element;
+      let sessionMenu: (() => void) | undefined;
+      const openMenu = async () => {
+        hoverCard.close();
+        sessionMenu?.();
+        const opened = openNativeWorkspaceMenu(workspace, more);
+        if (opened && options.toggleSessions) {
+          const hidden = !workspaceSessionsVisible(workspace, node.id);
+          sessionMenu = mountWorkspaceSessionMenuItem({
+            label: tr(hidden ? "显示会话" : "隐藏会话"),
+            border: colors.border,
+            foreground: colors.foreground,
+            muted: colors.foregroundMuted,
+            hover: colors.surface2,
+            action: () => options.toggleSessions?.(`${workspace.serverId}:${workspace.id}`),
+          });
+          rowCleanups.push(() => sessionMenu?.());
+        }
+        if (opened) return;
+        // The original project may be collapsed or paginated. Reveal its row without moving
+        // any React-owned DOM, then let the native context menu handle all operations.
+        const group = nativeGroups.find((entry) =>
+          entry.members.some(
+            (member) =>
+              member.serverId === workspace.serverId && member.projectId === workspace.projectId,
+          ),
+        );
+        if (group) {
+          const project = Array.from(
+            document.querySelectorAll('[data-testid^="sidebar-project-row-"]'),
+          ).find(
+            (entry) => entry.getAttribute("data-testid") === `sidebar-project-row-${group.viewKey}`,
+          );
+          const list = () =>
+            Array.from(document.querySelectorAll('[data-testid^="sidebar-workspace-list-"]')).find(
+              (entry) =>
+                entry.getAttribute("data-testid") === `sidebar-workspace-list-${group.viewKey}`,
             );
-          } else {
-            nativeSelected = false;
-            paintBackdrop();
-            unmirror = () => {};
-            fallback();
+          const click = (entry: Element) =>
+            entry.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                cancelable: true,
+                clientX: 0,
+                clientY: 0,
+                button: 0,
+              }),
+            );
+          if (project && !list()) {
+            click(project);
+            await new Promise((resolve) => setTimeout(resolve, 0));
           }
-        };
-        attach(originals.get(`sidebar-workspace-row-${workspace.serverId}:${workspace.id}`));
-        retained.binding = {
-          expected: `sidebar-workspace-row-${workspace.serverId}:${workspace.id}`,
-          attach,
-        };
-        bindings.push(retained.binding);
-        rowCleanups.push(() => unmirror());
-        // Overlay the overflow button so it does not reserve a column. The mirrored
-        // timestamp then sits on the row's right edge, and hides while the button shows.
-        const actions = element("div", workspaceRow);
-        actions.setAttribute("data-toolkit-tree-actions", "true");
-        Object.assign(actions.style, {
-          position: "absolute",
-          top: "0",
-          right: "5px",
-          bottom: "0",
-          display: "flex",
-          alignItems: "center",
-          flexShrink: "0",
-        });
-        let more: Element;
-        let sessionMenu: (() => void) | undefined;
-        const openMenu = async () => {
-          hoverCard.close();
-          sessionMenu?.();
-          const opened = openNativeWorkspaceMenu(workspace, more);
-          if (opened && options.toggleSessions) {
-            const hidden = !workspaceSessionsVisible(workspace, node.id);
-            sessionMenu = mountWorkspaceSessionMenuItem({
-              label: tr(hidden ? "显示会话" : "隐藏会话"),
-              border: colors.border,
-              foreground: colors.foreground,
-              muted: colors.foregroundMuted,
-              hover: colors.surface2,
-              action: () => options.toggleSessions?.(`${workspace.serverId}:${workspace.id}`),
-            });
-            rowCleanups.push(() => sessionMenu?.());
-          }
-          if (opened) return;
-          // The original project may be collapsed or paginated. Reveal its row without moving
-          // any React-owned DOM, then let the native context menu handle all operations.
-          const group = nativeGroups.find((entry) =>
-            entry.members.some(
-              (member) =>
-                member.serverId === workspace.serverId && member.projectId === workspace.projectId,
-            ),
-          );
-          if (group) {
-            const project = Array.from(
-              document.querySelectorAll('[data-testid^="sidebar-project-row-"]'),
+          for (let page = 0; page < 20 && more.isConnected; page += 1) {
+            if (openNativeWorkspaceMenu(workspace, more)) return;
+            const next = Array.from(
+              document.querySelectorAll('[data-testid^="sidebar-project-show-more-"]'),
             ).find(
               (entry) =>
-                entry.getAttribute("data-testid") === `sidebar-project-row-${group.viewKey}`,
+                entry.getAttribute("data-testid") === `sidebar-project-show-more-${group.viewKey}`,
             );
-            const list = () =>
-              Array.from(
-                document.querySelectorAll('[data-testid^="sidebar-workspace-list-"]'),
-              ).find(
-                (entry) =>
-                  entry.getAttribute("data-testid") === `sidebar-workspace-list-${group.viewKey}`,
-              );
-            const click = (entry: Element) =>
-              entry.dispatchEvent(
-                new MouseEvent("click", {
-                  bubbles: true,
-                  cancelable: true,
-                  clientX: 0,
-                  clientY: 0,
-                  button: 0,
-                }),
-              );
-            if (project && !list()) {
-              click(project);
-              await new Promise((resolve) => setTimeout(resolve, 0));
-            }
-            for (let page = 0; page < 20 && more.isConnected; page += 1) {
-              if (openNativeWorkspaceMenu(workspace, more)) return;
-              const next = Array.from(
-                document.querySelectorAll('[data-testid^="sidebar-project-show-more-"]'),
-              ).find(
-                (entry) =>
-                  entry.getAttribute("data-testid") ===
-                  `sidebar-project-show-more-${group.viewKey}`,
-              );
-              if (!next) break;
-              click(next);
-              await new Promise((resolve) => setTimeout(resolve, 0));
-            }
+            if (!next) break;
+            click(next);
+            await new Promise((resolve) => setTimeout(resolve, 0));
           }
-          if (more.isConnected) {
-            const hidden = !workspaceSessionsVisible(workspace, node.id);
-            showMenu(more, [
-              {
-                label: tr("重命名 workspace"),
-                icon: "rename",
-                action: () => options.renameWorkspace?.(workspace),
-                disabled: !online,
-              },
-              ...(options.toggleSessions
-                ? [
-                    {
-                      label: tr(hidden ? "显示会话" : "隐藏会话"),
-                      icon: "session" as const,
-                      separatorBefore: true,
-                      action: () =>
-                        options.toggleSessions?.(`${workspace.serverId}:${workspace.id}`),
-                    },
-                  ]
-                : []),
-              {
-                label: tr("切换原生视图"),
-                icon: "native" as const,
-                separatorBefore: true,
-                action: options.native,
-              },
-            ]);
-          }
-        };
-        more = button(
-          actions,
-          "",
-          () => {
-            void openMenu();
-          },
-          false,
-        );
-        more.setAttribute("aria-label", `${tr("工作区操作")} · ${workspace.name}`);
-        icon(more, "more");
-        actionButton(more, "surface2");
-        workspaceRow.addEventListener("contextmenu", (event) => {
-          (event as { preventDefault(): void }).preventDefault();
+        }
+        if (more.isConnected) {
+          const hidden = !workspaceSessionsVisible(workspace, node.id);
+          showMenu(more, [
+            {
+              label: tr("重命名 workspace"),
+              icon: "rename",
+              action: () => options.renameWorkspace?.(workspace),
+              disabled: !online,
+            },
+            ...(options.toggleSessions
+              ? [
+                  {
+                    label: tr(hidden ? "显示会话" : "隐藏会话"),
+                    icon: "session" as const,
+                    separatorBefore: true,
+                    action: () => options.toggleSessions?.(`${workspace.serverId}:${workspace.id}`),
+                  },
+                ]
+              : []),
+            {
+              label: tr("切换原生视图"),
+              icon: "native" as const,
+              separatorBefore: true,
+              action: options.native,
+            },
+          ]);
+        }
+      };
+      more = button(
+        actions,
+        "",
+        () => {
           void openMenu();
+        },
+        false,
+      );
+      more.setAttribute("aria-label", `${tr("工作区操作")} · ${workspace.name}`);
+      icon(more, "more");
+      actionButton(more, "surface2");
+      workspaceRow.addEventListener("contextmenu", (event) => {
+        (event as { preventDefault(): void }).preventDefault();
+        void openMenu();
+      });
+      if (snapshot.editable && options.moveWorkspace) {
+        workspaceRow.setAttribute("draggable", "true");
+        workspaceRow.addEventListener("dragstart", (event) => {
+          hoverCard.close();
+          renderState.draggedId = null;
+          renderState.draggedWorkspace = workspace;
+          (
+            event as { dataTransfer?: { setData(type: string, value: string): void } }
+          ).dataTransfer?.setData("text/plain", JSON.stringify([workspace.serverId, workspace.id]));
         });
-        if (snapshot.editable && options.moveWorkspace) {
-          workspaceRow.setAttribute("draggable", "true");
-          workspaceRow.addEventListener("dragstart", (event) => {
-            hoverCard.close();
-            renderState.draggedId = null;
-            renderState.draggedWorkspace = workspace;
-            (
-              event as { dataTransfer?: { setData(type: string, value: string): void } }
-            ).dataTransfer?.setData(
-              "text/plain",
-              JSON.stringify([workspace.serverId, workspace.id]),
-            );
-          });
-          workspaceRow.addEventListener("dragend", () => {
-            renderState.draggedWorkspace = null;
-          });
-          drop(workspaceRow, node.parentId, undefined, node.id);
-        }
-        workspaceRule("bottom");
-        if (sessionsOpen) {
-          const sessionList = element("div", body);
-          sessionList.setAttribute("data-toolkit-workspace-sessions", workspace.id);
-          sessionList.setAttribute("role", "group");
-          sessionList.setAttribute("aria-label", workspace.name);
-          const key = JSON.stringify([workspace.serverId, workspace.id]);
-          const limits = options.sessionLimits ?? new Map<string, number>();
-          const renderSessions = () => {
-            sessionList.textContent = "";
-            const limit = limits.get(key) ?? 5;
-            const visible = Math.min(limit, sessions.length);
-            const styleSession = (entry: Element) =>
-              Object.assign(entry.style, {
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                width: "100%",
-                minWidth: "0",
-                boxSizing: "border-box",
-                padding: `7px 10px 7px ${depth * 14 + 32}px`,
-              });
-            for (const session of sessions.slice(0, visible)) {
-              const title = session.title?.trim() || tr("未命名会话");
-              const entry = button(sessionList, "", () =>
-                options.openSession?.(workspace, session),
-              );
-              entry.setAttribute("data-toolkit-session", session.id);
-              entry.setAttribute("aria-label", title);
-              entry.setAttribute("title", title);
-              if (!online) entry.setAttribute("disabled", "true");
-              styleSession(entry);
-              const sessionIcon = icon(entry, "session");
-              sessionIcon.setAttribute("data-toolkit-session-icon", "true");
-              Object.assign(sessionIcon.style, { color: colors.foregroundMuted, flexShrink: "0" });
-              const name = element("span", entry, title);
-              Object.assign(name.style, {
-                flex: "1",
-                minWidth: "0",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              });
-              const age = Math.max(0, Date.now() - Date.parse(session.updatedAt));
-              const time = element(
-                "span",
-                entry,
-                age >= 86400000
-                  ? `${Math.floor(age / 86400000)}d`
-                  : age >= 3600000
-                    ? `${Math.floor(age / 3600000)}h`
-                    : `${Math.floor(age / 60000)}m`,
-              );
-              Object.assign(time.style, {
-                color: colors.foregroundMuted,
-                fontSize: "12px",
-                flexShrink: "0",
-              });
-              time.setAttribute("title", session.updatedAt);
-            }
-            const control = (label: string, next: number) => {
-              const entry = button(sessionList, label, () => {
-                limits.set(key, next);
-                if (next > sessions.length) options.loadSessions?.();
-                renderSessions();
-              });
-              styleSession(entry);
-              if (!online && next > sessions.length) entry.setAttribute("disabled", "true");
-              entry.style.color = colors.foregroundMuted;
-            };
-            if (visible < sessionCount)
-              control(tr("更多会话({0})", { 0: sessionCount - visible }), visible + 5);
-            if (visible > 5) control(tr("收起会话({0})", { 0: visible - 5 }), 5);
-          };
-          renderSessions();
-        }
-        for (
-          let entry = before ? before.nextElementSibling : body.firstElementChild;
-          entry;
-          entry = entry.nextElementSibling
-        )
-          retained.elements.push(entry);
+        workspaceRow.addEventListener("dragend", () => {
+          renderState.draggedWorkspace = null;
+        });
+        drop(workspaceRow, node.parentId, undefined, node.id);
       }
+      workspaceRule("bottom");
+      if (sessionsOpen) {
+        const sessionList = element("div", body);
+        sessionList.setAttribute("data-toolkit-workspace-sessions", workspace.id);
+        sessionList.setAttribute("role", "group");
+        sessionList.setAttribute("aria-label", workspace.name);
+        const key = JSON.stringify([workspace.serverId, workspace.id]);
+        const limits = options.sessionLimits ?? new Map<string, number>();
+        const renderSessions = () => {
+          sessionList.textContent = "";
+          const limit = limits.get(key) ?? 5;
+          const visible = Math.min(limit, sessions.length);
+          const styleSession = (entry: Element) =>
+            Object.assign(entry.style, {
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              width: "100%",
+              minWidth: "0",
+              boxSizing: "border-box",
+              padding: `7px 10px 7px ${workspaceDepth * 14 + 18}px`,
+            });
+          for (const session of sessions.slice(0, visible)) {
+            const title = session.title?.trim() || tr("未命名会话");
+            const entry = button(sessionList, "", () => options.openSession?.(workspace, session));
+            entry.setAttribute("data-toolkit-session", session.id);
+            entry.setAttribute("aria-label", title);
+            entry.setAttribute("title", title);
+            if (!online) entry.setAttribute("disabled", "true");
+            styleSession(entry);
+            const sessionIcon = icon(entry, "session");
+            sessionIcon.setAttribute("data-toolkit-session-icon", "true");
+            Object.assign(sessionIcon.style, { color: colors.foregroundMuted, flexShrink: "0" });
+            const name = element("span", entry, title);
+            Object.assign(name.style, {
+              flex: "1",
+              minWidth: "0",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            });
+            const age = Math.max(0, Date.now() - Date.parse(session.updatedAt));
+            const time = element(
+              "span",
+              entry,
+              age >= 86400000
+                ? `${Math.floor(age / 86400000)}d`
+                : age >= 3600000
+                  ? `${Math.floor(age / 3600000)}h`
+                  : `${Math.floor(age / 60000)}m`,
+            );
+            Object.assign(time.style, {
+              color: colors.foregroundMuted,
+              fontSize: "12px",
+              flexShrink: "0",
+            });
+            time.setAttribute("title", session.updatedAt);
+          }
+          const control = (label: string, next: number) => {
+            const entry = button(sessionList, label, () => {
+              limits.set(key, next);
+              if (next > sessions.length) options.loadSessions?.();
+              renderSessions();
+            });
+            styleSession(entry);
+            if (!online && next > sessions.length) entry.setAttribute("disabled", "true");
+            entry.style.color = colors.foregroundMuted;
+          };
+          if (visible < sessionCount)
+            control(tr("更多会话({0})", { 0: sessionCount - visible }), visible + 5);
+          if (visible > 5) control(tr("收起会话({0})", { 0: visible - 5 }), 5);
+        };
+        renderSessions();
+      }
+      for (
+        let entry = before ? before.nextElementSibling : body.firstElementChild;
+        entry;
+        entry = entry.nextElementSibling
+      )
+        retained.elements.push(entry);
     }
-  };
-  renderNodes(null, 0);
+  }
   for (const row of previousRows.values()) cleanRow(row);
   previousRows.clear();
   if (snapshot.hosts.length && !snapshot.tree.nodes.length) element("p", body, tr("暂无项目"));

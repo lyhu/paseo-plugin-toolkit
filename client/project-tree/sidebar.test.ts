@@ -234,8 +234,8 @@ it.each(["dark", "light"])(
     const computed = document.defaultView!.getComputedStyle(menu);
     expect(computed.color).toBe(theme === "dark" ? "rgb(255, 255, 255)" : "rgb(17, 17, 17)");
     expect(computed.fontSize).toBe("14px");
-    expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(8);
-    expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(3);
+    expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(10);
+    expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(4);
     expect(document.activeElement).toBe(menu.querySelector("button"));
     const entries = Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
     const enabled = entries.filter((entry) => !entry.disabled);
@@ -931,6 +931,7 @@ it("keeps native workspace creation while replacing the project menu with organi
   expect(separators.map((separator) => separator.previousElementSibling?.textContent)).toEqual([
     "重命名",
     "置底",
+    "合并展示层级",
     "取消合并",
     "隐藏空 workspace 项目节点",
   ]);
@@ -941,6 +942,7 @@ it("keeps native workspace creation while replacing the project menu with organi
     "下移",
     "置顶",
     "置底",
+    "合并展示层级",
     "合并到…",
     "取消合并",
     "显示会话列表",
@@ -1270,4 +1272,144 @@ it("hides every project whose workspaces are all placed elsewhere from the node 
   expect(row("a")).not.toBeNull();
   expect(row("b")).toBeNull();
   expect(row("c")).toBeNull();
+});
+
+it("projects flattened folders and projects iteratively and reveals hidden branches for management", () => {
+  const { document, update } = setup(),
+    catalog = createCatalog();
+  catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
+  catalog.restore({
+    tree: {
+      revision: 0,
+      nodes: [
+        { id: "f", kind: "folder", name: "Folder", parentId: null, flattened: true },
+        {
+          id: "p",
+          kind: "project",
+          name: "Project",
+          parentId: "f",
+          flattened: true,
+          members: [{ serverId: "pro", projectId: "p" }],
+        },
+      ],
+    },
+    catalogs: {
+      pro: {
+        projects: [{ serverId: "pro", projectId: "p", name: "Project", root: "/p" }],
+        workspaces: [{ serverId: "pro", projectId: "p", id: "w", name: "Workspace", cwd: "/p" }],
+      },
+    },
+  });
+  catalog.connection(true);
+  let showHidden = false;
+  const run = vi.fn(async (command: TreeCommand) => {
+    catalog.organize(applyTreeCommand(catalog.read().tree, command));
+    update(render);
+  });
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: {
+        colors: { foreground: "#fff", foregroundMuted: "#aaa", surface0: "#111", surface1: "#222" },
+      } as never,
+      collapsed: new Set(["f", "p"]),
+      toggle() {},
+      open() {},
+      native() {},
+      run,
+      showHidden,
+    });
+  update(render);
+  expect(document.querySelector('[data-toolkit-tree-row="f"]')).toBeNull();
+  expect(document.querySelector('[data-toolkit-tree-row="p"]')).toBeNull();
+  expect(
+    document.querySelector<HTMLElement>('[data-toolkit-workspace="w"]')?.style.paddingLeft,
+  ).toBe("2px");
+  showHidden = true;
+  update(render);
+  expect(document.querySelector('[data-toolkit-tree-row="f"]')).not.toBeNull();
+  expect(document.querySelector('[data-toolkit-tree-row="p"]')).toBeNull(); // management respects collapse
+  (document.querySelector('[aria-label="项目操作 · Folder"]') as HTMLButtonElement).click();
+  (
+    document.querySelector('[role="menuitem"][aria-label="恢复节点层级"]') as HTMLButtonElement
+  ).click();
+  expect(run).toHaveBeenCalledWith({ type: "flatten", id: "f", flattened: false });
+  expect(catalog.read().tree.nodes[1]?.parentId).toBe("f");
+});
+it("hides inherited branches and offers snapshot save restore and undo through the toolbar", () => {
+  const { document, update } = setup(),
+    catalog = createCatalog();
+  catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
+  catalog.restore({
+    tree: {
+      revision: 0,
+      nodes: [
+        { id: "f", kind: "folder", name: "Folder", parentId: null, hidden: true },
+        { id: "c", kind: "folder", name: "Child", parentId: "f" },
+      ],
+    },
+    catalogs: {},
+  });
+  catalog.connection(true);
+  const saveSnapshot = vi.fn(async () => {}),
+    restoreSnapshot = vi.fn(async () => {}),
+    undo = vi.fn(async () => {});
+  let showHidden = false;
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: {
+        colors: { foreground: "#fff", foregroundMuted: "#aaa", surface0: "#111", surface1: "#222" },
+      } as never,
+      collapsed: new Set(),
+      toggle() {},
+      open() {},
+      native() {},
+      showHidden,
+      saveSnapshot,
+      restoreSnapshot,
+      undo,
+      history: {
+        canUndo: true,
+        snapshots: [{ id: "saved", name: "My snapshot", createdAt: "2026-10-24" }],
+      },
+    });
+  update(render);
+  expect(document.querySelector('[data-toolkit-tree-row="c"]')).toBeNull();
+  showHidden = true;
+  update(render);
+  expect(document.querySelector<HTMLElement>('[data-toolkit-tree-row="c"]')?.style.opacity).toBe(
+    "0.55",
+  );
+  const settings = () =>
+    (document.querySelector('[aria-label="我的工作台设置"]') as HTMLButtonElement).click();
+  const choose = (label: string) =>
+    (
+      document.querySelector(`[role="menuitem"][aria-label="${label}"]`) as HTMLButtonElement
+    ).click();
+  settings();
+  choose("保存展示快照");
+  const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+  input.value = "Snapshot name";
+  Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+    .find((b) => b.textContent === "保存快照")!
+    .click();
+  expect(saveSnapshot).toHaveBeenCalledWith("Snapshot name");
+  settings();
+  choose("恢复展示快照");
+  choose("My snapshot");
+  Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+    .find((b) => b.textContent === "恢复快照")!
+    .click();
+  expect(restoreSnapshot).toHaveBeenCalledWith("saved");
+  settings();
+  choose("撤销展示操作");
+  expect(undo).toHaveBeenCalledOnce();
+  catalog.connection(false);
+  update(render);
+  settings();
+  expect(
+    document.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="保存展示快照"]')
+      ?.disabled,
+  ).toBe(true);
 });
