@@ -1,20 +1,14 @@
 import { Platform } from "react-native";
 import { tr } from "../i18n";
-import type { PaseoAgent } from "@getpaseo/client";
-import type {
-  PluginButtonContentProps,
-  PluginButtonRegistration,
-  PluginClientContext,
-} from "@getpaseo/plugin/client";
+import type { PluginButtonContentProps, PluginClientContext } from "@getpaseo/plugin/client";
 import { subscribeLocale } from "../chat-view/locale";
 import { observeAgents } from "../agent-directory";
+import { createAgentPills } from "../chat-view/agent-pills";
 import { createDraftPill } from "./draft-pill";
 import { QuickQuestionsPanel } from "./panel";
 import { QuickQuestionsPopover } from "./popover";
 
 export function registerQuickQuestions(client: PluginClientContext) {
-  const pills = new Map<string, { workspaceId: string; registration: PluginButtonRegistration }>();
-  const agents = new Map<string, PaseoAgent>();
   const draftPill = Platform.OS === "web" ? createDraftPill(client) : null;
   let enabled = false;
   let stopped = false;
@@ -42,8 +36,7 @@ export function registerQuickQuestions(client: PluginClientContext) {
     void removeCommand();
     removePanel = addPanel();
     removeCommand = addCommand();
-    for (const { registration } of pills.values())
-      registration.update({ title: tr("快捷提问"), label: tr("快捷提问") });
+    pills.update({ title: tr("快捷提问"), label: tr("快捷提问") });
   });
   const Content = (props: PluginButtonContentProps) => (
     <QuickQuestionsPopover
@@ -54,22 +47,10 @@ export function registerQuickQuestions(client: PluginClientContext) {
       }}
     />
   );
-  function remove(agentId: string) {
-    pills.get(agentId)?.registration.remove();
-    pills.delete(agentId);
-  }
-  function register(agent: PaseoAgent) {
-    if (stopped) return;
-    agents.set(agent.id, agent);
-    if (!enabled || !agent.workspaceId || agent.archivedAt) {
-      remove(agent.id);
-      return;
-    }
-    if (pills.get(agent.id)?.workspaceId === agent.workspaceId) return;
-    remove(agent.id);
-    const registration = client.addComposerPill({
+  const pills = createAgentPills((agent) =>
+    client.addComposerPill({
       id: `quick-questions-${agent.id}`,
-      workspaceId: agent.workspaceId,
+      workspaceId: agent.workspaceId!,
       agentId: agent.id,
       button: {
         title: tr("快捷提问"),
@@ -77,18 +58,15 @@ export function registerQuickQuestions(client: PluginClientContext) {
         icon: "MessageSquareText",
         behavior: { kind: "popover", Content },
       },
-    });
-    pills.set(agent.id, { workspaceId: agent.workspaceId, registration });
-  }
+    }),
+  );
   async function dispose() {
     unsubscribeLocale();
     stopped = true;
     unobserve?.();
     unobserve = undefined;
     draftPill?.dispose();
-    for (const pill of pills.values()) pill.registration.remove();
-    pills.clear();
-    agents.clear();
+    pills.dispose();
     await removePanel();
     await removeCommand();
   }
@@ -97,19 +75,16 @@ export function registerQuickQuestions(client: PluginClientContext) {
       if (stopped || next === enabled) return;
       enabled = next;
       draftPill?.setEnabled(next);
+      pills.setEnabled(next);
       if (next) {
         unobserve = observeAgents(client.paseo, {
-          upsert: register,
-          remove(id) {
-            agents.delete(id);
-            remove(id);
-          },
+          upsert: pills.registerAgent,
+          remove: pills.unregisterAgent,
         });
       } else {
         unobserve?.();
         unobserve = undefined;
-        for (const id of pills.keys()) remove(id);
-        agents.clear();
+        pills.dispose();
       }
     },
     dispose,

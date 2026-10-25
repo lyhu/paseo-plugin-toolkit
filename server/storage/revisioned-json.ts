@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -43,16 +44,33 @@ export function createRevisionedJsonStore<T extends { revision: number }>(option
   seed?: boolean;
 }): RevisionedJsonStore<T> {
   const { filename, schema, create, concurrencyError, readError, seed = false } = options;
+  let cached: { mtimeMs: number; size: number; value: T } | null = null;
 
   function read(): T {
     if (!existsSync(filename)) {
+      cached = null;
       const initial = create();
-      if (seed) writePrivateJsonFile(filename, initial);
+      if (seed) {
+        writePrivateJsonFile(filename, initial);
+        try {
+          const stat = statSync(filename);
+          cached = { mtimeMs: stat.mtimeMs, size: stat.size, value: initial };
+        } catch {
+          // ignore stat failure
+        }
+      }
       return initial;
     }
     try {
-      return schema.parse(JSON.parse(readFileSync(filename, "utf8")));
+      const stat = statSync(filename);
+      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+        return cached.value;
+      }
+      const parsed = schema.parse(JSON.parse(readFileSync(filename, "utf8")));
+      cached = { mtimeMs: stat.mtimeMs, size: stat.size, value: parsed };
+      return parsed;
     } catch (error) {
+      cached = null;
       if (readError) throw new Error(readError);
       throw error;
     }
@@ -64,6 +82,12 @@ export function createRevisionedJsonStore<T extends { revision: number }>(option
     const next = schema.parse(mutate(current));
     next.revision = current.revision + 1;
     writePrivateJsonFile(filename, next);
+    try {
+      const stat = statSync(filename);
+      cached = { mtimeMs: stat.mtimeMs, size: stat.size, value: next };
+    } catch {
+      cached = null;
+    }
     return next;
   }
 

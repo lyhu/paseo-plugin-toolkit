@@ -29,9 +29,17 @@ const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_)/;
 
 export function parseInline(text: string): Inline[] {
   const out: Inline[] = [];
+  let offset = 0;
   for (const piece of text.split(INLINE)) {
     if (piece.length === 0) continue;
-    if (piece.startsWith("`") && piece.endsWith("`") && piece.length > 1) {
+    const intrawordUnderscore =
+      piece.startsWith("_") &&
+      (/[\p{L}\p{N}_]/u.test(text.charAt(offset - 1)) ||
+        /[\p{L}\p{N}_]/u.test(text.charAt(offset + piece.length)));
+    offset += piece.length;
+    if (intrawordUnderscore) {
+      out.push({ kind: "text", text: piece });
+    } else if (piece.startsWith("`") && piece.endsWith("`") && piece.length > 1) {
       out.push({ kind: "code", text: piece.slice(1, -1) });
     } else if (
       (piece.startsWith("**") && piece.endsWith("**")) ||

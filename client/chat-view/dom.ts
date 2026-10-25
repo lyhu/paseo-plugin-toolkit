@@ -51,6 +51,8 @@ export interface Element {
 
 export interface Document {
   body: Element;
+  hidden?: boolean;
+  visibilityState?: string;
   createElement(tag: string): Element;
   createElementNS(namespace: string, tag: string): Element;
   addEventListener(name: string, callback: (event: unknown) => void, capture?: boolean): void;

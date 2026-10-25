@@ -1,25 +1,27 @@
 import { Platform } from "react-native";
+import { sessionVisible } from "./project-tree/session-visibility";
+import { createNodeSubmission } from "./project-tree/submission";
 import type { Element, MutationObserverApi } from "./chat-view/dom";
 import type { CatalogSession, CatalogSnapshot, CatalogWorkspace } from "./project-tree/catalog";
 import {
-  emptyProjectNodes,
   projectAvailable,
   projectWorkspaces,
   workspaceSessions,
   workspaceSessionCount,
-  projectTreeChildren,
 } from "./project-tree/catalog";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { tr } from "./i18n";
+import { createComposerAccess, type ComposerAccess } from "./chat-view/enhance/dom";
 import {
   nativeGroupsWithin,
   nativeProjectGroups,
   type NativeProjectGroup,
 } from "./project-tree/native-groups";
-import type { TreeCommand, TreeNode } from "../shared/project-tree/model";
+import { visibleTreeRows } from "../shared/project-tree/projection";
+import { type TreeCommand, type TreeNode } from "../shared/project-tree/model";
 import {
-  adjacentMove,
-  edgeMove,
+  nodeActionCommand,
+  type NodeActionRequest,
   folderDestinations,
   nodeActions,
   nodePath,
@@ -47,12 +49,14 @@ declare const MutationObserver: new (
 declare const window: {
   innerWidth: number;
   innerHeight: number;
-  location: { pathname: string };
+  location: { pathname: string; search: string };
   history: History;
   getComputedStyle(element: Element): { backgroundColor: string };
   addEventListener(name: string, callback: (event: unknown) => void): void;
   removeEventListener(name: string, callback: (event: unknown) => void): void;
+  dispatchEvent(event: unknown): boolean;
 };
+declare const PopStateEvent: new (type: string, options: { state: unknown }) => unknown;
 declare const navigator: {
   clipboard?: { writeText(text: string): Promise<void> };
 };
@@ -60,6 +64,10 @@ declare const localStorage: {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 };
+declare const KeyboardEvent: new (
+  type: string,
+  options: { key: string; bubbles: boolean },
+) => unknown;
 declare const MouseEvent: new (
   type: string,
   options: {
@@ -78,6 +86,76 @@ const compactDiffFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
+
+/** Capture this pill's composer before awaiting naming; never fall through to another pane. */
+export function getTitleComposer(
+  agentId: string,
+): (ComposerAccess & { submitClear(signal: AbortSignal): Promise<boolean> }) | undefined {
+  if (Platform.OS !== "web" || typeof document === "undefined") return undefined;
+  const markerId = `session-title-composer-${agentId}`;
+  const markers = document.body.querySelectorAll('[data-testid^="session-title-composer-"]');
+  const visible = (node: Element) =>
+    node.isConnected && node.clientWidth > 0 && node.clientHeight > 0;
+  const marker = Array.from(markers).find(
+    (node) => node.getAttribute("data-testid") === markerId && visible(node),
+  );
+  let scope = marker?.parentElement;
+  for (let depth = 0; scope && depth < 12; depth++, scope = scope.parentElement) {
+    const inputs = Array.from(scope.querySelectorAll("textarea[data-composer-input]")).filter(
+      visible,
+    );
+    if (!inputs.length) continue;
+    if (inputs.length !== 1) return undefined;
+    const input = inputs[0]!;
+    const access = createComposerAccess(input)!;
+    const owner = scope;
+    const current = () => {
+      const switched = Array.from(
+        owner.querySelectorAll('[data-testid^="session-title-composer-"]'),
+      ).some((node) => visible(node) && node.getAttribute("data-testid") !== markerId);
+      return input.isConnected && input.clientWidth > 0 && input.clientHeight > 0 && !switched;
+    };
+    const hasAttachments = () => !!owner.querySelector('[data-testid="composer-attachment-tray"]');
+    return {
+      read: access.read,
+      write(text) {
+        if (!current() || hasAttachments()) return false;
+        return access.write(text);
+      },
+      async submitClear(signal) {
+        if (signal.aborted) return false;
+        if (!current()) throw new Error(tr("当前输入框已隐藏或会话已切换，请回到原会话后重试。"));
+        if (hasAttachments()) throw new Error(tr("当前输入框包含附件，请移除后重试归档新建。"));
+        if (!access.write("/clear"))
+          throw new Error(tr("无法写入 /clear，请确认当前输入框可编辑后重试。"));
+        // Let the host commit the input update before using its normal send action.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (signal.aborted || !current() || hasAttachments() || access.read() !== "/clear")
+          return false;
+        const send = owner.querySelector(
+          '[role="button"][aria-label="发送消息"], [role="button"][aria-label="Send message"]',
+        );
+        if (
+          !send ||
+          send.getAttribute("aria-disabled") === "true" ||
+          send.getAttribute("disabled") !== null
+        )
+          return false;
+        send.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+          }),
+        );
+        return true;
+      },
+    };
+  }
+  return undefined;
+}
 const formatDiffCount = (value: number) => compactDiffFormatter.format(value).toLowerCase();
 /** Mirrors the native workspace card's path label, including the worktree slug when present. */
 const workspaceDirectoryLabel = (workspace: CatalogWorkspace) =>
@@ -85,6 +163,7 @@ const workspaceDirectoryLabel = (workspace: CatalogWorkspace) =>
 
 type GlyphKind =
   | "folder"
+  | "star"
   | "folderPlus"
   | "directory"
   | "session"
@@ -107,13 +186,15 @@ type GlyphKind =
   | "split"
   | "hide"
   | "show"
-  | "hideEmpty"
   | "new"
   | "delete"
   | "native";
 /** Lucide geometry, kept here so the web adapter renders the same icons as the native card. */
 const glyphShapes: Record<GlyphKind, Array<[string, Record<string, string>]>> = {
   folder: [["path", { d: "M3 7V5h6l2 2h10v12H3Z" }]],
+  star: [
+    ["path", { d: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z" }],
+  ],
   session: [
     [
       "path",
@@ -196,7 +277,6 @@ const glyphShapes: Record<GlyphKind, Array<[string, Record<string, string>]>> = 
     ["path", { d: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z" }],
     ["circle", { cx: "12", cy: "12", r: "3" }],
   ],
-  hideEmpty: [["path", { d: "m3 3 18 18M3 7v12h14M7 5h2l2 2h10v10" }]],
   new: [["path", { d: "M12 5v14M5 12h14" }]],
   delete: [["path", { d: "M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" }]],
   native: [
@@ -204,9 +284,10 @@ const glyphShapes: Record<GlyphKind, Array<[string, Record<string, string>]>> = 
     ["path", { d: "M9 3v18M3 9h6" }],
   ],
 };
-const menuCleanups = new Map<Element, () => void>();
-const workspaceCleanups = new Map<Element, Array<() => void>>();
-const workspaceBindings = new Map<
+const dialogContainers = new WeakSet<Element>();
+const menuCleanups = new WeakMap<Element, () => void>();
+const workspaceCleanups = new WeakMap<Element, Array<() => void>>();
+const workspaceBindings = new WeakMap<
   Element,
   Array<{ expected: string; attach(source?: Element): void }>
 >();
@@ -225,6 +306,9 @@ const sidebarRenderStates = new WeakMap<
     rows: Map<string, RenderedWorkspace>;
     draggedId: string | null;
     draggedWorkspace: CatalogWorkspace | null;
+    refreshPending?: boolean;
+    menuOwnerId?: string;
+    scrollBody?: Element;
   }
 >();
 function indexNativeWorkspaceRows() {
@@ -266,6 +350,7 @@ export async function openNativeProjectCreate(
       row.dispatchEvent(event("pointerover"));
       for (let frame = 0; frame < 3 && active() && !ready(trigger); frame += 1) {
         await new Promise((resolve) => setTimeout(resolve, 16));
+        if (row.isConnected) row.dispatchEvent(event("pointerover"));
         trigger = find();
       }
     }
@@ -308,6 +393,53 @@ function activeWorkspaceFromLocation(): { serverId: string; workspaceId: string 
     }
   }
   return serverId && workspaceId ? { serverId, workspaceId } : null;
+}
+
+/** Use Paseo's workspace file-open intent so its native tab and Markdown renderer own the file. */
+export async function openWorkbenchFile(input: {
+  serverId: string;
+  workspaceId: string;
+  path: string;
+}) {
+  if (Platform.OS !== "web") return false;
+  const current = activeWorkspaceFromLocation();
+  if (
+    current?.serverId !== input.serverId ||
+    current.workspaceId !== input.workspaceId ||
+    !input.path.trim()
+  )
+    return false;
+  const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(input.path)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  const pathname = window.location.pathname;
+  const navigate = (intent: string) => {
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${pathname}?open=${encodeURIComponent(intent)}`,
+    );
+    window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+  };
+  // 0.13 remembers the last consumed intent. An empty file intent opens no tab and
+  // clears that marker, allowing the same file to be revealed again after closing it.
+  navigate("file:");
+  for (
+    let attempt = 0;
+    attempt < 60 && new URLSearchParams(window.location.search).has("open");
+    attempt++
+  )
+    await new Promise((resolve) => setTimeout(resolve, 16));
+  const active = activeWorkspaceFromLocation();
+  if (
+    active?.serverId !== input.serverId ||
+    active.workspaceId !== input.workspaceId ||
+    new URLSearchParams(window.location.search).has("open")
+  )
+    return false;
+  navigate(`file:${encoded}`);
+  return true;
 }
 
 /** pushState does not emit popstate, so navigation has to notify selection directly. */
@@ -363,9 +495,15 @@ function nativeWorkspaceRow(workspace: Pick<CatalogWorkspace, "serverId" | "id">
   );
 }
 
-function openNativeMenu(row: Element, anchor: Element) {
+let nativeMenuLayoutCleanup: (() => void) | undefined;
+function openNativeMenu(
+  row: Element,
+  anchor: Element,
+  options: { alignEnd?: boolean; onClose?(): void } = {},
+) {
+  nativeMenuLayoutCleanup?.();
   const rect = anchor.getBoundingClientRect();
-  return !row.dispatchEvent(
+  const opened = !row.dispatchEvent(
     new MouseEvent("contextmenu", {
       bubbles: true,
       cancelable: true,
@@ -374,19 +512,80 @@ function openNativeMenu(row: Element, anchor: Element) {
       button: 2,
     }),
   );
+  if (!opened) return false;
+  // A display:none native tree can leave its portaled menu's shared style hidden after
+  // measurement. Only reveal this source's menu once native positioning has completed.
+  const sourceId = row.getAttribute("data-testid") ?? "";
+  const project = sourceId.startsWith("sidebar-project-row-");
+  const key = sourceId.slice((project ? "sidebar-project-row-" : "sidebar-workspace-row-").length);
+  const prefix = project ? "sidebar-project-menu-" : "sidebar-workspace-menu-";
+  let seen = false;
+  const cleanup = () => {
+    observer.disconnect();
+    clearTimeout(timer);
+    if (nativeMenuLayoutCleanup === cleanup) nativeMenuLayoutCleanup = undefined;
+    options.onClose?.();
+  };
+  const place = () => {
+    if (!anchor.isConnected) {
+      cleanup();
+      return;
+    }
+    const menu = Array.from(document.querySelectorAll('[data-menu-surface="true"]')).find(
+      (surface) =>
+        Array.from(surface.querySelectorAll("[data-testid]")).some((item) => {
+          const id = item.getAttribute("data-testid") ?? "";
+          return id.startsWith(prefix) && id.endsWith(`-${key}`);
+        }),
+    );
+    if (!menu) {
+      if (seen) cleanup();
+      return;
+    }
+    seen = true;
+    if (Number.parseFloat(menu.style.top) > -9999 && menu.style.visibility !== "visible")
+      menu.style.visibility = "visible";
+    if (options.alignEnd && Number.parseFloat(menu.style.top) > -9999) {
+      const width = menu.getBoundingClientRect().width;
+      const left = `${Math.max(8, rect.right - width)}px`;
+      if (width && menu.style.left !== left) menu.style.left = left;
+    }
+  };
+  const observer = new MutationObserver(place);
+  const timer = setTimeout(() => {
+    if (!seen) cleanup();
+  }, 1000);
+  nativeMenuLayoutCleanup = cleanup;
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  place();
+  return true;
 }
 
-export function mountWorkspaceSessionMenuItem(options: {
+export interface WorkspaceMenuExtra {
+  key: string;
+  label: string;
+  glyph?: string;
+  disabled?: boolean;
+  action(): void;
+}
+
+function mountNativeMenuItem(options: {
   label: string;
   border: string;
   foreground: string;
   muted: string;
   hover: string;
   action(): void;
+  testId?: string;
+  first?: boolean;
+  glyph?: string;
 }): () => void {
   if (Platform.OS !== "web") return () => {};
   const entry = document.createElement("div");
-  entry.setAttribute("data-toolkit-workspace-session-toggle", "true");
+  entry.setAttribute(
+    options.testId ? "data-toolkit-project-menu-item" : "data-toolkit-workspace-session-toggle",
+    "true",
+  );
   const separator = document.createElement("div");
   separator.setAttribute("role", "separator");
   separator.setAttribute("aria-orientation", "horizontal");
@@ -396,7 +595,7 @@ export function mountWorkspaceSessionMenuItem(options: {
     background: options.border,
     flexShrink: "0",
   });
-  entry.appendChild(separator);
+  if (!options.first) entry.appendChild(separator);
   const archiveRule = separator.cloneNode(true);
   const button = document.createElement("button");
   button.setAttribute("type", "button");
@@ -441,7 +640,8 @@ export function mountWorkspaceSessionMenuItem(options: {
   const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
   shape.setAttribute(
     "d",
-    "M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z",
+    options.glyph ??
+      "M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z",
   );
   glyph.appendChild(shape);
   button.appendChild(glyph);
@@ -468,9 +668,148 @@ export function mountWorkspaceSessionMenuItem(options: {
     observer.disconnect();
     entry.remove();
   };
-  // The native menu mounts after the click, and React drops foreign nodes on its next
-  // commit. Watch until that workspace menu appears, then put the row back whenever it
-  // goes missing. Leave every other menu alone.
+  // The native menu mounts after the click, and React can drop injected rows on commit.
+  // Keep each addition attached only to its matching native menu.
+  const place = () => {
+    const surface = Array.from(document.querySelectorAll('[data-menu-surface="true"]')).find(
+      (candidate) =>
+        options.testId
+          ? Array.from(candidate.querySelectorAll("[data-testid]")).some(
+              (item) => item.getAttribute("data-testid") === options.testId,
+            )
+          : candidate.querySelector('[data-testid^="sidebar-workspace-menu-"]'),
+    );
+    if (!surface) {
+      if (seen) remove();
+      return;
+    }
+    seen = true;
+    const items = Array.from(surface.querySelectorAll('[data-menu-item="true"]')).filter(
+      (item) => !entry.contains(item),
+    );
+    const last = options.first ? items[0] : items[items.length - 1];
+    const page = last?.parentElement;
+    if (!page || (entry.parentElement === page && entry.nextElementSibling === last)) return;
+    if (page) page.insertBefore(entry, last);
+  };
+  const observer = new MutationObserver(place);
+  observer.observe(document.body, { childList: true, subtree: true });
+  place();
+  return remove;
+}
+
+/**
+ * Injects a small group of plugin rows above the native archive action. The native workspace
+ * menu has no plugin extension point, so this mirrors the same DOM seam as the rest of the
+ * workbench sidebar.
+ */
+function mountWorkspaceMenuExtras(options: {
+  items: readonly WorkspaceMenuExtra[];
+  border: string;
+  foreground: string;
+  muted: string;
+  hover: string;
+}): () => void {
+  if (Platform.OS !== "web" || !options.items.length) return () => {};
+  const entry = document.createElement("div");
+  entry.setAttribute("data-toolkit-workspace-menu-extras", "true");
+  const separator = () => {
+    const rule = document.createElement("div");
+    rule.setAttribute("role", "separator");
+    rule.setAttribute("aria-orientation", "horizontal");
+    Object.assign(rule.style, {
+      height: "1px",
+      margin: "4px 0",
+      background: options.border,
+      flexShrink: "0",
+    });
+    return rule;
+  };
+  entry.appendChild(separator());
+  for (const item of options.items) {
+    const button = document.createElement("button");
+    button.setAttribute("type", "button");
+    button.setAttribute("role", "menuitem");
+    button.setAttribute("data-menu-item", "true");
+    button.setAttribute("data-menu-disabled", item.disabled ? "true" : "false");
+    button.setAttribute("data-toolkit-workspace-menu-item", item.key);
+    button.setAttribute("tabindex", "-1");
+    button.setAttribute("aria-label", item.label);
+    if (item.disabled) {
+      button.setAttribute("disabled", "true");
+      button.setAttribute("aria-disabled", "true");
+    }
+    Object.assign(button.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      width: "calc(100% - 8px)",
+      minHeight: "28px",
+      margin: "0 4px",
+      padding: "4px 8px",
+      boxSizing: "border-box",
+      border: "1px solid transparent",
+      borderRadius: "6px",
+      outline: "none",
+      background: "transparent",
+      color: options.foreground,
+      font: "14px system-ui, sans-serif",
+      lineHeight: "18px",
+      textAlign: "left",
+      cursor: item.disabled ? "default" : "pointer",
+      opacity: item.disabled ? "0.45" : "1",
+    });
+    const glyph = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [key, value] of Object.entries({
+      width: "16",
+      height: "16",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: options.muted,
+      "stroke-width": "1.6",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+    }))
+      glyph.setAttribute(key, value);
+    glyph.style.flexShrink = "0";
+    const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    shape.setAttribute(
+      "d",
+      item.glyph ??
+        "M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z",
+    );
+    glyph.appendChild(shape);
+    button.appendChild(glyph);
+    button.appendChild(document.createTextNode(item.label));
+    const highlight = () => {
+      if (!item.disabled) button.style.background = options.hover;
+    };
+    const clear = () => {
+      button.style.background = "transparent";
+    };
+    button.addEventListener("mouseenter", highlight);
+    button.addEventListener("focus", highlight);
+    button.addEventListener("mouseleave", clear);
+    button.addEventListener("blur", clear);
+    button.addEventListener("click", (event) => {
+      (event as { stopPropagation(): void }).stopPropagation();
+      if (item.disabled) return;
+      item.action();
+      try {
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      } catch {
+        /* The host owns dismissal on platforms without KeyboardEvent. */
+      }
+    });
+    entry.appendChild(button);
+  }
+  entry.appendChild(separator());
+  let seen = false;
+  const remove = () => {
+    observer.disconnect();
+    entry.remove();
+  };
   const place = () => {
     const surface = Array.from(document.querySelectorAll('[data-menu-surface="true"]')).find(
       (candidate) => candidate.querySelector('[data-testid^="sidebar-workspace-menu-"]'),
@@ -501,6 +840,181 @@ export function openNativeWorkspaceMenu(
   if (Platform.OS !== "web") return false;
   const row = nativeWorkspaceRow(workspace);
   return row ? openNativeMenu(row, anchor) : false;
+}
+
+/** Opens the original menu, retaining native settings, removal confirmation and Host scope. */
+export function openWorkbenchProjectMenu(
+  value: unknown,
+  group: NativeProjectGroup,
+  colors: PluginTheme["colors"],
+  organize: () => void,
+  fail: (message: string) => void,
+): (() => void) | undefined {
+  if (Platform.OS !== "web") return;
+  const anchor = value as Element | null;
+  const row = Array.from(document.querySelectorAll('[data-testid^="sidebar-project-row-"]')).find(
+    (entry) =>
+      entry.getAttribute("data-testid") === `sidebar-project-row-${group.viewKey}` &&
+      !entry.closest("[data-toolkit-project-tree]"),
+  );
+  if (!anchor || !row || !openNativeMenu(row, anchor)) return;
+  const common = {
+    border: colors.border,
+    foreground: colors.foreground,
+    muted: colors.foregroundMuted,
+    hover: colors.surface2,
+    testId: `sidebar-project-menu-open-settings-${group.viewKey}`,
+  };
+  const close = () =>
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  const create = mountNativeMenuItem({
+    ...common,
+    label: tr("新建 workspace"),
+    first: true,
+    glyph: "M12 5v14M5 12h14",
+    action() {
+      close();
+      void new Promise((resolve) => setTimeout(resolve, 0))
+        .then(() => openNativeProjectCreate(group))
+        .then((opened) => {
+          if (!opened) fail(tr("原生项目操作暂不可用，请切换原生视图后重试。"));
+        })
+        .catch((error) => fail(String(error)));
+    },
+  });
+  const settings = mountNativeMenuItem({
+    ...common,
+    label: tr("分组与场景"),
+    glyph: "M4 7h16M4 12h16M4 17h16",
+    action() {
+      close();
+      organize();
+    },
+  });
+  return () => {
+    create();
+    settings();
+  };
+}
+
+/** A native project may be collapsed or paginated even while its card lists every workspace. */
+export async function openWorkbenchWorkspaceMenu(
+  value: unknown,
+  workspace: CatalogWorkspace,
+  group?: NativeProjectGroup,
+): Promise<boolean> {
+  if (Platform.OS !== "web") return false;
+  const anchor = value as Element | null;
+  if (!anchor) return false;
+  if (openNativeWorkspaceMenu(workspace, anchor)) return true;
+  if (!group) return false;
+  const find = (prefix: string) =>
+    Array.from(document.querySelectorAll(`[data-testid^="${prefix}"]`)).find(
+      (entry) =>
+        entry.getAttribute("data-testid") === `${prefix}${group.viewKey}` &&
+        !entry.closest("[data-toolkit-project-tree]"),
+    );
+  const click = (entry: Element) =>
+    entry.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+      }),
+    );
+  const row = find("sidebar-project-row-");
+  if (row && !find("sidebar-workspace-list-")) {
+    click(row);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  for (let page = 0; page < 20 && anchor.isConnected; page++) {
+    if (openNativeWorkspaceMenu(workspace, anchor)) return true;
+    const next = find("sidebar-project-show-more-");
+    if (!next) break;
+    click(next);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return false;
+}
+
+function createNativeWorkspaceMenu(options: {
+  workspace: CatalogWorkspace;
+  groups: NativeProjectGroup[];
+  colors: PluginTheme["colors"];
+  workspaceMenuExtras?(): WorkspaceMenuExtra[];
+  fallback(anchor: Element): void;
+}) {
+  let generation = 0;
+  let disposed = false;
+  let removeExtras: (() => void) | undefined;
+  return {
+    async open(anchor: Element) {
+      if (Platform.OS !== "web" || disposed) return;
+      const started = ++generation;
+      removeExtras?.();
+      removeExtras = undefined;
+      const active = () => !disposed && started === generation && anchor.isConnected;
+      const open = () => {
+        if (!active() || !openNativeWorkspaceMenu(options.workspace, anchor)) return false;
+        const items = options.workspaceMenuExtras?.() ?? [];
+        if (items.length)
+          removeExtras = mountWorkspaceMenuExtras({
+            items,
+            border: options.colors.border,
+            foreground: options.colors.foreground,
+            muted: options.colors.foregroundMuted,
+            hover: options.colors.surface2,
+          });
+        return true;
+      };
+      if (open()) return;
+      // React retains ownership of native rows. Reveal them through their existing controls.
+      const group = options.groups.find((entry) =>
+        entry.members.some(
+          (member) =>
+            member.serverId === options.workspace.serverId &&
+            member.projectId === options.workspace.projectId,
+        ),
+      );
+      if (group) {
+        const find = (prefix: string) =>
+          Array.from(document.querySelectorAll(`[data-testid^="${prefix}"]`)).find(
+            (entry) => entry.getAttribute("data-testid") === `${prefix}${group.viewKey}`,
+          );
+        const click = (entry: Element) =>
+          entry.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              cancelable: true,
+              clientX: 0,
+              clientY: 0,
+              button: 0,
+            }),
+          );
+        const project = find("sidebar-project-row-");
+        if (project && !find("sidebar-workspace-list-")) {
+          click(project);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        for (let page = 0; page < 20 && active(); page++) {
+          if (open()) return;
+          const next = find("sidebar-project-show-more-");
+          if (!next) break;
+          click(next);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
+      if (active()) options.fallback(anchor);
+    },
+    dispose() {
+      disposed = true;
+      generation++;
+      removeExtras?.();
+      removeExtras = undefined;
+    },
+  };
 }
 
 interface MirroredAnimation {
@@ -612,6 +1126,148 @@ export function writeDevicePreference(key: string, value: string) {
   } catch {
     /* Private browsing may disable storage. */
   }
+}
+
+/** The SDK exposes body styles, while the desktop width belongs to the host dialog. */
+export function mountWideWorkbenchModal(value: unknown, maxWidth = 960): () => void {
+  if (!value || Platform.OS !== "web") return () => {};
+  const dialog = (value as Element).closest('[role="dialog"]');
+  if (!dialog) return () => {};
+  const previous = dialog.style.maxWidth;
+  dialog.style.maxWidth = `${maxWidth}px`;
+  return () => {
+    dialog.style.maxWidth = previous;
+  };
+}
+
+/** Mirror workbench controls into the host chrome without reparenting React-owned nodes. */
+export function mountWorkbenchHeader(value: unknown): () => void {
+  if (!value || Platform.OS !== "web") return () => {};
+  const source = value as Element;
+  let surface = source.parentElement;
+  while (surface && !surface.querySelector('[data-testid="plugin-surface-title"]'))
+    surface = surface.parentElement;
+  const title = surface?.querySelector('[data-testid="plugin-surface-title"]');
+  const close =
+    surface?.querySelector('[data-testid="plugin-surface-close"]') ??
+    surface?.querySelector('[data-testid="header-back-button"]');
+  if (!title || !close || !source.firstElementChild) return () => {};
+  let row = close.parentElement;
+  while (row && !row.contains(title)) row = row.parentElement;
+  if (!row || row.contains(source)) return () => {};
+  const compact = close.getAttribute("data-testid") === "header-back-button";
+  const frame = compact ? row.parentElement : row.closest('[data-testid="composer-dock-header"]');
+  if (!frame?.parentElement?.contains(source)) return () => {};
+  const branch = (node: Element) => {
+    while (node.parentElement && node.parentElement !== row) node = node.parentElement;
+    return node;
+  };
+  const left = branch(title),
+    right = branch(close);
+  const key = Math.random().toString(36).slice(2);
+  const sourceAttribute = "data-toolkit-workbench-header-source";
+  const titleAttribute = "data-toolkit-workbench-header-title";
+  const copyAttribute = "data-toolkit-workbench-header-copy";
+  const previousSource = source.getAttribute(sourceAttribute);
+  const previousTitle = title.getAttribute(titleAttribute);
+  const previousAria = source.getAttribute("aria-hidden");
+  source.setAttribute(sourceAttribute, key);
+  source.setAttribute("aria-hidden", "true");
+  title.setAttribute(titleAttribute, key);
+  const style = document.createElement("style");
+  style.textContent = `[${sourceAttribute}="${key}"],[${titleAttribute}="${key}"]{display:none!important}[${copyAttribute}="${key}"]{-webkit-app-region:no-drag}`;
+  document.body.appendChild(style);
+  let copies: Element[] = [];
+  let bindings: Array<{ source: Element; copy: Element }> = [];
+  let stopped = false;
+  const mirror = (original: Element, parent: Element, before: Element | null = null) => {
+    const copy = original.cloneNode(true);
+    copy.setAttribute(copyAttribute, key);
+    const originals = Array.from(original.querySelectorAll('button,[role="button"]'));
+    const buttons = Array.from(copy.querySelectorAll('button,[role="button"]'));
+    buttons.forEach((button, index) => {
+      const target = originals[index]!;
+      const forward = () => {
+        if (
+          target.getAttribute("aria-disabled") === "true" ||
+          target.getAttribute("disabled") !== null
+        )
+          return;
+        target.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            clientX: 0,
+            clientY: 0,
+            button: 0,
+          }),
+        );
+      };
+      button.addEventListener("click", (event) => {
+        const input = event as { preventDefault(): void; stopPropagation(): void };
+        input.preventDefault();
+        input.stopPropagation();
+        forward();
+      });
+      button.addEventListener("keydown", (event) => {
+        const input = event as {
+          key: string;
+          repeat?: boolean;
+          preventDefault(): void;
+          stopPropagation(): void;
+        };
+        if (!["Enter", " "].includes(input.key)) return;
+        input.preventDefault();
+        input.stopPropagation();
+        if (!input.repeat) forward();
+      });
+      bindings.push({ source: target, copy: button });
+    });
+    parent.insertBefore(copy, before);
+    copies.push(copy);
+  };
+  const render = () => {
+    if (stopped) return;
+    const focused = bindings.find((binding) => binding.copy === document.activeElement)?.source;
+    for (const copy of copies) copy.remove();
+    copies = [];
+    bindings = [];
+    const content = source.firstElementChild;
+    if (!content) return;
+    if (compact) {
+      mirror(content, left, title);
+      for (let extra = content.nextElementSibling; extra; extra = extra.nextElementSibling)
+        mirror(extra, frame);
+    } else if (content.firstElementChild && content.lastElementChild) {
+      mirror(content.firstElementChild, left);
+      mirror(content.lastElementChild, right, right.firstElementChild);
+    }
+    if (focused) bindings.find((binding) => binding.source === focused)?.copy.focus();
+  };
+  render();
+  const observer = new MutationObserver(render);
+  observer.observe(source, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+  });
+  const restore = (node: Element, attribute: string, previous: string | null) => {
+    if (previous === null) node.removeAttribute(attribute);
+    else node.setAttribute(attribute, previous);
+  };
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    observer.disconnect();
+    for (const copy of copies) copy.remove();
+    style.remove();
+    restore(source, sourceAttribute, previousSource);
+    restore(source, "aria-hidden", previousAria);
+    restore(title, titleAttribute, previousTitle);
+    copies = [];
+    bindings = [];
+  };
 }
 
 /** Only this adapter knows Paseo's DOM boundary; the tree itself never owns host React nodes. */
@@ -749,13 +1405,42 @@ export function renderProjectSidebar(
     sessionLimits?: Map<string, number>;
     sessionVisibility?: ReadonlyMap<string, boolean>;
     showSessionsByDefault?: boolean;
-    toggleSessions?(id: string): void;
+    toggleSessions?(id: string, projectId?: string): void;
+    workspaceMenuExtras?(workspace: CatalogWorkspace, projectId: string): WorkspaceMenuExtra[];
     loadSessions?(): void;
     run?(command: TreeCommand): Promise<void>;
     native(): void;
     viewName?: string;
+    readOnly?: boolean;
+    knowledgeSpace?: { open(): void };
+    projectSourceId?(id: string): string;
+    isFavoriteProject?(id: string): boolean;
+    groupDisplay?(
+      id: string,
+    ):
+      | { favorite?: boolean; workspacesOnly: boolean; disabled: boolean; toggle(): void }
+      | undefined;
     showHidden?: boolean;
     toggleHidden?(): void;
+    resetHidden?(): Promise<void>;
+    history?: {
+      canUndo: boolean;
+      snapshots: Array<{
+        id: string;
+        name: string;
+        createdAt: string;
+        preview?: {
+          nodesChanged: number;
+          workspacePlacementsChanged: boolean;
+          tabsChanged?: boolean;
+          favoritesChanged?: boolean;
+          scenariosChanged?: boolean;
+        };
+      }>;
+    };
+    saveSnapshot?(name: string): Promise<void>;
+    restoreSnapshot?(snapshotId: string): Promise<void>;
+    undo?(): Promise<void>;
     move?(id: string, parentId: string | null, beforeId?: string): void;
     moveWorkspace?(workspace: CatalogWorkspace, targetId: string): void;
     renameWorkspace?(workspace: CatalogWorkspace): void;
@@ -773,13 +1458,25 @@ export function renderProjectSidebar(
   }
   options = state.options;
   const renderState = state;
+  if (menuCleanups.has(container)) {
+    if (
+      state.menuOwnerId &&
+      !options.snapshot.tree.nodes.some((node) => node.id === state.menuOwnerId)
+    ) {
+      menuCleanups.get(container)?.();
+    } else {
+      // A polling update must not tear down the menu or its anchor while it is in use.
+      state.refreshPending = true;
+      return;
+    }
+  }
+  state.refreshPending = false;
   const previousRows = state.rows;
   const nextRows = new Map<string, RenderedWorkspace>();
   state.rows = nextRows;
   const { snapshot, theme, collapsed } = options;
   const originals = workspaceRowIndexes.get(container) ?? indexNativeWorkspaceRows();
   const colors = theme.colors;
-  menuCleanups.get(container)?.();
   const cleanRow = (row: RenderedWorkspace) => {
     for (const cleanup of row.cleanups) cleanup();
   };
@@ -792,7 +1489,13 @@ export function renderProjectSidebar(
   workspaceCleanups.set(container, allCleanups);
   const bindings: Array<{ expected: string; attach(source?: Element): void }> = [];
   workspaceBindings.set(container, bindings);
-  container.textContent = "";
+  const scrollBody = renderState.scrollBody;
+  const scrollTop = scrollBody?.scrollTop ?? 0;
+  if (scrollBody) {
+    // Keep the native scrollbar alive while refreshing the header and rows.
+    while (container.firstElementChild && container.firstElementChild !== scrollBody)
+      container.firstElementChild.remove();
+  } else container.textContent = "";
   Object.assign(container.style, {
     color: colors.foreground,
     background: colors.surface0,
@@ -1112,11 +1815,14 @@ export function renderProjectSidebar(
     return { open, scheduleClose, close };
   };
   const style = element("style", container);
+  if (scrollBody) container.insertBefore(style, scrollBody);
   style.textContent = [
     "[data-toolkit-tree-actions]{opacity:0}",
+    "[data-toolkit-native-project-actions]{pointer-events:none}",
+    "[data-toolkit-tree-row]:hover [data-toolkit-native-project-actions],[data-toolkit-tree-row]:focus-within [data-toolkit-native-project-actions],[data-toolkit-tree-row][data-toolkit-menu-open] [data-toolkit-native-project-actions]{pointer-events:auto}",
     "[data-toolkit-tree-row]:hover [data-toolkit-tree-actions],[data-toolkit-tree-row]:focus-within [data-toolkit-tree-actions],[data-toolkit-tree-row][data-toolkit-menu-open] [data-toolkit-tree-actions],[data-toolkit-workspace][aria-selected='true'] [data-toolkit-tree-actions]{opacity:1}",
     "[data-toolkit-workspace]:hover [data-toolkit-workspace-time],[data-toolkit-workspace]:focus-within [data-toolkit-workspace-time],[data-toolkit-workspace][aria-selected='true'] [data-toolkit-workspace-time]{visibility:hidden}",
-    "@media(hover:none){[data-toolkit-tree-actions]{opacity:1}[data-toolkit-workspace-time]{visibility:hidden}}",
+    "@media(hover:none){[data-toolkit-tree-actions]{opacity:1}[data-toolkit-native-project-actions]{pointer-events:auto}[data-toolkit-workspace-time]{visibility:hidden}}",
     `.toolkit-row-action{box-sizing:border-box;width:24px!important;height:24px!important;padding:0!important;display:inline-flex!important;align-items:center;justify-content:center;flex-shrink:0;border-radius:6px!important;color:${colors.foregroundMuted}!important;background:transparent!important}`,
     `.toolkit-row-action:hover:not([disabled]),.toolkit-row-action:focus-visible:not([disabled]){color:${colors.foreground}!important}`,
     `.toolkit-row-action[data-toolkit-row-action="sidebar"]:hover:not([disabled]),.toolkit-row-action[data-toolkit-row-action="sidebar"]:focus-visible:not([disabled]){background:${colors.surface1}!important}`,
@@ -1127,6 +1833,7 @@ export function renderProjectSidebar(
   );
   const nativeRows = Array.from(document.querySelectorAll('[data-testid^="sidebar-project-row-"]'));
   const context = JSON.stringify([
+    options.readOnly,
     snapshot.editable,
     Object.values(snapshot.catalogs).map((catalog) => catalog.projects),
     colors,
@@ -1141,6 +1848,7 @@ export function renderProjectSidebar(
     ].map(Boolean),
   ]);
   const header = element("div", container);
+  if (scrollBody) container.insertBefore(header, scrollBody);
   Object.assign(header.style, {
     display: "flex",
     alignItems: "center",
@@ -1149,6 +1857,7 @@ export function renderProjectSidebar(
     padding: "0 12px 0 16px",
     userSelect: "none",
   });
+  if (options.readOnly) header.style.display = "none";
   const title = element("span", header, options.viewName?.trim() || tr("我的工作台"));
   Object.assign(title.style, {
     flex: "1",
@@ -1163,18 +1872,84 @@ export function renderProjectSidebar(
         icon: "folderPlus",
         disabled: !snapshot.editable || !options.run,
         action: () =>
-          renamePanel(settings, tr("新增树节点..."), "", (name) => ({
-            type: "folder",
-            id: freshId(),
-            name,
-            parentId: null,
-          })),
+          renamePanel(settings, tr("新增树节点..."), "", (name) =>
+            nodeCommand(undefined, { action: "folder", id: freshId(), name, parentId: null }),
+          ),
       },
       {
         label: tr("显示隐藏节点"),
         icon: options.showHidden ? "check" : "show",
         action: () => options.toggleHidden?.(),
       },
+      {
+        label: tr("取消全部隐藏"),
+        icon: "show",
+        disabled: !snapshot.editable || !options.resetHidden,
+        action: () => {
+          void options.resetHidden?.().catch(() => {});
+        },
+      },
+      ...(options.saveSnapshot
+        ? [
+            {
+              label: tr("保存展示快照"),
+              icon: "copy" as const,
+              separatorBefore: true,
+              disabled: !snapshot.editable,
+              action: () =>
+                renamePanel(
+                  settings,
+                  tr("保存展示快照"),
+                  "",
+                  (name) => {
+                    void options.saveSnapshot?.(name).catch(() => {});
+                  },
+                  tr("保存快照"),
+                ),
+            },
+          ]
+        : []),
+      ...(options.restoreSnapshot
+        ? [
+            {
+              label: tr("恢复展示快照"),
+              icon: "show" as const,
+              disabled: !snapshot.editable || !options.history?.snapshots.length,
+              action: () =>
+                showMenu(
+                  settings,
+                  (options.history?.snapshots ?? []).map((saved) => ({
+                    label: saved.name,
+                    icon: "copy" as const,
+                    action: () =>
+                      confirmPanel(
+                        settings,
+                        tr("恢复展示配置；新发现的项目会保留，当前展示配置会先自动备份。") +
+                          (saved.preview
+                            ? ` ${saved.preview.nodesChanged} 个节点变更；${[saved.preview.workspacePlacementsChanged && "工作区位置", saved.preview.tabsChanged && "标签页", saved.preview.favoritesChanged && "收藏", saved.preview.scenariosChanged && "场景"].filter(Boolean).join("、") || "其余配置不变"}。`
+                            : ""),
+                        tr("恢复快照"),
+                        () => {
+                          void options.restoreSnapshot?.(saved.id).catch(() => {});
+                        },
+                      ),
+                  })),
+                ),
+            },
+          ]
+        : []),
+      ...(options.undo
+        ? [
+            {
+              label: tr("撤销展示操作"),
+              icon: "up" as const,
+              disabled: !snapshot.editable || !options.history?.canUndo,
+              action: () => {
+                void options.undo?.().catch(() => {});
+              },
+            },
+          ]
+        : []),
       { label: tr("切换原生视图"), icon: "native", action: options.native, separatorBefore: true },
     ]),
   );
@@ -1192,7 +1967,30 @@ export function renderProjectSidebar(
   settings.setAttribute("aria-label", settingsLabel);
   settings.setAttribute("title", settingsLabel);
   settings.setAttribute("aria-haspopup", "menu");
-  const body = element("div", container);
+  if (options.knowledgeSpace) {
+    const pinned = button(container, "", () => options.knowledgeSpace?.open());
+    if (scrollBody) container.insertBefore(pinned, scrollBody);
+    pinned.setAttribute("data-toolkit-knowledge-space", "true");
+    pinned.setAttribute("aria-label", tr("知行空间"));
+    pinned.setAttribute("title", tr("固定工作区，工作台内不提供删除或移除操作。"));
+    Object.assign(pinned.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "10px",
+      margin: "4px 8px 8px",
+      padding: "10px 14px",
+      flexShrink: "0",
+    });
+    const mark = icon(pinned, "session");
+    mark.style.color = colors.accent;
+    const name = element("span", pinned, tr("知行空间"));
+    Object.assign(name.style, { flex: "1", fontWeight: "600", textAlign: "left" });
+    const pin = element("span", pinned, tr("固定"));
+    Object.assign(pin.style, { fontSize: "11px", color: colors.foregroundMuted });
+  }
+  const body = scrollBody ?? element("div", container);
+  body.textContent = "";
+  renderState.scrollBody = body;
   Object.assign(body.style, { flex: "1", overflow: "auto", minHeight: "0", padding: "0 8px 12px" });
   if (snapshot.organizationError) {
     const error = element("p", body, snapshot.organizationError);
@@ -1236,6 +2034,10 @@ export function renderProjectSidebar(
   const showPanel = (anchor: Element, height: number, role = "menu") => {
     menuCleanups.get(container)?.();
     const owner = anchor.closest("[data-toolkit-tree-row]:not([data-toolkit-workspace])");
+    const ownerId = owner?.getAttribute("data-toolkit-tree-row") ?? undefined;
+    const actionKind = anchor.getAttribute("data-toolkit-row-action");
+    const anchorLabel = anchor.getAttribute("aria-label");
+    renderState.menuOwnerId = ownerId;
     if (owner) {
       owner.setAttribute("data-toolkit-menu-open", "true");
       owner.style.background = colors.surface1;
@@ -1250,9 +2052,12 @@ export function renderProjectSidebar(
     });
     const menu = element("div", document.body);
     const close = () => {
+      if (menuCleanups.get(container) !== close) return;
       menu.remove();
       overlay.remove();
       menuCleanups.delete(container);
+      dialogContainers.delete(container);
+      renderState.menuOwnerId = undefined;
       if (owner) {
         owner.removeAttribute("data-toolkit-menu-open");
         owner.style.background =
@@ -1260,9 +2065,40 @@ export function renderProjectSidebar(
       }
       anchor.setAttribute("aria-expanded", "false");
       if (anchor.isConnected) anchor.focus();
+      if (renderState.refreshPending)
+        void Promise.resolve().then(() => {
+          if (
+            sidebarRenderStates.get(container) !== renderState ||
+            !container.isConnected ||
+            !renderState.refreshPending
+          )
+            return;
+          const restoreFocus = document.activeElement === anchor;
+          renderProjectSidebar(container, { ...renderState.options });
+          if (restoreFocus && !anchor.isConnected) {
+            const nextOwner = ownerId
+              ? Array.from(container.querySelectorAll("[data-toolkit-tree-row]")).find(
+                  (row) => row.getAttribute("data-toolkit-tree-row") === ownerId,
+                )
+              : undefined;
+            const nextAnchor =
+              nextOwner && actionKind
+                ? Array.from(nextOwner.querySelectorAll("[data-toolkit-row-action]")).find(
+                    (entry) => entry.getAttribute("data-toolkit-row-action") === actionKind,
+                  )
+                : Array.from(container.querySelectorAll("[aria-label]")).find(
+                    (entry) => entry.getAttribute("aria-label") === anchorLabel,
+                  );
+            nextAnchor?.focus();
+          }
+        });
     };
     menuCleanups.set(container, close);
-    overlay.addEventListener("click", close);
+    if (role === "dialog") dialogContainers.add(container);
+    const dismiss = () => {
+      if (menu.getAttribute("aria-busy") !== "true") close();
+    };
+    overlay.addEventListener("click", dismiss);
     const rect = anchor.getBoundingClientRect();
     Object.assign(menu.style, {
       position: "fixed",
@@ -1300,10 +2136,7 @@ export function renderProjectSidebar(
           ]?.focus();
         }
       }
-      if ((event as { key: string }).key === "Escape") {
-        close();
-        anchor.focus();
-      }
+      if ((event as { key: string }).key === "Escape") dismiss();
     });
     return { menu, close };
   };
@@ -1315,6 +2148,8 @@ export function renderProjectSidebar(
       action(): void;
       disabled?: boolean;
       separatorBefore?: boolean;
+      checked?: boolean;
+      checkRole?: "checkbox";
     }>,
   ) => {
     const separators = items.filter((item, index) => index > 0 && item.separatorBefore).length;
@@ -1348,7 +2183,15 @@ export function renderProjectSidebar(
         },
         false,
       );
-      entry.setAttribute("role", "menuitem");
+      entry.setAttribute(
+        "role",
+        item.checked === undefined
+          ? "menuitem"
+          : item.checkRole === "checkbox"
+            ? "menuitemcheckbox"
+            : "menuitemradio",
+      );
+      if (item.checked !== undefined) entry.setAttribute("aria-checked", String(item.checked));
       entry.setAttribute("aria-label", item.label);
       const leading = icon(entry, item.icon);
       leading.style.flexShrink = "0";
@@ -1401,14 +2244,43 @@ export function renderProjectSidebar(
     first?.focus();
   };
   const freshId = () => `folder:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-  const execute = (command: TreeCommand) => {
-    if (options.run) void options.run(command).catch(() => {});
+  const execute = (command: TreeCommand | null, anchor: Element = container) => {
+    if (!command || !options.run) return;
+    const submission = createNodeSubmission(({ error }) => {
+      if (!error || !container.isConnected) return;
+      const { menu, close } = showPanel(anchor, 150, "dialog");
+      element("p", menu, error).setAttribute("role", "alert");
+      button(menu, tr("取消"), close);
+    });
+    void submission.perform(
+      () => options.run!(command),
+      () => {},
+    );
+  };
+  const nodeCommand = (node: TreeNode | undefined, request: NodeActionRequest) =>
+    nodeActionCommand(options.snapshot.tree, node?.id, request);
+  const panelSubmission = (menu: Element) => {
+    const error = element("p", menu);
+    error.setAttribute("role", "alert");
+    error.style.color = colors.foreground;
+    const disabled = new Map<Element, boolean>();
+    return createNodeSubmission((state) => {
+      menu.setAttribute("aria-busy", String(state.pending));
+      error.textContent = state.error;
+      for (const control of Array.from(menu.querySelectorAll("input,button"))) {
+        if (state.pending) {
+          disabled.set(control, control.getAttribute("disabled") !== null);
+          control.setAttribute("disabled", "true");
+        } else if (!disabled.get(control)) control.removeAttribute("disabled");
+      }
+    });
   };
   const renamePanel = (
     anchor: Element,
     title: string,
     initial: string,
-    command: (name: string) => TreeCommand,
+    command: (name: string) => TreeCommand | null | void,
+    saveLabel?: string,
   ) => {
     const { menu, close } = showPanel(anchor, 150, "dialog");
     menu.setAttribute("aria-label", title);
@@ -1428,14 +2300,16 @@ export function renderProjectSidebar(
       borderRadius: "6px",
       font: "inherit",
     });
+    const submission = panelSubmission(menu);
     const save = () => {
       const name = input.value?.trim();
       if (!name) {
         input.focus();
         return;
       }
-      close();
-      execute(command(name));
+      const next = command(name);
+      if (next && options.run) void submission.perform(() => options.run!(next), close);
+      else if (!next) close();
     };
     input.addEventListener("keydown", (event) => {
       if ((event as { key: string }).key === "Enter") {
@@ -1443,43 +2317,62 @@ export function renderProjectSidebar(
         save();
       }
     });
-    button(menu, tr(initial ? "保存名称" : "创建文件夹"), save);
+    button(menu, saveLabel ?? tr(initial ? "保存名称" : "创建文件夹"), save);
     button(menu, tr("取消"), close);
     input.focus();
     input.setSelectionRange(0, initial.length);
   };
-  const confirmPanel = (anchor: Element, message: string, label: string, command: TreeCommand) => {
+  const confirmPanel = (
+    anchor: Element,
+    message: string,
+    label: string,
+    command: TreeCommand | (() => void),
+  ) => {
     const { menu, close } = showPanel(anchor, 170, "dialog");
     menu.setAttribute("aria-label", label);
     const description = element("p", menu, message);
     description.style.padding = "4px 8px";
+    const submission = panelSubmission(menu);
     button(menu, label, () => {
-      close();
-      execute(command);
+      if (typeof command === "function") {
+        close();
+        command();
+      } else if (options.run) void submission.perform(() => options.run!(command), close);
     });
     button(menu, tr("取消"), close).focus();
   };
   const projectLabel = (node: TreeNode) =>
     `${nodePath(snapshot.tree, node)}${node.kind === "project" ? ` · ${node.members.map((member) => snapshot.hosts.find((host) => host.serverId === member.serverId)?.label ?? member.serverId).join(" / ")}` : ""}`;
+  const sourceProjectId = (id: string) => options.projectSourceId?.(id) ?? id;
   const sessionsVisible = (id: string) =>
-    options.sessionVisibility?.get(id) ?? options.showSessionsByDefault ?? false;
-  /** A workspace override wins; otherwise the row follows its project and the device default. */
+    sessionVisible(
+      options.sessionVisibility,
+      options.showSessionsByDefault ?? false,
+      sourceProjectId(id),
+    );
   const workspaceSessionsVisible = (workspace: CatalogWorkspace, projectId: string) =>
-    options.sessionVisibility?.get(`${workspace.serverId}:${workspace.id}`) ??
-    sessionsVisible(projectId);
+    sessionVisible(
+      options.sessionVisibility,
+      options.showSessionsByDefault ?? false,
+      `${workspace.serverId}:${workspace.id}`,
+      sourceProjectId(projectId),
+    );
   const organize = (anchor: Element, node: TreeNode, create: () => void) => {
-    const actions = nodeActions(snapshot.tree, node, emptyProjectNodes(snapshot).length);
+    const actions = nodeActions(snapshot.tree, node);
     const items = actions.map<Parameters<typeof showMenu>[1][number]>((item) => ({
       label: tr(item.label),
       icon:
-        item.action === "hide" && node.hidden
-          ? "show"
+        item.action === "display"
+          ? item.checked
+            ? "check"
+            : "show"
           : item.action === "folder"
             ? "folderPlus"
             : item.action === "menu"
               ? "more"
               : item.action,
       separatorBefore: item.separatorBefore,
+      checked: item.checked,
       disabled: item.disabled || (item.action !== "new" && (!snapshot.editable || !options.run)),
       action() {
         switch (item.action) {
@@ -1487,40 +2380,27 @@ export function renderProjectSidebar(
             create();
             break;
           case "rename":
-            renamePanel(anchor, `${tr("重命名")} · ${node.name}`, node.name, (name) => ({
-              type: "rename",
-              id: node.id,
-              name,
-            }));
+            renamePanel(anchor, `${tr("重命名")} · ${node.name}`, node.name, (name) =>
+              nodeCommand(node, { action: "rename", name }),
+            );
             break;
           case "folder":
-            renamePanel(anchor, tr("新建分类文件夹"), "", (name) => ({
-              type: "folder",
-              id: freshId(),
-              name,
-              parentId: node.id,
-            }));
+            renamePanel(anchor, tr("新建分类文件夹"), "", (name) =>
+              nodeCommand(node, { action: "folder", id: freshId(), name, parentId: node.id }),
+            );
             break;
           case "up":
           case "down": {
-            const command = adjacentMove(snapshot.tree, node, item.action);
-            if (command) execute(command);
+            execute(nodeCommand(node, { action: item.action }), anchor);
             break;
           }
           case "top":
           case "bottom": {
-            const command = edgeMove(snapshot.tree, node, item.action);
-            if (command) execute(command);
+            execute(nodeCommand(node, { action: item.action }), anchor);
             break;
           }
-          case "hide":
-            execute({ type: "hide", id: node.id, hidden: !node.hidden });
-            break;
-          case "hideEmpty":
-            execute({
-              type: "hideEmpty",
-              ids: emptyProjectNodes(snapshot).map((entry) => entry.id),
-            });
+          case "display":
+            if (item.mode) execute({ type: "display", id: node.id, mode: item.mode }, anchor);
             break;
           case "move":
             showMenu(anchor, [
@@ -1549,7 +2429,7 @@ export function renderProjectSidebar(
                       anchor,
                       `${tr("整个项目及其全部 workspace 将合并显示。")}\n${node.name} → ${target.name}`,
                       tr("确认合并"),
-                      { type: "merge", sourceId: node.id, targetId: target.id },
+                      nodeCommand(node, { action: "merge", targetId: target.id })!,
                     ),
                 })),
             );
@@ -1570,13 +2450,15 @@ export function renderProjectSidebar(
                     label: `${tr("拆出")} ${name} · ${host}`,
                     icon: "split" as const,
                     action: () =>
-                      execute({
-                        type: "split",
-                        id: node.id,
-                        member,
-                        newId: `split:${freshId()}`,
-                        name,
-                      }),
+                      execute(
+                        nodeCommand(node, {
+                          action: "split",
+                          member,
+                          id: `split:${freshId()}`,
+                          name,
+                        }),
+                        anchor,
+                      ),
                   };
                 }),
               );
@@ -1586,14 +2468,14 @@ export function renderProjectSidebar(
               anchor,
               tr("内容会提升到上一层，不会删除项目或 workspace。"),
               tr("确认删除文件夹"),
-              { type: "removeFolder", id: node.id },
+              nodeCommand(node, { action: "delete" })!,
             );
             break;
         }
       },
     }));
-    if (node.kind === "project") {
-      const index = actions.findIndex((item) => item.action === "hide");
+    if (node.kind === "project" && options.toggleSessions) {
+      const index = actions.findIndex((item) => item.action === "display");
       const hidden = !sessionsVisible(node.id);
       const separatorBefore = items[index]?.separatorBefore;
       if (items[index]) items[index]!.separatorBefore = false;
@@ -1616,10 +2498,32 @@ export function renderProjectSidebar(
         padding: "0 8px",
       });
     }
-  const renderNodes = (parentId: string | null, depth: number) => {
-    for (const node of projectTreeChildren(snapshot, parentId)) {
-      if (node.hidden && !options.showHidden) continue;
-      if (node.kind === "project" && !projectAvailable(snapshot, node.members, node.id)) continue;
+  for (const { node, depth, hidden, showContainer } of visibleTreeRows(snapshot.tree, {
+    showHidden: options.showHidden,
+    collapsed,
+  })) {
+    if (
+      node.kind === "project" &&
+      !options.readOnly &&
+      !projectAvailable(snapshot, node.members, node.id)
+    )
+      continue;
+    if (showContainer) {
+      const native =
+        node.kind === "project"
+          ? nativeGroups.find((group) =>
+              group.members.some((member) =>
+                node.members.some(
+                  (own) => own.serverId === member.serverId && own.projectId === member.projectId,
+                ),
+              ),
+            )
+          : undefined;
+      const nativeRow =
+        native &&
+        nativeRows.find(
+          (entry) => entry.getAttribute("data-testid") === `sidebar-project-row-${native.viewKey}`,
+        );
       const row = element("div", body);
       row.setAttribute("data-toolkit-tree-row", node.id);
       Object.assign(row.style, {
@@ -1630,11 +2534,42 @@ export function renderProjectSidebar(
         paddingLeft: `${depth * 14}px`,
         borderRadius: "7px",
         minHeight: "34px",
-        opacity: node.hidden ? ".55" : "1",
+        opacity: hidden ? ".55" : "1",
       });
       row.addEventListener("mouseenter", () => {
         row.setAttribute("data-toolkit-hovered", "true");
         row.style.background = colors.surface1;
+        if (options.readOnly && nativeRow) {
+          nativeRow.dispatchEvent(
+            new MouseEvent("pointerover", {
+              bubbles: true,
+              cancelable: true,
+              clientX: 0,
+              clientY: 0,
+              button: 0,
+            }),
+          );
+          setTimeout(() => {
+            const background = window.getComputedStyle(nativeRow).backgroundColor;
+            if (
+              row.isConnected &&
+              row.getAttribute("data-toolkit-hovered") &&
+              background &&
+              background !== "transparent" &&
+              background !== "rgba(0, 0, 0, 0)"
+            )
+              row.style.background = background;
+            nativeRow.dispatchEvent(
+              new MouseEvent("pointerout", {
+                bubbles: true,
+                cancelable: true,
+                clientX: 0,
+                clientY: 0,
+                button: 0,
+              }),
+            );
+          }, 16);
+        }
       });
       row.addEventListener("mouseleave", () => {
         row.removeAttribute("data-toolkit-hovered");
@@ -1656,23 +2591,11 @@ export function renderProjectSidebar(
       const chevron = icon(toggle, "chevron");
       chevron.style.transform = collapsed.has(node.id) ? "none" : "rotate(90deg)";
       chevron.style.flexShrink = "0";
+      const groupDisplay = node.kind === "folder" ? options.groupDisplay?.(node.id) : undefined;
       if (node.kind === "folder") {
-        const folder = icon(toggle, "folder");
+        const folder = icon(toggle, groupDisplay?.favorite ? "star" : "folder");
         folder.style.color = colors.accent;
       } else {
-        const native = nativeGroups.find((group) =>
-          group.members.some((member) =>
-            node.members.some(
-              (own) => own.serverId === member.serverId && own.projectId === member.projectId,
-            ),
-          ),
-        );
-        const nativeRow =
-          native &&
-          nativeRows.find(
-            (entry) =>
-              entry.getAttribute("data-testid") === `sidebar-project-row-${native.viewKey}`,
-          );
         const src = nativeRow?.querySelector("img")?.getAttribute("src");
         const leading = element(src ? "img" : "span", toggle, src ? undefined : [...node.name][0]);
         if (src) leading.setAttribute("src", src);
@@ -1689,6 +2612,11 @@ export function renderProjectSidebar(
           objectFit: "contain",
         });
       }
+      if (node.kind === "project" && options.isFavoriteProject?.(node.id)) {
+        const star = icon(toggle, "star");
+        star.style.color = colors.accent;
+        star.style.flexShrink = "0";
+      }
       const title = element("span", toggle, node.name);
       Object.assign(title.style, {
         overflow: "hidden",
@@ -1696,579 +2624,651 @@ export function renderProjectSidebar(
         whiteSpace: "nowrap",
         minWidth: "0",
       });
-      const actions = element("div", row);
-      actions.setAttribute("data-toolkit-tree-actions", "true");
-      Object.assign(actions.style, {
-        display: "flex",
-        alignItems: "center",
-        alignSelf: "stretch",
-        flexShrink: "0",
-        paddingRight: "4px",
-      });
-      const projectGroups =
-        node.kind === "project" &&
-        snapshot.hosts.every((host) => !!snapshot.catalogs[host.serverId])
-          ? nativeGroupsWithin(nativeGroups, node.members).filter((group) =>
-              nativeRows.some(
-                (entry) =>
-                  entry.getAttribute("data-testid") === `sidebar-project-row-${group.viewKey}`,
-              ),
-            )
-          : [];
-      const groupLabel = (group: NativeProjectGroup) =>
-        group.members
-          .map(
-            (member) =>
-              snapshot.hosts.find((host) => host.serverId === member.serverId)?.label ??
-              member.serverId,
-          )
-          .join(" / ");
-      const create = async (group: NativeProjectGroup) => {
-        if (!(await openNativeProjectCreate(group, () => add.isConnected)) && add.isConnected)
-          options.native();
-      };
-      const createWorkspace = () => {
-        if (projectGroups.length === 1) void create(projectGroups[0]!);
-        else if (projectGroups.length > 1)
-          showMenu(
-            add,
-            projectGroups.map((group) => ({
-              label: `${tr("新建 workspace")} · ${groupLabel(group)}`,
-              icon: "plus" as const,
-              action: () => {
-                void create(group);
+      if (options.showHidden && hidden) {
+        const stateLabel = element("span", toggle, tr(node.hidden ? "已隐藏" : "仅显示 Workspace"));
+        Object.assign(stateLabel.style, {
+          fontSize: "11px",
+          color: colors.foregroundMuted,
+          flexShrink: "0",
+        });
+      }
+      if (groupDisplay) {
+        const actions = element("div", row);
+        actions.setAttribute("data-toolkit-tree-actions", "true");
+        const more = button(
+          actions,
+          "",
+          () =>
+            showMenu(more, [
+              {
+                label: tr("只显示工作空间"),
+                icon: groupDisplay.workspacesOnly ? "check" : "directory",
+                checked: groupDisplay.workspacesOnly,
+                checkRole: "checkbox",
+                disabled: groupDisplay.disabled,
+                action: groupDisplay.toggle,
               },
-            })),
-          );
-        else options.native();
-      };
-      const add = button(
-        actions,
-        "",
-        () => {
-          if (node.kind === "folder")
-            renamePanel(add, tr("新建分类文件夹"), "", (name) => ({
-              type: "folder",
-              id: freshId(),
-              name,
-              parentId: node.id,
-            }));
-          else createWorkspace();
-        },
-        false,
-      );
-      add.setAttribute(
-        "aria-label",
-        `${node.kind === "folder" ? tr("新建分类文件夹") : tr("新建 workspace")} · ${node.name}`,
-      );
-      icon(add, "plus");
-      actionButton(add, "sidebar");
-      add.setAttribute(
-        "title",
-        node.kind === "folder" ? tr("新建分类文件夹") : tr("新建 workspace"),
-      );
-      if (node.kind === "folder" && !snapshot.editable) add.setAttribute("disabled", "true");
-      const more = button(actions, "", () => organize(more, node, createWorkspace), false);
-      more.setAttribute("aria-label", `${tr("项目操作")} · ${node.name}`);
-      icon(more, "more");
-      actionButton(more, "surface2");
-      if (snapshot.editable && options.move) {
-        row.setAttribute("draggable", "true");
-        row.addEventListener("dragstart", (event) => {
-          renderState.draggedId = node.id;
-          renderState.draggedWorkspace = null;
-          (
-            event as { dataTransfer?: { setData(type: string, value: string): void } }
-          ).dataTransfer?.setData("text/plain", node.id);
-        });
-        row.addEventListener("dragend", () => {
-          renderState.draggedId = null;
-        });
-        drop(
-          row,
-          node.kind === "folder" ? node.id : node.parentId,
-          node.kind === "project" ? node.id : undefined,
-          node.kind === "project" ? node.id : undefined,
+            ]),
+          false,
         );
+        more.setAttribute("aria-label", `${tr("分组操作")} · ${node.name}`);
+        more.setAttribute("aria-haspopup", "menu");
+        icon(more, "more");
+        actionButton(more, "surface2");
       }
-      if (collapsed.has(node.id)) continue;
-      if (node.kind === "folder") {
-        renderNodes(node.id, depth + 1);
-        continue;
-      }
-      for (const workspace of projectWorkspaces(snapshot, node.members, node.id)) {
-        const host = snapshot.hosts.find((entry) => entry.serverId === workspace.serverId);
-        const online = host?.status === "online";
-        const sessionsOpen = Boolean(
-          options.openSession && workspaceSessionsVisible(workspace, node.id),
-        );
-        const sessions = sessionsOpen ? workspaceSessions(snapshot, workspace) : [];
-        const sessionCount = workspaceSessionCount(snapshot, workspace);
-        const previousRule = body.lastElementChild?.getAttribute(
-          "data-toolkit-workspace-rule-edge",
-        );
-        const cacheId = JSON.stringify([workspace.serverId, workspace.id]);
-        const key = JSON.stringify([
-          workspace,
-          host,
-          node.id,
-          node.parentId,
-          depth,
-          sessionsOpen,
-          sessions,
-          sessionCount,
-          options.sessionLimits?.get(cacheId) ?? 5,
-          previousRule === "bottom",
-        ]);
-        const previous = previousRows.get(cacheId);
-        previousRows.delete(cacheId);
-        if (previous?.context === context && previous.key === key) {
-          for (const entry of previous.elements) body.appendChild(entry);
-          if (previous.binding) bindings.push(previous.binding);
-          allCleanups.push(() => cleanRow(previous));
-          nextRows.set(cacheId, previous);
-          continue;
-        }
-        if (previous) cleanRow(previous);
-        const before = body.lastElementChild;
-        const rowCleanups: Array<() => void> = [];
-        const retained: RenderedWorkspace = { context, key, elements: [], cleanups: rowCleanups };
-        nextRows.set(cacheId, retained);
-        allCleanups.push(() => cleanRow(retained));
-        // Hairline above and below every workspace row. A following row skips its top
-        // rule when the previous row already ended with one, so neighbors share a line.
-        const workspaceRule = (edge: "top" | "bottom") => {
-          const rule = element("div", body);
-          rule.setAttribute("data-toolkit-workspace-rule", workspace.id);
-          rule.setAttribute("data-toolkit-workspace-rule-edge", edge);
-          rule.setAttribute("aria-hidden", "true");
-          Object.assign(rule.style, {
-            height: "1px",
-            margin: "4px 8px",
-            background: colors.border,
-            opacity: ".55",
-            pointerEvents: "none",
-          });
-        };
-        if (previousRule !== "bottom") workspaceRule("top");
-        const workspaceRow = element("div", body);
-        workspaceRow.setAttribute(
-          "data-toolkit-tree-row",
-          `workspace:${workspace.serverId}:${workspace.id}`,
-        );
-        workspaceRow.setAttribute("data-toolkit-workspace", workspace.id);
-        Object.assign(workspaceRow.style, {
+      if (options.readOnly && node.kind === "project") {
+        const actions = element("div", row);
+        actions.setAttribute("data-toolkit-tree-actions", "true");
+        actions.setAttribute("data-toolkit-native-project-actions", "true");
+        Object.assign(actions.style, {
           display: "flex",
           alignItems: "center",
           gap: "2px",
-          // Native workspace rows have no folder glyph. A leading accent folder collides
-          // with folder nodes and sits louder than the muted session bubbles under it.
-          // The status dot already marks the row; a hairline under the group separates it.
-          paddingLeft: `${depth * 14 + 16}px`,
-          borderRadius: "8px",
-          opacity: online ? "1" : ".55",
-          position: "relative",
-        });
-        const content = button(
-          workspaceRow,
-          "",
-          () => {
-            if (online) options.open(workspace);
-          },
-          false,
-        );
-        let hovered = false;
-        let nativeSelected = false;
-        const routeMatches = () => {
-          const active = activeWorkspaceFromLocation();
-          return active?.serverId === workspace.serverId && active.workspaceId === workspace.id;
-        };
-        let routeSelected = routeMatches();
-        let selected = routeSelected;
-        // Native selected rows use surfaceSidebarSelected (dark: surface2). The plugin
-        // theme omits that token, so keep the color read from the hidden native row.
-        let selectedBackground = colors.surface2;
-        const paintBackdrop = () => {
-          selected = nativeSelected || routeSelected;
-          workspaceRow.style.background = selected
-            ? selectedBackground
-            : hovered
-              ? colors.surface1
-              : "transparent";
-          workspaceRow.setAttribute("aria-selected", String(selected));
-        };
-        paintBackdrop();
-        rowCleanups.push(
-          watchWorkspaceRoute(() => {
-            const next = routeMatches();
-            if (next === routeSelected) return;
-            routeSelected = next;
-            paintBackdrop();
-          }),
-        );
-        const hostLabel = host?.label?.trim() || workspace.serverId;
-        const hoverCard = workspaceHoverCard(workspaceRow, workspace, hostLabel);
-        rowCleanups.push(hoverCard.close);
-        workspaceRow.addEventListener("mouseenter", () => {
-          hovered = true;
-          paintBackdrop();
-          if (!renderState.draggedWorkspace) hoverCard.open();
-        });
-        workspaceRow.addEventListener("mouseleave", () => {
-          hovered = false;
-          paintBackdrop();
-          hoverCard.scheduleClose();
-        });
-        content.setAttribute(
-          "aria-label",
-          `${workspace.name} · ${host?.label ?? workspace.serverId}`,
-        );
-        Object.assign(content.style, {
-          flex: "1",
-          minWidth: "0",
-          padding: "0",
-          lineHeight: "20px",
-        });
-        if (!online) content.setAttribute("disabled", "true");
-        const fallback = () => {
-          content.textContent = "";
-          Object.assign(content.style, {
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            padding: "8px 4px 8px 12px",
-          });
-          const dot = element("span", content);
-          Object.assign(dot.style, {
-            width: "6px",
-            height: "6px",
-            flexShrink: "0",
-            borderRadius: "50%",
-            background: colors.foregroundMuted,
-            opacity: ".45",
-          });
-          const details = element("span", content);
-          Object.assign(details.style, { minWidth: "0", display: "flex", flexDirection: "column" });
-          const name = element("span", details, workspace.name);
-          Object.assign(name.style, {
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          });
-          const meta = element("span", details);
-          Object.assign(meta.style, {
-            display: "flex",
-            alignItems: "center",
-            minWidth: "0",
-            marginTop: "2px",
-          });
-          hostBadge(
-            meta,
-            host?.label?.trim() || workspace.serverId,
-            online ? "" : ` · ${tr("离线")}`,
-          );
-        };
-        let mirrored: Element | undefined;
-        let initialized = false;
-        let unmirror = () => {};
-        /**
-         * 原生只在侧栏同时展示多个 Host 时才画 host 徽标，而工作台始终跨 Host 合并显示。
-         * 克隆行里没有徽标时，按原生 meta 行的样式补一行「服务器图标 + 主机名」。
-         */
-        const ensureHostBadge = (clone: Element) => {
-          if (clone.querySelector('[data-testid^="host-badge-"]')) return;
-          const title = Array.from(clone.querySelectorAll("div"))
-            .filter(
-              (entry) => !entry.firstElementChild && entry.textContent?.trim() === workspace.name,
-            )
-            .pop();
-          const titleRow = title?.parentElement;
-          const column = titleRow?.parentElement;
-          if (!titleRow || !column) return;
-          const existing = titleRow.nextElementSibling;
-          const meta = existing ?? element("div", column);
-          if (existing) {
-            const separator = element("span", meta, "·");
-            Object.assign(separator.style, {
-              color: colors.foregroundMuted,
-              fontSize: "12px",
-              lineHeight: "16px",
-              flexShrink: "0",
-            });
-          } else {
-            Object.assign(meta.style, {
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              minWidth: "0",
-              marginTop: "1px",
-            });
-          }
-          hostBadge(meta, hostLabel);
-        };
-        const attach = (source?: Element) => {
-          if (initialized && source === mirrored) return;
-          initialized = true;
-          mirrored = source;
-          unmirror();
-          if (source) {
-            Object.assign(content.style, { display: "block", padding: "0" });
-            unmirror = mirrorNativeWorkspace(
-              source,
-              content,
-              (active, background) => {
-                nativeSelected = active;
-                if (background && background !== "transparent" && background !== "rgba(0, 0, 0, 0)")
-                  selectedBackground = background;
-                paintBackdrop();
-              },
-              ensureHostBadge,
-            );
-          } else {
-            nativeSelected = false;
-            paintBackdrop();
-            unmirror = () => {};
-            fallback();
-          }
-        };
-        attach(originals.get(`sidebar-workspace-row-${workspace.serverId}:${workspace.id}`));
-        retained.binding = {
-          expected: `sidebar-workspace-row-${workspace.serverId}:${workspace.id}`,
-          attach,
-        };
-        bindings.push(retained.binding);
-        rowCleanups.push(() => unmirror());
-        // Overlay the overflow button so it does not reserve a column. The mirrored
-        // timestamp then sits on the row's right edge, and hides while the button shows.
-        const actions = element("div", workspaceRow);
-        actions.setAttribute("data-toolkit-tree-actions", "true");
-        Object.assign(actions.style, {
-          position: "absolute",
-          top: "0",
-          right: "5px",
-          bottom: "0",
-          display: "flex",
-          alignItems: "center",
           flexShrink: "0",
+          paddingRight: "2px",
         });
-        let more: Element;
-        let sessionMenu: (() => void) | undefined;
-        const openMenu = async () => {
-          hoverCard.close();
-          sessionMenu?.();
-          const opened = openNativeWorkspaceMenu(workspace, more);
-          if (opened && options.toggleSessions) {
-            const hidden = !workspaceSessionsVisible(workspace, node.id);
-            sessionMenu = mountWorkspaceSessionMenuItem({
-              label: tr(hidden ? "显示会话" : "隐藏会话"),
-              border: colors.border,
-              foreground: colors.foreground,
-              muted: colors.foregroundMuted,
-              hover: colors.surface2,
-              action: () => options.toggleSessions?.(`${workspace.serverId}:${workspace.id}`),
-            });
-            rowCleanups.push(() => sessionMenu?.());
-          }
-          if (opened) return;
-          // The original project may be collapsed or paginated. Reveal its row without moving
-          // any React-owned DOM, then let the native context menu handle all operations.
-          const group = nativeGroups.find((entry) =>
-            entry.members.some(
-              (member) =>
-                member.serverId === workspace.serverId && member.projectId === workspace.projectId,
-            ),
-          );
-          if (group) {
-            const project = Array.from(
-              document.querySelectorAll('[data-testid^="sidebar-project-row-"]'),
-            ).find(
-              (entry) =>
-                entry.getAttribute("data-testid") === `sidebar-project-row-${group.viewKey}`,
-            );
-            const list = () =>
-              Array.from(
-                document.querySelectorAll('[data-testid^="sidebar-workspace-list-"]'),
-              ).find(
-                (entry) =>
-                  entry.getAttribute("data-testid") === `sidebar-workspace-list-${group.viewKey}`,
-              );
-            const click = (entry: Element) =>
-              entry.dispatchEvent(
-                new MouseEvent("click", {
-                  bubbles: true,
-                  cancelable: true,
-                  clientX: 0,
-                  clientY: 0,
-                  button: 0,
-                }),
-              );
-            if (project && !list()) {
-              click(project);
-              await new Promise((resolve) => setTimeout(resolve, 0));
-            }
-            for (let page = 0; page < 20 && more.isConnected; page += 1) {
-              if (openNativeWorkspaceMenu(workspace, more)) return;
-              const next = Array.from(
-                document.querySelectorAll('[data-testid^="sidebar-project-show-more-"]'),
-              ).find(
-                (entry) =>
-                  entry.getAttribute("data-testid") ===
-                  `sidebar-project-show-more-${group.viewKey}`,
-              );
-              if (!next) break;
-              click(next);
-              await new Promise((resolve) => setTimeout(resolve, 0));
-            }
-          }
-          if (more.isConnected) {
-            const hidden = !workspaceSessionsVisible(workspace, node.id);
-            showMenu(more, [
-              {
-                label: tr("重命名 workspace"),
-                icon: "rename",
-                action: () => options.renameWorkspace?.(workspace),
-                disabled: !online,
-              },
-              ...(options.toggleSessions
-                ? [
-                    {
-                      label: tr(hidden ? "显示会话" : "隐藏会话"),
-                      icon: "session" as const,
-                      separatorBefore: true,
-                      action: () =>
-                        options.toggleSessions?.(`${workspace.serverId}:${workspace.id}`),
-                    },
-                  ]
-                : []),
-              {
-                label: tr("切换原生视图"),
-                icon: "native" as const,
-                separatorBefore: true,
-                action: options.native,
-              },
-            ]);
-          }
-        };
-        more = button(
+        const add = button(
           actions,
           "",
           () => {
-            void openMenu();
+            if (native)
+              void openNativeProjectCreate(native, () => add.isConnected).then((opened) => {
+                if (!opened && add.isConnected) options.native();
+              });
           },
           false,
         );
-        more.setAttribute("aria-label", `${tr("工作区操作")} · ${workspace.name}`);
+        add.setAttribute("aria-label", `${tr("新建 workspace")} · ${node.name}`);
+        add.setAttribute("title", tr("新建 workspace"));
+        const plusIcon = nativeRow
+          ?.querySelector('[data-testid^="sidebar-project-new-worktree-"] svg')
+          ?.cloneNode(true);
+        if (plusIcon) {
+          plusIcon.setAttribute("stroke", "currentColor");
+          add.appendChild(plusIcon);
+        } else glyph(add, "plus", 15, "2");
+        actionButton(add, "sidebar");
+        if (!nativeRow?.querySelector('[data-testid^="sidebar-project-new-worktree-"]'))
+          add.setAttribute("disabled", "true");
+        const more = button(
+          actions,
+          "",
+          () => {
+            if (!nativeRow) return;
+            const cleanup = () => {
+              if (menuCleanups.get(container) !== close) return;
+              menuCleanups.delete(container);
+              renderState.menuOwnerId = undefined;
+              row.removeAttribute("data-toolkit-menu-open");
+              if (!row.getAttribute("data-toolkit-hovered")) row.style.background = "transparent";
+              if (renderState.refreshPending && container.isConnected)
+                renderProjectSidebar(container, { ...renderState.options });
+            };
+            const close = () => {
+              document.body.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+              );
+              cleanup();
+            };
+            row.setAttribute("data-toolkit-menu-open", "true");
+            renderState.menuOwnerId = node.id;
+            menuCleanups.set(container, close);
+            if (!openNativeMenu(nativeRow, more, { alignEnd: true, onClose: cleanup })) {
+              cleanup();
+              options.native();
+            }
+          },
+          false,
+        );
+        more.setAttribute("aria-label", `${tr("项目操作")} · ${node.name}`);
+        more.setAttribute("title", tr("项目操作"));
+        more.setAttribute("aria-haspopup", "menu");
+        const moreIcon = nativeRow
+          ?.querySelector('[data-testid^="sidebar-project-kebab-"] svg')
+          ?.cloneNode(true);
+        if (moreIcon) {
+          moreIcon.setAttribute("stroke", "currentColor");
+          more.appendChild(moreIcon);
+        } else glyph(more, "more", 14);
+        actionButton(more, "surface2");
+        if (!nativeRow?.querySelector('[data-testid^="sidebar-project-kebab-"]'))
+          more.setAttribute("disabled", "true");
+      }
+      if (!options.readOnly) {
+        const actions = element("div", row);
+        actions.setAttribute("data-toolkit-tree-actions", "true");
+        Object.assign(actions.style, {
+          display: "flex",
+          alignItems: "center",
+          alignSelf: "stretch",
+          flexShrink: "0",
+          paddingRight: "4px",
+        });
+        const projectGroups =
+          node.kind === "project" &&
+          snapshot.hosts.every((host) => !!snapshot.catalogs[host.serverId])
+            ? nativeGroupsWithin(nativeGroups, node.members).filter((group) =>
+                nativeRows.some(
+                  (entry) =>
+                    entry.getAttribute("data-testid") === `sidebar-project-row-${group.viewKey}`,
+                ),
+              )
+            : [];
+        const groupLabel = (group: NativeProjectGroup) =>
+          group.members
+            .map(
+              (member) =>
+                snapshot.hosts.find((host) => host.serverId === member.serverId)?.label ??
+                member.serverId,
+            )
+            .join(" / ");
+        const create = async (group: NativeProjectGroup) => {
+          if (!(await openNativeProjectCreate(group, () => add.isConnected)) && add.isConnected)
+            options.native();
+        };
+        const createWorkspace = () => {
+          if (projectGroups.length === 1) void create(projectGroups[0]!);
+          else if (projectGroups.length > 1)
+            showMenu(
+              add,
+              projectGroups.map((group) => ({
+                label: `${tr("新建 workspace")} · ${groupLabel(group)}`,
+                icon: "plus" as const,
+                action: () => {
+                  void create(group);
+                },
+              })),
+            );
+          else options.native();
+        };
+        const add = button(
+          actions,
+          "",
+          () => {
+            if (node.kind === "folder")
+              renamePanel(add, tr("新建分类文件夹"), "", (name) => ({
+                type: "folder",
+                id: freshId(),
+                name,
+                parentId: node.id,
+              }));
+            else createWorkspace();
+          },
+          false,
+        );
+        add.setAttribute(
+          "aria-label",
+          `${node.kind === "folder" ? tr("新建分类文件夹") : tr("新建 workspace")} · ${node.name}`,
+        );
+        icon(add, "plus");
+        actionButton(add, "sidebar");
+        add.setAttribute(
+          "title",
+          node.kind === "folder" ? tr("新建分类文件夹") : tr("新建 workspace"),
+        );
+        if (node.kind === "folder" && !snapshot.editable) add.setAttribute("disabled", "true");
+        const more = button(actions, "", () => organize(more, node, createWorkspace), false);
+        more.setAttribute("aria-label", `${tr("项目操作")} · ${node.name}`);
         icon(more, "more");
         actionButton(more, "surface2");
-        workspaceRow.addEventListener("contextmenu", (event) => {
-          (event as { preventDefault(): void }).preventDefault();
-          void openMenu();
-        });
-        if (snapshot.editable && options.moveWorkspace) {
-          workspaceRow.setAttribute("draggable", "true");
-          workspaceRow.addEventListener("dragstart", (event) => {
-            hoverCard.close();
-            renderState.draggedId = null;
-            renderState.draggedWorkspace = workspace;
+        if (snapshot.editable && options.move) {
+          row.setAttribute("draggable", "true");
+          row.addEventListener("dragstart", (event) => {
+            renderState.draggedId = node.id;
+            renderState.draggedWorkspace = null;
             (
               event as { dataTransfer?: { setData(type: string, value: string): void } }
-            ).dataTransfer?.setData(
-              "text/plain",
-              JSON.stringify([workspace.serverId, workspace.id]),
-            );
+            ).dataTransfer?.setData("text/plain", node.id);
           });
-          workspaceRow.addEventListener("dragend", () => {
-            renderState.draggedWorkspace = null;
+          row.addEventListener("dragend", () => {
+            renderState.draggedId = null;
           });
-          drop(workspaceRow, node.parentId, undefined, node.id);
+          drop(
+            row,
+            node.kind === "folder" ? node.id : node.parentId,
+            node.kind === "project" ? node.id : undefined,
+            node.kind === "project" ? node.id : undefined,
+          );
         }
-        workspaceRule("bottom");
-        if (sessionsOpen) {
-          const sessionList = element("div", body);
-          sessionList.setAttribute("data-toolkit-workspace-sessions", workspace.id);
-          sessionList.setAttribute("role", "group");
-          sessionList.setAttribute("aria-label", workspace.name);
-          const key = JSON.stringify([workspace.serverId, workspace.id]);
-          const limits = options.sessionLimits ?? new Map<string, number>();
-          const renderSessions = () => {
-            sessionList.textContent = "";
-            const limit = limits.get(key) ?? 5;
-            const visible = Math.min(limit, sessions.length);
-            const styleSession = (entry: Element) =>
-              Object.assign(entry.style, {
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                width: "100%",
-                minWidth: "0",
-                boxSizing: "border-box",
-                padding: `7px 10px 7px ${depth * 14 + 32}px`,
-              });
-            for (const session of sessions.slice(0, visible)) {
-              const title = session.title?.trim() || tr("未命名会话");
-              const entry = button(sessionList, "", () =>
-                options.openSession?.(workspace, session),
-              );
-              entry.setAttribute("data-toolkit-session", session.id);
-              entry.setAttribute("aria-label", title);
-              entry.setAttribute("title", title);
-              if (!online) entry.setAttribute("disabled", "true");
-              styleSession(entry);
-              const sessionIcon = icon(entry, "session");
-              sessionIcon.setAttribute("data-toolkit-session-icon", "true");
-              Object.assign(sessionIcon.style, { color: colors.foregroundMuted, flexShrink: "0" });
-              const name = element("span", entry, title);
-              Object.assign(name.style, {
-                flex: "1",
-                minWidth: "0",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              });
-              const age = Math.max(0, Date.now() - Date.parse(session.updatedAt));
-              const time = element(
-                "span",
-                entry,
-                age >= 86400000
-                  ? `${Math.floor(age / 86400000)}d`
-                  : age >= 3600000
-                    ? `${Math.floor(age / 3600000)}h`
-                    : `${Math.floor(age / 60000)}m`,
-              );
-              Object.assign(time.style, {
-                color: colors.foregroundMuted,
-                fontSize: "12px",
-                flexShrink: "0",
-              });
-              time.setAttribute("title", session.updatedAt);
-            }
-            const control = (label: string, next: number) => {
-              const entry = button(sessionList, label, () => {
-                limits.set(key, next);
-                if (next > sessions.length) options.loadSessions?.();
-                renderSessions();
-              });
-              styleSession(entry);
-              if (!online && next > sessions.length) entry.setAttribute("disabled", "true");
-              entry.style.color = colors.foregroundMuted;
-            };
-            if (visible < sessionCount)
-              control(tr("更多会话({0})", { 0: sessionCount - visible }), visible + 5);
-            if (visible > 5) control(tr("收起会话({0})", { 0: visible - 5 }), 5);
-          };
-          renderSessions();
-        }
-        for (
-          let entry = before ? before.nextElementSibling : body.firstElementChild;
-          entry;
-          entry = entry.nextElementSibling
-        )
-          retained.elements.push(entry);
       }
     }
-  };
-  renderNodes(null, 0);
+    if ((showContainer && collapsed.has(node.id)) || node.kind === "folder") continue;
+    const workspaceDepth = depth + (showContainer ? 1 : 0);
+    for (const workspace of projectWorkspaces(
+      snapshot,
+      node.members,
+      options.projectSourceId?.(node.id) ?? node.id,
+    )) {
+      const host = snapshot.hosts.find((entry) => entry.serverId === workspace.serverId);
+      const online = host?.status === "online";
+      const sessionsOpen = Boolean(
+        options.openSession && workspaceSessionsVisible(workspace, node.id),
+      );
+      const sessions = sessionsOpen ? workspaceSessions(snapshot, workspace) : [];
+      const sessionCount = workspaceSessionCount(snapshot, workspace);
+      const previousRule = body.lastElementChild?.getAttribute("data-toolkit-workspace-rule-edge");
+      const favorite = !!options.isFavoriteProject?.(node.id);
+      const cacheId = JSON.stringify([
+        ...(options.readOnly ? [node.id] : []),
+        workspace.serverId,
+        workspace.id,
+      ]);
+      const key = JSON.stringify([
+        workspace,
+        host,
+        node.id,
+        node.parentId,
+        workspaceDepth,
+        hidden,
+        sessionsOpen,
+        sessions,
+        sessionCount,
+        favorite,
+        options.sessionLimits?.get(JSON.stringify([workspace.serverId, workspace.id])) ?? 5,
+        previousRule === "bottom",
+      ]);
+      const previous = previousRows.get(cacheId);
+      previousRows.delete(cacheId);
+      if (previous?.context === context && previous.key === key) {
+        for (const entry of previous.elements) body.appendChild(entry);
+        if (previous.binding) bindings.push(previous.binding);
+        allCleanups.push(() => cleanRow(previous));
+        nextRows.set(cacheId, previous);
+        continue;
+      }
+      if (previous) cleanRow(previous);
+      const before = body.lastElementChild;
+      const rowCleanups: Array<() => void> = [];
+      const retained: RenderedWorkspace = { context, key, elements: [], cleanups: rowCleanups };
+      nextRows.set(cacheId, retained);
+      allCleanups.push(() => cleanRow(retained));
+      // Hairline above and below every workspace row. A following row skips its top
+      // rule when the previous row already ended with one, so neighbors share a line.
+      const workspaceRule = (edge: "top" | "bottom") => {
+        const rule = element("div", body);
+        rule.setAttribute("data-toolkit-workspace-rule", workspace.id);
+        rule.setAttribute("data-toolkit-workspace-rule-edge", edge);
+        rule.setAttribute("aria-hidden", "true");
+        Object.assign(rule.style, {
+          height: "1px",
+          margin: "4px 8px",
+          background: colors.border,
+          opacity: ".55",
+          pointerEvents: "none",
+        });
+      };
+      if (previousRule !== "bottom") workspaceRule("top");
+      const workspaceRow = element("div", body);
+      workspaceRow.setAttribute(
+        "data-toolkit-tree-row",
+        `workspace:${workspace.serverId}:${workspace.id}`,
+      );
+      workspaceRow.setAttribute("data-toolkit-workspace", workspace.id);
+      Object.assign(workspaceRow.style, {
+        display: "flex",
+        alignItems: "center",
+        gap: "2px",
+        // Native workspace rows have no folder glyph. A leading accent folder collides
+        // with folder nodes and sits louder than the muted session bubbles under it.
+        // The status dot already marks the row; a hairline under the group separates it.
+        paddingLeft: `${workspaceDepth * 14 + 2}px`,
+        borderRadius: "8px",
+        opacity: online && !hidden ? "1" : ".55",
+        position: "relative",
+      });
+      const content = button(
+        workspaceRow,
+        "",
+        () => {
+          if (online) options.open(workspace);
+        },
+        false,
+      );
+      let hovered = false;
+      let nativeSelected = false;
+      const routeMatches = () => {
+        const active = activeWorkspaceFromLocation();
+        return active?.serverId === workspace.serverId && active.workspaceId === workspace.id;
+      };
+      let routeSelected = routeMatches();
+      let selected = routeSelected;
+      // Native selected rows use surfaceSidebarSelected (dark: surface2). The plugin
+      // theme omits that token, so keep the color read from the hidden native row.
+      let selectedBackground = colors.surface2;
+      const paintBackdrop = () => {
+        selected = nativeSelected || routeSelected;
+        workspaceRow.style.background = selected
+          ? selectedBackground
+          : hovered
+            ? colors.surface1
+            : "transparent";
+        workspaceRow.setAttribute("aria-selected", String(selected));
+      };
+      paintBackdrop();
+      rowCleanups.push(
+        watchWorkspaceRoute(() => {
+          const next = routeMatches();
+          if (next === routeSelected) return;
+          routeSelected = next;
+          paintBackdrop();
+        }),
+      );
+      const hostLabel = host?.label?.trim() || workspace.serverId;
+      const hoverCard = workspaceHoverCard(workspaceRow, workspace, hostLabel);
+      rowCleanups.push(hoverCard.close);
+      workspaceRow.addEventListener("mouseenter", () => {
+        hovered = true;
+        paintBackdrop();
+        if (!renderState.draggedWorkspace) hoverCard.open();
+      });
+      workspaceRow.addEventListener("mouseleave", () => {
+        hovered = false;
+        paintBackdrop();
+        hoverCard.scheduleClose();
+      });
+      content.setAttribute(
+        "aria-label",
+        `${workspace.name} · ${host?.label ?? workspace.serverId}`,
+      );
+      Object.assign(content.style, {
+        flex: "1",
+        minWidth: "0",
+        padding: "0",
+        lineHeight: "20px",
+      });
+      if (!online) content.setAttribute("disabled", "true");
+      const fallback = () => {
+        content.textContent = "";
+        Object.assign(content.style, {
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          padding: "8px 4px 8px 12px",
+        });
+        const dot = element("span", content);
+        Object.assign(dot.style, {
+          width: "6px",
+          height: "6px",
+          flexShrink: "0",
+          borderRadius: "50%",
+          background: colors.foregroundMuted,
+          opacity: ".45",
+        });
+        const details = element("span", content);
+        Object.assign(details.style, { minWidth: "0", display: "flex", flexDirection: "column" });
+        const name = element("span", details, workspace.name);
+        Object.assign(name.style, {
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        });
+        const meta = element("span", details);
+        Object.assign(meta.style, {
+          display: "flex",
+          alignItems: "center",
+          minWidth: "0",
+          marginTop: "2px",
+        });
+        hostBadge(
+          meta,
+          host?.label?.trim() || workspace.serverId,
+          online ? "" : ` · ${tr("离线")}`,
+        );
+      };
+      let mirrored: Element | undefined;
+      let initialized = false;
+      let unmirror = () => {};
+      /**
+       * 原生只在侧栏同时展示多个 Host 时才画 host 徽标，而工作台始终跨 Host 合并显示。
+       * 克隆行里没有徽标时，按原生 meta 行的样式补一行「服务器图标 + 主机名」。
+       */
+      const ensureHostBadge = (clone: Element) => {
+        if (clone.querySelector('[data-testid^="host-badge-"]')) return;
+        const title = Array.from(clone.querySelectorAll("div"))
+          .filter(
+            (entry) => !entry.firstElementChild && entry.textContent?.trim() === workspace.name,
+          )
+          .pop();
+        const titleRow = title?.parentElement;
+        const column = titleRow?.parentElement;
+        if (!titleRow || !column) return;
+        const existing = titleRow.nextElementSibling;
+        const meta = existing ?? element("div", column);
+        if (existing) {
+          const separator = element("span", meta, "·");
+          Object.assign(separator.style, {
+            color: colors.foregroundMuted,
+            fontSize: "12px",
+            lineHeight: "16px",
+            flexShrink: "0",
+          });
+        } else {
+          Object.assign(meta.style, {
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: "0",
+            marginTop: "1px",
+          });
+        }
+        hostBadge(meta, hostLabel);
+      };
+      const attach = (source?: Element) => {
+        if (initialized && source === mirrored) return;
+        initialized = true;
+        mirrored = source;
+        unmirror();
+        if (source) {
+          Object.assign(content.style, { display: "block", padding: "0" });
+          unmirror = mirrorNativeWorkspace(
+            source,
+            content,
+            (active, background) => {
+              nativeSelected = active;
+              if (background && background !== "transparent" && background !== "rgba(0, 0, 0, 0)")
+                selectedBackground = background;
+              paintBackdrop();
+            },
+            ensureHostBadge,
+          );
+        } else {
+          nativeSelected = false;
+          paintBackdrop();
+          unmirror = () => {};
+          fallback();
+        }
+      };
+      attach(originals.get(`sidebar-workspace-row-${workspace.serverId}:${workspace.id}`));
+      if (favorite) {
+        const star = glyph(workspaceRow, "star", 12);
+        star.setAttribute("data-toolkit-workspace-favorite", "true");
+        Object.assign(star.style, {
+          position: "absolute",
+          left: `${workspaceDepth * 14 + 11}px`,
+          bottom: "12px",
+          color: colors.accent,
+          pointerEvents: "none",
+        });
+      }
+      retained.binding = {
+        expected: `sidebar-workspace-row-${workspace.serverId}:${workspace.id}`,
+        attach,
+      };
+      bindings.push(retained.binding);
+      rowCleanups.push(() => unmirror());
+      // Overlay the overflow button so it does not reserve a column. The mirrored
+      // timestamp then sits on the row's right edge, and hides while the button shows.
+      const actions = element("div", workspaceRow);
+      actions.setAttribute("data-toolkit-tree-actions", "true");
+      Object.assign(actions.style, {
+        position: "absolute",
+        top: "0",
+        right: "5px",
+        bottom: "0",
+        display: "flex",
+        alignItems: "center",
+        flexShrink: "0",
+      });
+      let more: Element;
+      const nativeMenu = createNativeWorkspaceMenu({
+        workspace,
+        groups: nativeGroups,
+        colors,
+        workspaceMenuExtras: options.workspaceMenuExtras
+          ? () => options.workspaceMenuExtras!(workspace, sourceProjectId(node.id))
+          : undefined,
+        fallback(anchor) {
+          const hidden = !workspaceSessionsVisible(workspace, sourceProjectId(node.id));
+          showMenu(anchor, [
+            {
+              label: tr("重命名 workspace"),
+              icon: "rename",
+              action: () => options.renameWorkspace?.(workspace),
+              disabled: !online,
+            },
+            ...(options.toggleSessions
+              ? [
+                  {
+                    label: tr(hidden ? "显示会话" : "隐藏会话"),
+                    icon: "session" as const,
+                    separatorBefore: true,
+                    action: () =>
+                      options.toggleSessions?.(
+                        `${workspace.serverId}:${workspace.id}`,
+                        sourceProjectId(node.id),
+                      ),
+                  },
+                ]
+              : []),
+            {
+              label: tr("切换原生视图"),
+              icon: "native" as const,
+              separatorBefore: true,
+              action: options.native,
+            },
+          ]);
+        },
+      });
+      rowCleanups.push(() => nativeMenu.dispose());
+      const openMenu = () => {
+        hoverCard.close();
+        return nativeMenu.open(more);
+      };
+      more = button(
+        actions,
+        "",
+        () => {
+          void openMenu();
+        },
+        false,
+      );
+      more.setAttribute("aria-label", `${tr("工作区操作")} · ${workspace.name}`);
+      icon(more, "more");
+      actionButton(more, "surface2");
+      workspaceRow.addEventListener("contextmenu", (event) => {
+        (event as { preventDefault(): void }).preventDefault();
+        void openMenu();
+      });
+      if (snapshot.editable && options.moveWorkspace) {
+        workspaceRow.setAttribute("draggable", "true");
+        workspaceRow.addEventListener("dragstart", (event) => {
+          hoverCard.close();
+          renderState.draggedId = null;
+          renderState.draggedWorkspace = workspace;
+          (
+            event as { dataTransfer?: { setData(type: string, value: string): void } }
+          ).dataTransfer?.setData("text/plain", JSON.stringify([workspace.serverId, workspace.id]));
+        });
+        workspaceRow.addEventListener("dragend", () => {
+          renderState.draggedWorkspace = null;
+        });
+        drop(workspaceRow, node.parentId, undefined, node.id);
+      }
+      workspaceRule("bottom");
+      if (sessionsOpen) {
+        const sessionList = element("div", body);
+        sessionList.setAttribute("data-toolkit-workspace-sessions", workspace.id);
+        sessionList.setAttribute("role", "group");
+        sessionList.style.opacity = hidden ? ".55" : "1";
+        sessionList.setAttribute("aria-label", workspace.name);
+        const key = JSON.stringify([workspace.serverId, workspace.id]);
+        const limits = options.sessionLimits ?? new Map<string, number>();
+        const renderSessions = () => {
+          sessionList.textContent = "";
+          const limit = limits.get(key) ?? 5;
+          const visible = Math.min(limit, sessions.length);
+          const styleSession = (entry: Element) =>
+            Object.assign(entry.style, {
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              width: "100%",
+              minWidth: "0",
+              boxSizing: "border-box",
+              padding: `7px 10px 7px ${workspaceDepth * 14 + 18}px`,
+            });
+          for (const session of sessions.slice(0, visible)) {
+            const title = session.title?.trim() || tr("未命名会话");
+            const entry = button(sessionList, "", () => options.openSession?.(workspace, session));
+            entry.setAttribute("data-toolkit-session", session.id);
+            entry.setAttribute("aria-label", title);
+            entry.setAttribute("title", title);
+            if (!online) entry.setAttribute("disabled", "true");
+            styleSession(entry);
+            const sessionIcon = icon(entry, "session");
+            sessionIcon.setAttribute("data-toolkit-session-icon", "true");
+            Object.assign(sessionIcon.style, { color: colors.foregroundMuted, flexShrink: "0" });
+            const name = element("span", entry, title);
+            Object.assign(name.style, {
+              flex: "1",
+              minWidth: "0",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            });
+            const age = Math.max(0, Date.now() - Date.parse(session.updatedAt));
+            const time = element(
+              "span",
+              entry,
+              age >= 86400000
+                ? `${Math.floor(age / 86400000)}d`
+                : age >= 3600000
+                  ? `${Math.floor(age / 3600000)}h`
+                  : `${Math.floor(age / 60000)}m`,
+            );
+            Object.assign(time.style, {
+              color: colors.foregroundMuted,
+              fontSize: "12px",
+              flexShrink: "0",
+            });
+            time.setAttribute("title", session.updatedAt);
+          }
+          const control = (label: string, next: number) => {
+            const entry = button(sessionList, label, () => {
+              limits.set(key, next);
+              if (next > sessions.length) options.loadSessions?.();
+              renderSessions();
+            });
+            styleSession(entry);
+            if (!online && next > sessions.length) entry.setAttribute("disabled", "true");
+            entry.style.color = colors.foregroundMuted;
+          };
+          if (visible < sessionCount)
+            control(tr("更多会话({0})", { 0: sessionCount - visible }), visible + 5);
+          if (visible > 5) control(tr("收起会话({0})", { 0: visible - 5 }), 5);
+        };
+        renderSessions();
+      }
+      for (
+        let entry = before ? before.nextElementSibling : body.firstElementChild;
+        entry;
+        entry = entry.nextElementSibling
+      )
+        retained.elements.push(entry);
+    }
+  }
   for (const row of previousRows.values()) cleanRow(row);
   previousRows.clear();
   if (snapshot.hosts.length && !snapshot.tree.nodes.length) element("p", body, tr("暂无项目"));
+  body.scrollTop = scrollTop;
 }

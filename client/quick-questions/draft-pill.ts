@@ -752,6 +752,7 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
 
   function start() {
     if (timer !== undefined || stopped || !isWeb()) return;
+    if (typeof document !== "undefined" && document.hidden) return;
     timer = setInterval(sync, POLL_INTERVAL_MS);
     sync();
   }
@@ -759,6 +760,15 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
   function stop() {
     if (timer !== undefined) clearInterval(timer);
     timer = undefined;
+  }
+
+  const onVisibilityChange = () => {
+    if (stopped || !enabled || !isWeb()) return;
+    if (document.hidden) stop();
+    else start();
+  };
+  if (isWeb() && typeof document !== "undefined" && document.addEventListener) {
+    document.addEventListener("visibilitychange", onVisibilityChange);
   }
 
   return {
@@ -778,6 +788,9 @@ export function createDraftPill(client: PluginClientContext): DraftPillControlle
       stop();
       detach();
       unsubscribeLocale();
+      if (isWeb() && typeof document !== "undefined" && document.removeEventListener) {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
     },
   };
 }

@@ -35,3 +35,9 @@ it("reuses the prepared sequence layout when drawing", () => {
   );
   expect(sequence).toHaveBeenCalledOnce();
 });
+it("caches parsed diagram layouts in LRU cache across calls", () => {
+  const source = "flowchart LR\nA --> B";
+  const first = parseDiagram(source);
+  const second = parseDiagram(source);
+  expect(first).toBe(second);
+});

@@ -2,6 +2,23 @@ import { describe, expect, it } from "vitest";
 import { parseInline, parseMarkdown } from "./parse";
 
 describe("parseInline", () => {
+  it.each([
+    "WORKBENCH_RUNTIME_OK",
+    "read_context tool_name",
+    "read__context__tool",
+    "中文_技术_说明",
+  ])("preserves intra-word underscores in %s", (text) => {
+    const spans = parseInline(text);
+    expect(spans.every((span) => span.kind === "text")).toBe(true);
+    expect(spans.map((span) => span.text).join("")).toBe(text);
+  });
+  it("keeps standalone underscore emphasis", () => {
+    expect(parseInline("_emphasis_ and __strong__")).toEqual([
+      { kind: "italic", text: "emphasis" },
+      { kind: "text", text: " and " },
+      { kind: "bold", text: "strong" },
+    ]);
+  });
   it("reads bold, italic and code", () => {
     expect(parseInline("a **b** c `d` e *f*")).toEqual([
       { kind: "text", text: "a " },

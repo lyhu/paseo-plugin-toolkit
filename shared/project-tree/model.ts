@@ -6,6 +6,7 @@ const common = {
   name: z.string().trim().min(1).max(120),
   parentId: z.string().nullable(),
   hidden: z.boolean().optional(),
+  flattened: z.boolean().optional(),
 };
 export const nodeSchema = z.discriminatedUnion("kind", [
   z.object({ ...common, kind: z.literal("folder") }),
@@ -17,6 +18,7 @@ export const nodeSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export const treeSchema = z.object({
+  schemaVersion: z.literal(2).optional(),
   revision: z.number().int().nonnegative(),
   nodes: z.array(nodeSchema),
   workspacePlacements: z
@@ -32,6 +34,36 @@ export const discoveredProjectSchema = memberSchema.extend({
   name: common.name,
   key: z.string().optional(),
 });
+export const projectDisplaySchema = z.enum(["normal", "workspaces", "hidden"]);
+export type ProjectDisplay = z.infer<typeof projectDisplaySchema>;
+export const projectDisplayOptions = [
+  { mode: "normal", label: "正常显示" },
+  { mode: "workspaces", label: "仅显示 Workspace" },
+  { mode: "hidden", label: "隐藏整个 Project" },
+] as const;
+export const projectDisplay = (node: TreeNode): ProjectDisplay =>
+  node.kind !== "project"
+    ? "normal"
+    : node.hidden
+      ? "hidden"
+      : node.flattened
+        ? "workspaces"
+        : "normal";
+
+/** Normalize legacy visibility flags without changing the tree’s ancestry. */
+export function normalizeTreeDisplay<T extends Tree>(tree: T): T {
+  return {
+    ...tree,
+    nodes: tree.nodes.map((entry) => {
+      const node = { ...entry };
+      if (node.kind === "folder") {
+        delete node.hidden;
+        delete node.flattened;
+      } else if (node.hidden) delete node.flattened;
+      return node;
+    }),
+  };
+}
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("discover"), projects: z.array(discoveredProjectSchema) }),
   z.object({
@@ -41,7 +73,11 @@ export const commandSchema = z.discriminatedUnion("type", [
     parentId: common.parentId,
   }),
   z.object({ type: z.literal("rename"), id: common.id, name: common.name }),
+  z.object({ type: z.literal("display"), id: common.id, mode: projectDisplaySchema }),
+  z.object({ type: z.literal("showAll") }),
+  // Older clients may still send these; current menus use the atomic display command.
   z.object({ type: z.literal("hide"), id: common.id, hidden: z.boolean() }),
+  z.object({ type: z.literal("flatten"), id: common.id, flattened: z.boolean() }),
   z.object({ type: z.literal("hideEmpty"), ids: z.array(common.id).min(1) }),
   z.object({
     type: z.literal("move"),
@@ -73,8 +109,7 @@ export type TreeNodeAction =
   | "menu"
   | "rename"
   | "move"
-  | "hide"
-  | "hideEmpty"
+  | "display"
   | "up"
   | "down"
   | "top"
@@ -86,7 +121,7 @@ export const emptyTree = (): Tree => ({ revision: 0, nodes: [] });
 export const memberKey = (member: ProjectMember) =>
   JSON.stringify([member.serverId, member.projectId]);
 
-/** Validates the complete resulting tree, including depth of descendants after a move. */
+/** Iterative validation has no product depth limit and checks each ancestry edge once. */
 export function validateTree(tree: Tree): Tree {
   const nodes = new Map(tree.nodes.map((node) => [node.id, node]));
   if (nodes.size !== tree.nodes.length) throw new Error("目录节点重复");
@@ -98,19 +133,19 @@ export function validateTree(tree: Tree): Tree {
     if (nodes.get(placement.nodeId)?.kind !== "project") throw new Error("目标项目显示组不存在");
     workspaces.add(key);
   }
+  const checked = new Set<string>();
   for (const node of tree.nodes) {
-    const seen = new Set([node.id]);
-    let depth = node.kind === "folder" ? 1 : 0;
-    let parentId = node.parentId;
-    while (parentId) {
-      if (seen.has(parentId)) throw new Error("不能移动到自身或子文件夹中");
-      seen.add(parentId);
-      const parent = nodes.get(parentId);
+    const path = new Set<string>();
+    let current: TreeNode | undefined = node;
+    while (current && !checked.has(current.id)) {
+      if (path.has(current.id)) throw new Error("不能移动到自身或子文件夹中");
+      path.add(current.id);
+      if (current.parentId === null) break;
+      const parent = nodes.get(current.parentId);
       if (parent?.kind !== "folder") throw new Error("目标文件夹不存在");
-      depth += 1;
-      parentId = parent.parentId;
+      current = parent;
     }
-    if (depth > 3) throw new Error("分类文件夹最多三层");
+    for (const id of path) checked.add(id);
     if (node.kind === "project")
       for (const member of node.members) {
         const key = memberKey(member);
@@ -124,7 +159,7 @@ export function validateTree(tree: Tree): Tree {
 /** Pure organization operations. Host-local project records and workspace membership never change. */
 export function applyTreeCommand(previous: Tree, input: TreeCommand): Tree {
   const command = commandSchema.parse(input);
-  const tree = treeSchema.parse(previous);
+  const tree = normalizeTreeDisplay(treeSchema.parse(previous));
   const find = (id: string) => {
     const node = tree.nodes.find((entry) => entry.id === id);
     if (!node) throw new Error("目录节点不存在");
@@ -179,11 +214,32 @@ export function applyTreeCommand(previous: Tree, input: TreeCommand): Tree {
     case "rename":
       find(command.id).name = command.name;
       break;
-    case "hide": {
+    case "display":
+    case "hide":
+    case "flatten": {
       const node = find(command.id);
-      if (node.kind !== "project") throw new Error("只能隐藏项目节点");
-      if (command.hidden) node.hidden = true;
-      else delete node.hidden;
+      if (node.kind !== "project") throw new Error("只能设置项目的显示方式");
+      const mode =
+        command.type === "display"
+          ? command.mode
+          : command.type === "hide"
+            ? command.hidden
+              ? "hidden"
+              : "normal"
+            : command.flattened
+              ? "workspaces"
+              : "normal";
+      delete node.hidden;
+      delete node.flattened;
+      if (mode === "hidden") node.hidden = true;
+      if (mode === "workspaces") node.flattened = true;
+      break;
+    }
+    case "showAll": {
+      for (const node of tree.nodes) {
+        delete node.hidden;
+        delete node.flattened;
+      }
       break;
     }
     case "hideEmpty": {
@@ -191,6 +247,7 @@ export function applyTreeCommand(previous: Tree, input: TreeCommand): Tree {
         const node = find(id);
         if (node.kind !== "project") throw new Error("只能隐藏项目节点");
         node.hidden = true;
+        delete node.flattened;
       }
       break;
     }

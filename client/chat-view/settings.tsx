@@ -253,19 +253,6 @@ function ReadyControls({
       </SettingsSection>
       <SettingsSection title={t(locale, "settings.sectionProjectTree")}>
         <SettingsCard>
-          <SettingsSwitch
-            label={t(locale, "settings.showSessionsLabel")}
-            hint={t(locale, "settings.showSessionsHint")}
-            value={projectTree.status === "ready" && projectTree.values.showSessionsByDefault}
-            disabled={projectTree.status !== "ready" || projectTree.saving}
-            onValueChange={(showSessionsByDefault) => {
-              if (projectTree.status === "ready")
-                void projectTree.save(
-                  { ...projectTree.values, showSessionsByDefault },
-                  projectTree.revision,
-                );
-            }}
-          />
           <ProjectTreeViewName
             key={
               projectTree.status === "ready"

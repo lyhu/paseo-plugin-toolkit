@@ -48,6 +48,10 @@ export function createAgentPills(build: (agent: PaseoAgent) => PluginButtonRegis
       pills.clear();
       for (const agent of agents.values()) sync(agent);
     },
+    /** Update presentation without replacing registrations or closing their open popovers. */
+    update(patch: Parameters<PluginButtonRegistration["update"]>[0]) {
+      for (const pill of pills.values()) pill.update(patch);
+    },
     /** Live agents in registration order; a DOM-injected button has no agent context of its own. */
     liveAgents(): PaseoAgent[] {
       return [...agents.values()].filter(isLive);
