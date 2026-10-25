@@ -1,0 +1,52 @@
+import { defineRpc } from "@getpaseo/plugin";
+import { z } from "zod";
+export const searchSessionSchema = z.object({
+  serverId: z.string().min(1),
+  agentId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  title: z.string().max(500),
+});
+export type SearchSession = z.infer<typeof searchSessionSchema>;
+export const searchHitSchema = searchSessionSchema.extend({
+  text: z.string(),
+  seq: z.number(),
+  epoch: z.string(),
+  indexedAt: z.string(),
+});
+export type SearchHit = z.infer<typeof searchHitSchema>;
+export const indexStatusSchema = searchSessionSchema.extend({
+  status: z.enum(["queued", "indexing", "ready", "failed", "cancelled"]),
+  count: z.number(),
+  indexedAt: z.string().optional(),
+  error: z.string().optional(),
+});
+export type IndexStatus = z.infer<typeof indexStatusSchema>;
+export const readSearchStatus = defineRpc({
+  name: "workbench.search.status",
+  input: z.object({}),
+  output: z.array(indexStatusSchema),
+});
+export const indexWorkbenchSession = defineRpc({
+  name: "workbench.search.index",
+  input: searchSessionSchema,
+  output: indexStatusSchema,
+});
+export const cancelWorkbenchIndex = defineRpc({
+  name: "workbench.search.cancel",
+  input: searchSessionSchema,
+  output: z.object({}),
+});
+export const clearWorkbenchIndex = defineRpc({
+  name: "workbench.search.clear",
+  input: searchSessionSchema,
+  output: z.object({}),
+});
+export const searchWorkbenchHistory = defineRpc({
+  name: "workbench.search.query",
+  input: z.object({
+    query: z.string().trim().min(1).max(500),
+    serverId: z.string().optional(),
+    limit: z.number().int().min(1).max(100).default(30),
+  }),
+  output: z.object({ hits: z.array(searchHitSchema), coverage: z.array(indexStatusSchema) }),
+});

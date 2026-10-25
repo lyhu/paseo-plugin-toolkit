@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { applyTreeCommand, emptyTree, treeSchema } from "./model";
+import { applyTreeCommand, emptyTree, treeSchema, validateTree, type Tree } from "./model";
 
 it("moves one workspace's display position across Hosts, preserves identities and carries placements through a merge", () => {
   let tree = applyTreeCommand(emptyTree(), {
@@ -100,7 +100,7 @@ it("places new folders first among their siblings and keeps existing order", () 
   expect(previous.nodes).toHaveLength(2);
 });
 
-it("limits folder depth after a subtree move and prevents cycles without mutating the previous tree", () => {
+it("allows deep folder moves and prevents cycles without mutating the previous tree", () => {
   let tree = emptyTree();
   for (const [id, parentId] of [
     ["a", null],
@@ -110,9 +110,11 @@ it("limits folder depth after a subtree move and prevents cycles without mutatin
     ["e", "d"],
   ] as const)
     tree = applyTreeCommand(tree, { type: "folder", id, name: id, parentId });
-  expect(() => applyTreeCommand(tree, { type: "move", id: "d", parentId: "b" })).toThrow(
-    "最多三层",
-  );
+  expect(
+    applyTreeCommand(tree, { type: "move", id: "d", parentId: "b" }).nodes.find(
+      (node) => node.id === "d",
+    )?.parentId,
+  ).toBe("b");
   expect(() => applyTreeCommand(tree, { type: "move", id: "a", parentId: "c" })).toThrow(
     "自身或子文件夹",
   );
@@ -184,4 +186,59 @@ it("hides several project nodes in one command and rejects unknown ids", () => {
   expect(() => applyTreeCommand(tree, { type: "hideEmpty", ids: ["missing"] })).toThrow(
     "目录节点不存在",
   );
+});
+
+it("validates ten thousand nested folders without recursion and rejects corrupt ancestry", () => {
+  const nodes = Array.from({ length: 10000 }, (_, i) => ({
+    kind: "folder" as const,
+    id: String(i),
+    name: String(i),
+    parentId: i ? String(i - 1) : null,
+  }));
+  expect(validateTree({ revision: 0, nodes }).nodes).toHaveLength(10000);
+  expect(() =>
+    validateTree({ revision: 0, nodes: [{ ...nodes[0]!, parentId: "missing" }] }),
+  ).toThrow();
+  expect(() => validateTree({ revision: 0, nodes: [{ ...nodes[0]!, parentId: "0" }] })).toThrow();
+});
+
+it("uses mutually exclusive project display modes and restores every project in one command", () => {
+  const tree: Tree = {
+    revision: 0,
+    nodes: [
+      {
+        kind: "folder" as const,
+        id: "f",
+        name: "Folder",
+        parentId: null,
+        hidden: true,
+        flattened: true,
+      },
+      ...["a", "b"].map((id) => ({
+        kind: "project" as const,
+        id,
+        name: id,
+        parentId: "f",
+        members: [{ serverId: "s", projectId: id }],
+      })),
+    ],
+  };
+  let changed = applyTreeCommand(tree, { type: "display", id: "a", mode: "workspaces" });
+  expect(changed.nodes[1]).toMatchObject({ flattened: true });
+  changed = applyTreeCommand(changed, { type: "display", id: "a", mode: "hidden" });
+  expect(changed.nodes[1]?.hidden).toBe(true);
+  expect(changed.nodes[1]?.flattened).toBeUndefined();
+  changed = applyTreeCommand(changed, { type: "display", id: "b", mode: "workspaces" });
+  const restored = applyTreeCommand(changed, { type: "showAll" });
+  expect(restored.nodes.every((node) => !node.hidden && !node.flattened)).toBe(true);
+  expect(restored.nodes.map((node) => [node.id, node.parentId])).toEqual(
+    tree.nodes.map((node) => [node.id, node.parentId]),
+  );
+  expect(tree.nodes[0]?.hidden).toBe(true);
+  for (const command of [
+    { type: "display", id: "f", mode: "hidden" },
+    { type: "hide", id: "f", hidden: true },
+    { type: "flatten", id: "f", flattened: true },
+  ] as const)
+    expect(() => applyTreeCommand(tree, command)).toThrow("项目");
 });

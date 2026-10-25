@@ -181,7 +181,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     }),
   );
   expect(markup).toContain("Mermaid 图表");
-  expect(markup).toContain("Toolkit 版本 v0.1.0");
+  expect(markup).toContain("Toolkit 版本 v0.2.1");
   expect(markup).not.toContain("API Key");
   expect(actions.some((entry) => entry.label === "Toolkit 模型设置")).toBe(true);
   // 工作台不再是独立的设置页，而是“功能开关”里的第一项。

@@ -1,6 +1,24 @@
 import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./chat-view/i18n";
 
 const english: Record<string, string> = {
+  全域总览: "Global Overview",
+  知行空间: "Knowledge & Action",
+  打开知行空间: "Open Knowledge & Action",
+  知行上下文: "Knowledge context",
+  技能与记忆: "Skills and memory",
+  固定: "Pinned",
+  "在原生对话中继续思考与行动；技能和记忆在右侧管理。":
+    "Continue in native conversations; manage skills and memory in the right panel.",
+  "固定工作区，工作台内不提供删除或移除操作。":
+    "Pinned workspace. Workbench does not offer delete or remove actions.",
+  "请在知行空间工作区中打开此面板。": "Open this panel in the Knowledge & Action workspace.",
+  "更新技能或记忆后，新建对话可完整应用最新上下文；已有对话可能保留先前内容。":
+    "Start a new conversation to apply the latest skills and memory. Existing conversations may retain earlier context.",
+  "请更新 Paseo 后打开知行空间。": "Update Paseo to open Knowledge & Action.",
+  "知行空间尚未准备好，请重试。": "Knowledge & Action is not ready. Try again.",
+  "正在打开原生工作区…": "Opening native workspace…",
+  "原生文件打开暂不可用，请从文件树打开。":
+    "Native file opening is unavailable. Open it from the file tree.",
   未命名会话: "Untitled session",
   显示会话列表: "Show session list",
   隐藏会话列表: "Hide session list",
@@ -29,6 +47,12 @@ const english: Record<string, string> = {
   隐藏项目节点: "Hide project",
   显示项目节点: "Show project",
   "隐藏空 workspace 项目节点": "Hide empty projects",
+  正常显示: "Show project and workspaces",
+  "仅显示 Workspace": "Show workspaces only",
+  "隐藏整个 Project": "Hide project and workspaces",
+  取消全部隐藏: "Unhide all projects",
+  已隐藏: "Hidden",
+  根节点更多操作: "More tree actions",
   显示隐藏节点: "Show hidden nodes",
   删除文件夹: "Delete folder",
   "合并到…": "Merge into…",
@@ -57,8 +81,26 @@ const english: Record<string, string> = {
   整理此显示组: "Organize this display group",
   切换原生视图: "Switch to native view",
   项目操作: "Project actions",
+  更多: "More",
+  更多项目: "More projects",
+  分组与场景: "Groups and scenarios",
+  "原生项目操作暂不可用，请切换原生视图后重试。":
+    "Native project actions are unavailable. Switch to Native view and try again.",
   复制分支名称: "Copy branch name",
   复制路径: "Copy path",
+  导航视图: "Navigation view",
+  工作台视图: "Workbench view",
+  分组操作: "Group actions",
+  只显示工作空间: "Show workspaces only",
+  分组在搜索工作台维护: "Manage groups in the search workbench",
+  "此分组暂无项目，请在搜索工作台添加。":
+    "This group has no projects. Add projects in the search workbench.",
+  复制完整路径: "Copy full path",
+  完整路径: "Full path",
+  已复制: "Copied",
+  复制失败: "Copy failed",
+  原生项目目录: "Native project directories",
+  "按 Host 展示原生项目及其工作空间。": "Native projects and their workspaces, grouped by Host.",
 
   工作台: "Workbench",
   "{0}设置": "{0} settings",

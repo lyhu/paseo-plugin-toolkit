@@ -3,7 +3,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import { mirrorNativeWorkspace, mountProjectSidebar, renderProjectSidebar } from "../web";
 import { createCatalog } from "./catalog";
 import { applyTreeCommand, type TreeCommand } from "../../shared/project-tree/model";
-import { mountProjectTreeMenu } from "./native-menu";
 
 vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
 let dispose: (() => void) | undefined;
@@ -29,6 +28,38 @@ function setup() {
   dispose = mount.dispose;
   return { ...mount, document: dom.window.document, original };
 }
+
+it("keeps the user's sidebar scroll position and scrollbar element through catalog refreshes", () => {
+  const { document, update } = setup();
+  const catalog = createCatalog();
+  catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
+  catalog.restore();
+  catalog.update("pro", {
+    projects: [{ serverId: "pro", projectId: "p", name: "P", root: "/project" }],
+    workspaces: [{ serverId: "pro", projectId: "p", id: "w", name: "W", cwd: "/project" }],
+    sessions: [],
+  });
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: { colors: {} } as never,
+      collapsed: new Set(),
+      toggle() {},
+      open() {},
+      native() {},
+    });
+  const scroller = () =>
+    document.querySelector<HTMLElement>("[data-toolkit-project-tree]")!
+      .lastElementChild as HTMLElement;
+  update(render);
+  const original = scroller();
+  for (const position of [473, 180, 0]) {
+    original.scrollTop = position;
+    update(render);
+    expect(scroller().scrollTop).toBe(position);
+    expect(scroller()).toBe(original);
+  }
+});
 
 it("nests workspace history, adds five at a time, and preserves expansion across refreshes", () => {
   const { document, update } = setup();
@@ -268,59 +299,6 @@ it("switches back to native without leaving a blank flex container", () => {
   expect(original.style.display).toBe("none");
 });
 
-it("adds the project tree only to the native Workspaces menu and cleans up across reopenings", async () => {
-  const { document } = setup();
-  vi.stubGlobal("MouseEvent", document.defaultView!.MouseEvent);
-  const open = vi.fn();
-  const remove = mountProjectTreeMenu({
-    title: "工作台",
-    theme: { colors: { foreground: "#fff", surface2: "#333", border: "#444" } } as never,
-    open,
-  });
-  const stop = dispose!;
-  dispose = () => {
-    remove();
-    stop();
-  };
-  const trigger = document.createElement("button");
-  trigger.setAttribute("data-testid", "sidebar-display-preferences-menu");
-  trigger.setAttribute("aria-expanded", "true");
-  const close = vi.fn(() => trigger.setAttribute("aria-expanded", "false"));
-  trigger.addEventListener("click", close);
-  document.body.appendChild(trigger);
-  const other = document.createElement("div");
-  other.setAttribute("role", "menu");
-  document.body.appendChild(other);
-  const surface = document.createElement("div");
-  surface.setAttribute("data-testid", "sidebar-display-preferences-content");
-  surface.innerHTML =
-    '<div class="page"><div><button data-testid="sidebar-display-grouping">分组</button></div><button data-testid="sidebar-display-show">显示</button><button>显示后台工作区</button></div>';
-  document.body.appendChild(surface);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  const entry = surface.querySelector("[data-toolkit-project-tree-menu]")!;
-  expect(entry.parentElement?.className).toBe("page");
-  expect(entry.previousElementSibling?.textContent).toBe("显示后台工作区");
-  expect(entry.querySelector('[role="separator"]')).not.toBeNull();
-  expect(other.querySelector("[data-toolkit-project-tree-menu]")).toBeNull();
-  const button = entry.querySelector("button")!;
-  expect(surface.querySelector('[data-menu-item="true"]:not([data-menu-disabled="true"])')).toBe(
-    button,
-  );
-  button.dispatchEvent(new document.defaultView!.Event("mouseenter"));
-  expect(button.style.backgroundColor).toBe("rgb(51, 51, 51)");
-  button.click();
-  expect(close).toHaveBeenCalledOnce();
-  expect(open).toHaveBeenCalledOnce();
-  surface.remove();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  document.body.appendChild(surface);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(surface.querySelectorAll("[data-toolkit-project-tree-menu]")).toHaveLength(1);
-  remove();
-  expect(surface.querySelector("[data-toolkit-project-tree-menu]")).toBeNull();
-  expect(surface.querySelector('[data-testid="sidebar-display-grouping"]')).not.toBeNull();
-});
-
 it("offers root creation and the original view through the header settings menu", () => {
   const { document, update } = setup();
   const catalog = createCatalog();
@@ -356,12 +334,13 @@ it("offers root creation and the original view through the header settings menu"
   expect(Array.from(entries, (entry) => entry.textContent)).toEqual([
     "新增树节点...",
     "显示隐藏节点",
+    "取消全部隐藏",
     "切换原生视图",
   ]);
   const separator = document.querySelector('[role="menu"] [role="separator"]')!;
   expect(separator).not.toBeNull();
-  expect(separator.previousElementSibling).toBe(entries[1]);
-  expect(separator.nextElementSibling).toBe(entries[2]);
+  expect(separator.previousElementSibling).toBe(entries[2]);
+  expect(separator.nextElementSibling).toBe(entries[3]);
   entries[0]!.click();
   const form = document.querySelector('[role="dialog"]')!;
   (form.querySelector("input") as HTMLInputElement).value = "New root";
@@ -566,7 +545,7 @@ it("mirrors the live native workspace row, delegates its menu, and drags only th
   expect(toggle.querySelectorAll('[role="separator"]')).toHaveLength(2);
   expect(toggle.lastElementChild?.getAttribute("role")).toBe("separator");
   toggleButton.click();
-  expect(toggleSessions).toHaveBeenCalledWith("pro:w");
+  expect(toggleSessions).toHaveBeenCalledWith("pro:w", catalog.read().tree.nodes[0]!.id);
   source.querySelector(".native-status")!.textContent = "Idle";
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(row.querySelector(".native-status")!.textContent).toBe("Idle");
@@ -932,7 +911,7 @@ it("keeps native workspace creation while replacing the project menu with organi
     "重命名",
     "置底",
     "取消合并",
-    "隐藏空 workspace 项目节点",
+    "隐藏整个 Project",
   ]);
   expect(Array.from(menu.querySelectorAll("button")).map((entry) => entry.textContent)).toEqual([
     "重命名",
@@ -944,8 +923,9 @@ it("keeps native workspace creation while replacing the project menu with organi
     "合并到…",
     "取消合并",
     "显示会话列表",
-    "隐藏项目节点",
-    "隐藏空 workspace 项目节点",
+    "正常显示",
+    "仅显示 Workspace",
+    "隐藏整个 Project",
     "新建 workspace",
   ]);
   expect(nativeMenu).not.toHaveBeenCalled();
@@ -962,6 +942,7 @@ it("keeps native workspace creation while replacing the project menu with organi
     id: catalog.read().tree.nodes[0]!.id,
     name: "Renamed",
   });
+  await Promise.resolve();
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect((row as HTMLElement).style.backgroundColor).toBe("transparent");
   expect(more.getAttribute("aria-expanded")).toBe("false");
@@ -1128,7 +1109,7 @@ it("hides a project node and reveals it again from the header setting", () => {
     catalogs: {
       pro: {
         projects: [{ serverId: "pro", projectId: "p", name: "A", root: "/a" }],
-        workspaces: [],
+        workspaces: [{ serverId: "pro", projectId: "p", id: "w", name: "W", cwd: "/p" }],
       },
     },
   });
@@ -1157,6 +1138,8 @@ it("hides a project node and reveals it again from the header setting", () => {
       native() {},
       run,
       showHidden,
+      openSession() {},
+      showSessionsByDefault: true,
       toggleHidden() {
         showHidden = !showHidden;
         update(render);
@@ -1165,12 +1148,24 @@ it("hides a project node and reveals it again from the header setting", () => {
   update(render);
   const row = () => document.querySelector('[data-toolkit-tree-row="a"]');
   expect(row()).not.toBeNull();
+  expect(document.querySelector<HTMLElement>('[data-toolkit-workspace="w"]')!.style.opacity).toBe(
+    "1",
+  );
   (row()!.querySelectorAll("button")[2] as HTMLButtonElement).click();
   const menuItem = (label: string) =>
     Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
       (entry) => entry.textContent === label,
     )!;
-  menuItem("隐藏项目节点").click();
+  expect(
+    document
+      .querySelector('[role="menuitemradio"][aria-label="正常显示"]')
+      ?.getAttribute("aria-checked"),
+  ).toBe("true");
+  (
+    document.querySelector(
+      '[role="menuitemradio"][aria-label="隐藏整个 Project"]',
+    ) as HTMLButtonElement
+  ).click();
   expect(catalog.read().tree.nodes[0]?.hidden).toBe(true);
   expect(row()).toBeNull();
 
@@ -1178,13 +1173,26 @@ it("hides a project node and reveals it again from the header setting", () => {
   menuItem("显示隐藏节点").click();
   expect(row()).not.toBeNull();
   expect(Number((row() as HTMLElement).style.opacity)).toBeLessThan(1);
+  expect(
+    Number(document.querySelector<HTMLElement>('[data-toolkit-workspace="w"]')!.style.opacity),
+  ).toBeLessThan(1);
+  expect(
+    Number(
+      document.querySelector<HTMLElement>('[data-toolkit-workspace-sessions="w"]')!.style.opacity,
+    ),
+  ).toBeLessThan(1);
 
   (row()!.querySelectorAll("button")[2] as HTMLButtonElement).click();
-  menuItem("显示项目节点").click();
+  (
+    document.querySelector('[role="menuitemradio"][aria-label="正常显示"]') as HTMLButtonElement
+  ).click();
   expect(catalog.read().tree.nodes[0]?.hidden).toBeUndefined();
+  expect(document.querySelector<HTMLElement>('[data-toolkit-workspace="w"]')!.style.opacity).toBe(
+    "1",
+  );
 });
 
-it("hides every project whose workspaces are all placed elsewhere from the node menu", () => {
+it("unhides every project including workspace-only mode and leaves management view", async () => {
   const { document, update } = setup();
   const catalog = createCatalog();
   catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
@@ -1240,6 +1248,7 @@ it("hides every project whose workspaces are all placed elsewhere from the node 
     catalog.organize(applyTreeCommand(catalog.read().tree, command));
     update(render);
   });
+  let showHidden = true;
   const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
     renderProjectSidebar(container, {
       snapshot: catalog.read(),
@@ -1249,25 +1258,586 @@ it("hides every project whose workspaces are all placed elsewhere from the node 
       open() {},
       native() {},
       run,
+      showHidden,
+      async resetHidden() {
+        await run({ type: "showAll" });
+        showHidden = false;
+        update(render);
+      },
+    });
+  catalog.organize(
+    applyTreeCommand(catalog.read().tree, { type: "display", id: "b", mode: "hidden" }),
+  );
+  catalog.organize(
+    applyTreeCommand(catalog.read().tree, { type: "display", id: "c", mode: "workspaces" }),
+  );
+  update(render);
+  (document.querySelector('[aria-label="我的工作台设置"]') as HTMLButtonElement).click();
+  (
+    document.querySelector('[role="menuitem"][aria-label="取消全部隐藏"]') as HTMLButtonElement
+  ).click();
+  await Promise.resolve();
+  expect(showHidden).toBe(false);
+  expect(run).toHaveBeenCalledWith({ type: "showAll" });
+  expect(catalog.read().tree.nodes.every((node) => !node.hidden && !node.flattened)).toBe(true);
+});
+
+it("keeps folders visible and shows workspace-only projects in management", () => {
+  const { document, update } = setup(),
+    catalog = createCatalog();
+  catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
+  catalog.restore({
+    tree: {
+      revision: 0,
+      nodes: [
+        { id: "f", kind: "folder", name: "Folder", parentId: null, flattened: true },
+        {
+          id: "p",
+          kind: "project",
+          name: "Project",
+          parentId: "f",
+          flattened: true,
+          members: [{ serverId: "pro", projectId: "p" }],
+        },
+      ],
+    },
+    catalogs: {
+      pro: {
+        projects: [{ serverId: "pro", projectId: "p", name: "Project", root: "/p" }],
+        workspaces: [{ serverId: "pro", projectId: "p", id: "w", name: "Workspace", cwd: "/p" }],
+      },
+    },
+  });
+  catalog.connection(true);
+  let showHidden = false;
+  const run = vi.fn(async (command: TreeCommand) => {
+    catalog.organize(applyTreeCommand(catalog.read().tree, command));
+    update(render);
+  });
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: {
+        colors: { foreground: "#fff", foregroundMuted: "#aaa", surface0: "#111", surface1: "#222" },
+      } as never,
+      collapsed: new Set(["p"]),
+      toggle() {},
+      open() {},
+      native() {},
+      run,
+      showHidden,
     });
   update(render);
-  const row = (id: string) => document.querySelector(`[data-toolkit-tree-row="${id}"]`);
-  const more = (id: string) =>
-    (row(id)!.querySelectorAll("button")[2] as HTMLButtonElement).click();
-  const menuItem = (label: string) =>
-    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
-      (entry) => entry.textContent === label,
-    )!;
-  more("a");
-  menuItem("隐藏空 workspace 项目节点").click();
-  expect(run).toHaveBeenCalledWith({ type: "hideEmpty", ids: ["b", "c"] });
+  expect(document.querySelector('[data-toolkit-tree-row="f"]')).not.toBeNull();
+  expect(document.querySelector('[data-toolkit-tree-row="p"]')).toBeNull();
   expect(
-    catalog
-      .read()
-      .tree.nodes.filter((node) => node.hidden)
-      .map((node) => node.id),
-  ).toEqual(["b", "c"]);
-  expect(row("a")).not.toBeNull();
-  expect(row("b")).toBeNull();
-  expect(row("c")).toBeNull();
+    document.querySelector<HTMLElement>('[data-toolkit-workspace="w"]')?.style.paddingLeft,
+  ).toBe("16px");
+  expect(document.querySelector<HTMLElement>('[data-toolkit-workspace="w"]')?.style.opacity).toBe(
+    "1",
+  );
+  showHidden = true;
+  update(render);
+  expect(document.querySelector('[data-toolkit-tree-row="p"]')?.textContent).toContain(
+    "仅显示 Workspace",
+  );
+  expect(document.querySelector('[data-toolkit-workspace="w"]')).toBeNull(); // management respects project collapse
+  (document.querySelector('[aria-label="项目操作 · Folder"]') as HTMLButtonElement).click();
+  expect(document.querySelector('[role="menuitemradio"]')).toBeNull();
+  expect(catalog.read().tree.nodes[1]?.parentId).toBe("f");
+});
+it("ignores legacy folder hiding and offers snapshot save restore and undo through the toolbar", () => {
+  const { document, update } = setup(),
+    catalog = createCatalog();
+  catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
+  catalog.restore({
+    tree: {
+      revision: 0,
+      nodes: [
+        { id: "f", kind: "folder", name: "Folder", parentId: null, hidden: true },
+        { id: "c", kind: "folder", name: "Child", parentId: "f" },
+      ],
+    },
+    catalogs: {},
+  });
+  catalog.connection(true);
+  const saveSnapshot = vi.fn(async () => {}),
+    restoreSnapshot = vi.fn(async () => {}),
+    undo = vi.fn(async () => {});
+  let showHidden = false;
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: {
+        colors: { foreground: "#fff", foregroundMuted: "#aaa", surface0: "#111", surface1: "#222" },
+      } as never,
+      collapsed: new Set(),
+      toggle() {},
+      open() {},
+      native() {},
+      showHidden,
+      saveSnapshot,
+      restoreSnapshot,
+      undo,
+      history: {
+        canUndo: true,
+        snapshots: [{ id: "saved", name: "My snapshot", createdAt: "2026-10-24" }],
+      },
+    });
+  update(render);
+  expect(document.querySelector('[data-toolkit-tree-row="c"]')).not.toBeNull();
+  showHidden = true;
+  update(render);
+  expect(document.querySelector<HTMLElement>('[data-toolkit-tree-row="c"]')?.style.opacity).toBe(
+    "1",
+  );
+  const settings = () =>
+    (document.querySelector('[aria-label="我的工作台设置"]') as HTMLButtonElement).click();
+  const choose = (label: string) =>
+    (
+      document.querySelector(`[role="menuitem"][aria-label="${label}"]`) as HTMLButtonElement
+    ).click();
+  settings();
+  choose("保存展示快照");
+  const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+  input.value = "Snapshot name";
+  Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+    .find((b) => b.textContent === "保存快照")!
+    .click();
+  expect(saveSnapshot).toHaveBeenCalledWith("Snapshot name");
+  settings();
+  choose("恢复展示快照");
+  choose("My snapshot");
+  Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+    .find((b) => b.textContent === "恢复快照")!
+    .click();
+  expect(restoreSnapshot).toHaveBeenCalledWith("saved");
+  settings();
+  choose("撤销展示操作");
+  expect(undo).toHaveBeenCalledOnce();
+  catalog.connection(false);
+  update(render);
+  settings();
+  expect(
+    document.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="保存展示快照"]')
+      ?.disabled,
+  ).toBe(true);
+});
+
+function setupRefreshingMenu() {
+  const { document, update } = setup();
+  const catalog = createCatalog();
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: {
+        colors: {
+          foreground: "#fff",
+          foregroundMuted: "#aaa",
+          surface0: "#111",
+          surface1: "#222",
+          surface2: "#333",
+          border: "#444",
+        },
+      } as never,
+      collapsed: new Set(),
+      toggle() {},
+      open() {},
+      native() {},
+      run: vi.fn(async () => {}),
+    });
+  const refresh = (revision: number, removed = false) => {
+    catalog.restore({
+      tree: {
+        revision,
+        nodes: removed
+          ? []
+          : [{ id: "folder", kind: "folder", name: `Operations ${revision}`, parentId: null }],
+      },
+      catalogs: {},
+    });
+    catalog.connection(true);
+    update(render);
+  };
+  refresh(0);
+  const more = () =>
+    document
+      .querySelector('[data-toolkit-tree-row="folder"]')!
+      .querySelectorAll("button")[2] as HTMLButtonElement;
+  more().click();
+  return { document, refresh, more };
+}
+
+it("keeps a hovered more menu open across background sidebar refreshes", async () => {
+  const { document, refresh, more } = setupRefreshingMenu();
+  const menu = document.querySelector('[role="menu"]')!;
+  menu.dispatchEvent(new document.defaultView!.Event("mouseenter"));
+  for (let revision = 1; revision <= 3; revision++) {
+    refresh(revision);
+    expect(document.querySelector('[role="menu"]') === menu).toBe(true);
+  }
+  menu.dispatchEvent(new document.defaultView!.KeyboardEvent("keydown", { key: "Escape" }));
+  await Promise.resolve();
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.querySelector('[data-toolkit-tree-row="folder"]')?.textContent).toContain(
+    "Operations 3",
+  );
+  expect(document.activeElement === more()).toBe(true);
+});
+
+it("preserves a name draft when a refreshed menu opens a dialog", async () => {
+  const { document, refresh, more } = setupRefreshingMenu();
+  refresh(1);
+  (document.querySelector('[role="menuitem"][aria-label="重命名"]') as HTMLButtonElement).click();
+  await Promise.resolve();
+  const input = document.querySelector('[role="dialog"] input') as HTMLInputElement;
+  expect(input).not.toBeNull();
+  input.value = "My unsaved name";
+  refresh(2);
+  expect(document.querySelector('[role="dialog"] input') === input).toBe(true);
+  expect(input.value).toBe("My unsaved name");
+  (document.querySelector('[role="dialog"] [aria-label="取消"]') as HTMLButtonElement).click();
+  await Promise.resolve();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.querySelector('[data-toolkit-tree-row="folder"]')?.textContent).toContain(
+    "Operations 2",
+  );
+  expect(document.activeElement === more()).toBe(true);
+});
+
+it("closes a menu when its owning tree node is removed", async () => {
+  const { document, refresh } = setupRefreshingMenu();
+  refresh(1, true);
+  await Promise.resolve();
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.querySelector('[data-toolkit-tree-row="folder"]')).toBeNull();
+});
+
+it("does not recreate a queued sidebar after disposal with a menu open", async () => {
+  const { document, refresh } = setupRefreshingMenu();
+  refresh(1);
+  dispose!();
+  await Promise.resolve();
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.querySelector("[data-toolkit-project-tree]")).toBeNull();
+});
+
+it("keeps Knowledge Space pinned outside the scrolling groups with no destructive controls", () => {
+  const { document, update } = setup();
+  const catalog = createCatalog();
+  catalog.restore();
+  const open = vi.fn();
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: { colors: {} } as never,
+      readOnly: true,
+      collapsed: new Set(),
+      toggle() {},
+      open() {},
+      native() {},
+      knowledgeSpace: { open },
+    });
+  update(render);
+  const pinned = document.querySelector<HTMLButtonElement>("[data-toolkit-knowledge-space]")!;
+  expect(pinned.textContent).toContain("知行空间");
+  expect(pinned.getAttribute("draggable")).not.toBe("true");
+  expect(pinned.querySelector("[data-toolkit-tree-actions]")).toBeNull();
+  expect(pinned.nextElementSibling).toBe(
+    document.querySelector("[data-toolkit-project-tree]")!.lastElementChild,
+  );
+  pinned.click();
+  expect(open).toHaveBeenCalledOnce();
+  update(render);
+  expect(document.querySelectorAll("[data-toolkit-knowledge-space]")).toHaveLength(1);
+});
+
+it("uses native project creation and the unchanged native menu in every read-only group, retaining hover and the anchor during refresh", async () => {
+  const { document, update, original } = setup();
+  const Mouse = document.defaultView!.MouseEvent;
+  vi.stubGlobal("MouseEvent", Mouse);
+  vi.stubGlobal("KeyboardEvent", document.defaultView!.KeyboardEvent);
+  const catalog = createCatalog();
+  catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
+  catalog.restore();
+  catalog.update("pro", {
+    projects: [
+      { serverId: "pro", projectId: "p", key: 'opaque:["project"]', name: "P", root: "/project" },
+    ],
+    workspaces: [],
+  });
+  const snapshot = catalog.read();
+  const project = snapshot.tree.nodes.find((node) => node.kind === "project")!;
+  snapshot.tree = {
+    ...snapshot.tree,
+    nodes: [
+      { kind: "folder", id: "f1", name: "First", parentId: null },
+      { ...project, id: "p1", parentId: "f1" },
+      { kind: "folder", id: "f2", name: "Second", parentId: null },
+      { ...project, id: "p2", parentId: "f2" },
+    ],
+  };
+  const key = 'opaque:["project"]';
+  const source = document.createElement("div");
+  source.setAttribute("data-testid", `sidebar-project-row-${key}`);
+  const sourceAdd = document.createElement("button");
+  sourceAdd.setAttribute("data-testid", `sidebar-project-new-worktree-${key}`);
+  sourceAdd.disabled = true;
+  sourceAdd.innerHTML =
+    '<svg width="15" height="15" stroke="#999"><path d="M12 5v14M5 12h14"/></svg>';
+  const sourceMore = document.createElement("button");
+  sourceMore.setAttribute("data-testid", `sidebar-project-kebab-${key}`);
+  sourceMore.innerHTML =
+    '<svg width="14" height="14" stroke="#999"><circle cx="12" cy="12" r="1"/></svg>';
+  source.append(sourceAdd, sourceMore);
+  original.append(source);
+  source.addEventListener("pointerover", () => {
+    sourceAdd.disabled = false;
+    source.style.backgroundColor = "rgb(31, 32, 40)";
+  });
+  source.addEventListener("pointerout", () => {
+    sourceAdd.disabled = true;
+    source.style.backgroundColor = "transparent";
+  });
+  const create = vi.fn(),
+    settings = vi.fn();
+  sourceAdd.addEventListener("click", create);
+  let surface: HTMLDivElement;
+  let items: HTMLButtonElement[];
+  source.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    surface = document.createElement("div");
+    surface.setAttribute("data-menu-surface", "true");
+    Object.assign(surface.style, { visibility: "hidden", top: "124px", left: "324px" });
+    surface.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 220,
+      bottom: 160,
+      width: 220,
+      height: 160,
+      toJSON() {},
+    });
+    items = ["open-settings", "open-new-window", "open-folder", "remove"].map((name) => {
+      const item = document.createElement("button");
+      item.textContent = name;
+      item.setAttribute("data-testid", `sidebar-project-menu-${name}-${key}`);
+      surface.append(item);
+      return item;
+    });
+    items[0]!.addEventListener("click", () => {
+      settings();
+      surface.remove();
+    });
+    document.body.append(surface);
+  });
+  const native = vi.fn();
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot,
+      theme: { colors: { foreground: "#eee", foregroundMuted: "#999", surface1: "#111" } } as never,
+      readOnly: true,
+      collapsed: new Set(),
+      toggle() {},
+      open() {},
+      native,
+    });
+  update(render);
+  const tree = document.querySelector("[data-toolkit-project-tree]")!;
+  const first = tree.querySelector<HTMLElement>('[data-toolkit-tree-row="p1"]')!;
+  const second = tree.querySelector<HTMLElement>('[data-toolkit-tree-row="p2"]')!;
+  expect(first.querySelector('[aria-label="新建 workspace · P"]')).not.toBeNull();
+  expect(second.querySelector('[aria-label="项目操作 · P"]')).not.toBeNull();
+  expect(first.getAttribute("draggable")).toBeNull();
+  expect(first.querySelector('[aria-label="新建 workspace · P"] svg')?.getAttribute("width")).toBe(
+    "15",
+  );
+  expect(first.querySelector('[aria-label="项目操作 · P"] svg')?.getAttribute("stroke")).toBe(
+    "currentColor",
+  );
+  first.dispatchEvent(new Mouse("mouseenter", { bubbles: false }));
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  expect(first.style.background).toBe("rgb(31, 32, 40)");
+  const more = first.querySelector<HTMLButtonElement>('[aria-label="项目操作 · P"]')!;
+  more.getBoundingClientRect = () => ({
+    x: 300,
+    y: 100,
+    left: 300,
+    top: 100,
+    right: 324,
+    bottom: 124,
+    width: 24,
+    height: 24,
+    toJSON() {},
+  });
+  more.click();
+  await Promise.resolve();
+  expect(surface!.style.visibility).toBe("visible");
+  expect(surface!.style.left).toBe("104px");
+  expect([...surface!.querySelectorAll("button")]).toEqual(items!);
+  expect(items!.map((item) => item.textContent)).toEqual([
+    "open-settings",
+    "open-new-window",
+    "open-folder",
+    "remove",
+  ]);
+  first.dispatchEvent(new Mouse("mouseleave", { bubbles: false }));
+  expect(first.getAttribute("data-toolkit-menu-open")).toBe("true");
+  update(render);
+  expect(tree.querySelector('[aria-label="项目操作 · P"]')).toBe(more);
+  items![0]!.click();
+  await Promise.resolve();
+  expect(settings).toHaveBeenCalledOnce();
+  expect(tree.querySelector("[data-toolkit-menu-open]")).toBeNull();
+  (
+    tree.querySelector(
+      '[data-toolkit-tree-row="p2"] [aria-label="新建 workspace · P"]',
+    ) as HTMLButtonElement
+  ).click();
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  expect(create).toHaveBeenCalledOnce();
+  expect(native).not.toHaveBeenCalled();
+});
+
+it.each(["collapsed", "paginated", "disposed"])(
+  "owns menu actions and cleanup while revealing a %s native workspace",
+  async (state) => {
+    const { document, original, update } = setup();
+    vi.stubGlobal("MouseEvent", document.defaultView!.MouseEvent);
+    const project = document.createElement("button");
+    project.dataset.testid = "sidebar-project-row-native";
+    original.appendChild(project);
+    const list = document.createElement("div");
+    list.dataset.testid = "sidebar-workspace-list-native";
+    const next = document.createElement("button");
+    next.dataset.testid = "sidebar-project-show-more-native";
+    const nativeOpen = vi.fn();
+    const reveal = () => {
+      const source = document.createElement("div");
+      source.dataset.testid = "sidebar-workspace-row-pro:w";
+      source.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        nativeOpen();
+        const menu = document.createElement("div");
+        menu.dataset.menuSurface = "true";
+        menu.innerHTML =
+          '<button data-menu-item="true" data-testid="sidebar-workspace-menu-archive-pro:w">Archive</button>';
+        document.body.appendChild(menu);
+      });
+      list.appendChild(source);
+    };
+    if (state !== "paginated")
+      project.addEventListener("click", () => {
+        original.appendChild(list);
+        reveal();
+      });
+    else {
+      original.appendChild(list);
+      list.appendChild(next);
+      next.addEventListener("click", reveal);
+    }
+    const catalog = createCatalog();
+    catalog.hosts([{ serverId: "pro", label: "Pro", status: "online" }]);
+    catalog.restore();
+    catalog.update("pro", {
+      projects: [{ serverId: "pro", projectId: "p", key: "native", name: "P", root: "/p" }],
+      workspaces: [{ serverId: "pro", projectId: "p", id: "w", name: "W", cwd: "/p" }],
+    });
+    const toggleSessions = vi.fn();
+    update((container) =>
+      renderProjectSidebar(container, {
+        snapshot: catalog.read(),
+        theme: {
+          colors: {
+            foreground: "#fff",
+            foregroundMuted: "#aaa",
+            surface0: "#111",
+            surface1: "#222",
+            border: "#333",
+          },
+        } as never,
+        collapsed: new Set(),
+        toggle() {},
+        open() {},
+        native() {},
+        toggleSessions,
+      }),
+    );
+    document.querySelector<HTMLButtonElement>('[aria-label="工作区操作 · W"]')!.click();
+    if (state === "disposed") dispose!();
+    for (let tick = 0; tick < 4; tick++) await new Promise((resolve) => setTimeout(resolve, 0));
+    const toggle = document.querySelector<HTMLButtonElement>(
+      "[data-toolkit-workspace-session-toggle] button",
+    );
+    if (state === "disposed") {
+      expect(toggle).toBeNull();
+      expect(nativeOpen).not.toHaveBeenCalled();
+      return;
+    }
+    expect(nativeOpen).toHaveBeenCalledOnce();
+    expect(toggle).not.toBeNull();
+    toggle!.click();
+    expect(toggleSessions).toHaveBeenCalledWith("pro:w", catalog.read().tree.nodes[0]!.id);
+    dispose!();
+    expect(document.querySelector("[data-toolkit-workspace-session-toggle]")).toBeNull();
+  },
+);
+
+it("retains a node draft and displays a failed submit across catalog refreshes", async () => {
+  const { document, update } = setup();
+  const catalog = createCatalog();
+  catalog.restore({
+    tree: { revision: 0, nodes: [{ kind: "folder", id: "f", name: "Folder", parentId: null }] },
+    catalogs: {},
+  });
+  catalog.connection(true);
+  let reject!: (error: Error) => void;
+  const run = vi
+    .fn()
+    .mockImplementationOnce(() => {
+      catalog.connection(false);
+      update(render);
+      return new Promise<void>((_, fail) => {
+        reject = fail;
+      });
+    })
+    .mockResolvedValueOnce(undefined);
+  const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
+    renderProjectSidebar(container, {
+      snapshot: catalog.read(),
+      theme: {
+        colors: { foreground: "#fff", foregroundMuted: "#aaa", surface0: "#111", surface1: "#222" },
+      } as never,
+      collapsed: new Set(),
+      toggle() {},
+      open() {},
+      native() {},
+      run,
+    });
+  update(render);
+  document.querySelector<HTMLButtonElement>('[aria-label="项目操作 · Folder"]')!.click();
+  document.querySelector<HTMLButtonElement>('[aria-label="重命名"]')!.click();
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  const input = dialog.querySelector("input")!;
+  const save = dialog.querySelector<HTMLButtonElement>('[aria-label="保存名称"]')!;
+  input.value = "Draft";
+  save.click();
+  save.click();
+  expect(run).toHaveBeenCalledOnce();
+  expect(save.disabled).toBe(true);
+  expect(document.querySelector('[role="dialog"]')).toBe(dialog);
+  reject(new Error("Revision conflict"));
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(dialog.querySelector('[role="alert"]')!.textContent).toBe("Revision conflict");
+  expect(input.value).toBe("Draft");
+  expect(save.disabled).toBe(false);
+  catalog.connection(true);
+  update(render);
+  save.click();
+  await Promise.resolve();
+  expect(run).toHaveBeenCalledTimes(2);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
