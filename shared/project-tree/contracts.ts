@@ -39,3 +39,54 @@ export function projectTreeViewName(value: string | null | undefined): string {
   const trimmed = value?.trim() ?? "";
   return trimmed ? trimmed.slice(0, 40) : DEFAULT_PROJECT_TREE_VIEW_NAME;
 }
+
+export const readProjectTreeHistory = defineRpc({
+  name: "project-tree.history",
+  input: z.object({}),
+  output: z.object({
+    revision: z.number().int().nonnegative(),
+    canUndo: z.boolean(),
+    workbenchRevision: z.number().int().nonnegative().optional(),
+    snapshots: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        createdAt: z.string(),
+        preview: z
+          .object({
+            nodesChanged: z.number().int().nonnegative(),
+            workspacePlacementsChanged: z.boolean(),
+            tabsChanged: z.boolean().optional(),
+            favoritesChanged: z.boolean().optional(),
+            scenariosChanged: z.boolean().optional(),
+          })
+          .optional(),
+      }),
+    ),
+  }),
+});
+export const saveProjectTreeSnapshot = defineRpc({
+  name: "project-tree.snapshot.save",
+  input: z.object({
+    revision: z.number().int().nonnegative(),
+    name: z.string().trim().min(1).max(120),
+  }),
+  output: treeSchema,
+});
+export const restoreProjectTreeSnapshot = defineRpc({
+  name: "project-tree.snapshot.restore",
+  input: z.object({
+    revision: z.number().int().nonnegative(),
+    snapshotId: z.string(),
+    workbenchRevision: z.number().int().nonnegative().optional(),
+  }),
+  output: treeSchema,
+});
+export const undoProjectTree = defineRpc({
+  name: "project-tree.undo",
+  input: z.object({
+    revision: z.number().int().nonnegative(),
+    workbenchRevision: z.number().int().nonnegative().optional(),
+  }),
+  output: treeSchema,
+});

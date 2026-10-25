@@ -37,6 +37,12 @@ import type { Size } from "../../../shared/chat-view/mermaid/zoom";
  */
 
 const ARROW = 5;
+const DIAGRAM_CACHE_LIMIT = 40;
+const diagramCache = new Map<string, ParsedDiagram>();
+
+export function clearDiagramCache() {
+  diagramCache.clear();
+}
 
 export type ParsedDiagram =
   | { kind: "flow"; layout: FlowLayout; skipped: Flowchart["skipped"] }
@@ -48,22 +54,37 @@ export type DrawableDiagram = Exclude<ParsedDiagram, { kind: "unsupported" }>;
 /** Reads the source as whichever diagram it names, laid out at natural size. */
 export function parseDiagram(source: string): ParsedDiagram {
   if (source.length > 100000) return { kind: "unsupported" };
-  const flow = parseFlowchart(source);
-  if (flow && flow.nodes.length > 0) {
-    if (flow.nodes.length > 1000 || flow.edges.length > 3000) return { kind: "unsupported" };
-    return { kind: "flow", layout: layoutFlowchart(flow), skipped: flow.skipped };
+  const cached = diagramCache.get(source);
+  if (cached) {
+    diagramCache.delete(source);
+    diagramCache.set(source, cached);
+    return cached;
   }
-  const sequence = parseSequence(source);
-  if (sequence && sequence.participants.length > 0) {
-    if (sequence.participants.length > 100 || sequence.events.length > 1000)
-      return { kind: "unsupported" };
-    return {
-      kind: "sequence",
-      diagram: sequence,
-      layout: layoutSequence(sequence.participants, sequence.events.length),
-    };
+  const compute = (): ParsedDiagram => {
+    const flow = parseFlowchart(source);
+    if (flow && flow.nodes.length > 0) {
+      if (flow.nodes.length > 1000 || flow.edges.length > 3000) return { kind: "unsupported" };
+      return { kind: "flow", layout: layoutFlowchart(flow), skipped: flow.skipped };
+    }
+    const sequence = parseSequence(source);
+    if (sequence && sequence.participants.length > 0) {
+      if (sequence.participants.length > 100 || sequence.events.length > 1000)
+        return { kind: "unsupported" };
+      return {
+        kind: "sequence",
+        diagram: sequence,
+        layout: layoutSequence(sequence.participants, sequence.events.length),
+      };
+    }
+    return { kind: "unsupported" };
+  };
+  const result = compute();
+  if (diagramCache.size >= DIAGRAM_CACHE_LIMIT) {
+    const oldest = diagramCache.keys().next().value;
+    if (oldest !== undefined) diagramCache.delete(oldest);
   }
-  return { kind: "unsupported" };
+  diagramCache.set(source, result);
+  return result;
 }
 
 /** The size the drawing was laid out at, before any fitting or zoom. */

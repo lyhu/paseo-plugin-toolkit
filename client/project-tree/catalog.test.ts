@@ -1,7 +1,58 @@
 import { expect, it, vi } from "vitest";
 import { createCatalog, projectAvailable, projectWorkspaces, readHostCatalog } from "./catalog";
 import { applyTreeCommand } from "../../shared/project-tree/model";
+import { catalogCacheSchema } from "./catalog";
 const host = { serverId: "mini", label: "Mini", status: "online" } as const;
+it("retains native user activity with activity and creation fallbacks in offline cache", async () => {
+  const api = {
+    projects: { list: async () => ({ projects: [] }) },
+    workspaces: {
+      list: async () => ({
+        entries: [
+          {
+            id: "user",
+            projectId: "p",
+            name: "User",
+            workspaceDirectory: "/p",
+            lastUserMessageAt: "2026-10-20",
+            activityAt: "2026-10-25",
+            createdAt: "2026-10-01",
+          },
+          {
+            id: "activity",
+            projectId: "p",
+            name: "Activity",
+            workspaceDirectory: "/p",
+            lastUserMessageAt: null,
+            activityAt: "2026-10-24",
+          },
+          {
+            id: "created",
+            projectId: "p",
+            name: "Created",
+            workspaceDirectory: "/p",
+            activityAt: null,
+            createdAt: "2026-10-23",
+          },
+        ],
+        pageInfo: { nextCursor: null },
+      }),
+    },
+  };
+  const result = await readHostCatalog(api as never, "mini", { sessions: false });
+  expect(result.workspaces.map((w) => w.lastActivityAt)).toEqual([
+    "2026-10-20",
+    "2026-10-24",
+    "2026-10-23",
+  ]);
+  const cached = catalogCacheSchema.parse({
+    tree: { revision: 0, nodes: [] },
+    catalogs: { mini: result },
+  });
+  expect(cached.catalogs.mini!.workspaces.map((w) => w.lastActivityAt)).toEqual(
+    result.workspaces.map((w) => w.lastActivityAt),
+  );
+});
 it("loads paginated history by workspace identity, excluding unrelated and internal sessions", async () => {
   const session = (id: string, workspaceId?: string, internal = false) => ({
     agent: { id, workspaceId, internal, title: id, updatedAt: "2026-10-22T00:00:00Z" },
@@ -227,4 +278,29 @@ it("publishes a multi-host batch once and deduplicates repeated errors", () => {
   catalog.error("mini", new Error("Offline"));
   expect(catalog.read()).toBe(previous);
   expect(notify).toHaveBeenCalledTimes(2);
+});
+
+it("bounds recent-session paging and marks partial counts", async () => {
+  const list = vi.fn(async () => ({
+    entries: [{ agent: { id: "s", workspaceId: "w", title: "Recent", updatedAt: "2026-10-24" } }],
+    pageInfo: { nextCursor: "next" },
+  }));
+  const api = {
+    projects: { list: async () => ({ projects: [] }) },
+    workspaces: {
+      list: async () => ({
+        entries: [{ id: "w", projectId: "p", name: "W", workspaceDirectory: "/w" }],
+        pageInfo: { nextCursor: null },
+      }),
+    },
+    agents: { list },
+  };
+  const result = await readHostCatalog(api as never, "mini", {
+    maxSessionPages: 1,
+    sessionLimits: new Map([["w", 5]]),
+  });
+  expect(list).toHaveBeenCalledOnce();
+  expect(result.sessions).toHaveLength(1);
+  expect(result.sessionsTruncated).toBe(true);
+  expect(result.sessionCounts).toEqual({ w: 1 });
 });
