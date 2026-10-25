@@ -6,10 +6,23 @@ import { activitySettings } from "./shared/chat-view/settings";
 import { registerEnhance } from "./server/chat-view/enhance";
 import { LocalizedError } from "./shared/chat-view/i18n";
 import { registerProjectTree } from "./server/project-tree/register";
+import { registerWorkbenchAI } from "./server/workbench/register-ai";
+import { registerWorkbenchState } from "./server/workbench/state";
+import { registerWorkbenchSearch } from "./server/workbench/search";
+import { memoryContext } from "./shared/workbench/state";
+import { registerSessionTitle } from "./server/session-title/register";
+import { registerEditorHighlight } from "./server/editor-highlight/register";
 export default function contribute(server: PluginServerContext) {
-  registerProjectTree(server);
+  const disposeHighlight = registerEditorHighlight(server);
+  const workbench = registerWorkbenchState(server);
+  registerProjectTree(server, workbench);
+  const disposeSearch = registerWorkbenchSearch(server);
+  const disposeAI = registerWorkbenchAI(server, {
+    readContext: async (scope) => memoryContext(workbench.read().memories, scope ?? "personal"),
+  });
   const models = createModelStore();
   registerModels(server, models);
+  const disposeTitles = registerSessionTitle(server, models, disposeSearch.removeSession);
   const settings = server.registerSettings(activitySettings);
   const readFeatures = async () => {
     const state = await settings.read();
@@ -17,5 +30,12 @@ export default function contribute(server: PluginServerContext) {
     return state.values;
   };
   registerEnhance(server, readFeatures, models);
-  return registerQuickQuestions(server, models, readFeatures);
+  const disposeQuestions = registerQuickQuestions(server, models, readFeatures);
+  return async () => {
+    await disposeHighlight();
+    await disposeTitles();
+    disposeQuestions();
+    disposeSearch();
+    await disposeAI();
+  };
 }

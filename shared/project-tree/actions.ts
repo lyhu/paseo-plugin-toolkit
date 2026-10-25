@@ -1,5 +1,7 @@
 import {
-  applyTreeCommand,
+  projectDisplay,
+  projectDisplayOptions,
+  type ProjectDisplay,
   type Tree,
   type TreeCommand,
   type TreeNode,
@@ -42,12 +44,13 @@ export function edgeMove(tree: Tree, node: TreeNode, edge: "top" | "bottom"): Tr
 export function nodeActions(
   tree: Tree,
   node: TreeNode,
-  emptyProjects = 0,
 ): Array<{
   action: TreeNodeAction;
   label: string;
   disabled?: boolean;
   separatorBefore?: boolean;
+  mode?: ProjectDisplay;
+  checked?: boolean;
 }> {
   return [
     { action: "rename", label: "重命名" },
@@ -65,16 +68,13 @@ export function nodeActions(
             separatorBefore: true,
           },
           { action: "split" as const, label: "取消合并", disabled: node.members.length < 2 },
-          {
-            action: "hide" as const,
-            label: node.hidden ? "显示项目节点" : "隐藏项目节点",
-            separatorBefore: true,
-          },
-          {
-            action: "hideEmpty" as const,
-            label: "隐藏空 workspace 项目节点",
-            disabled: emptyProjects === 0,
-          },
+          ...projectDisplayOptions.map(({ mode, label }, index) => ({
+            action: "display" as const,
+            label,
+            mode,
+            checked: projectDisplay(node) === mode,
+            separatorBefore: index === 0,
+          })),
           { action: "new" as const, label: "新建 workspace", separatorBefore: true },
         ]
       : [
@@ -85,18 +85,88 @@ export function nodeActions(
 }
 
 export function nodePath(tree: Tree, node: TreeNode): string {
-  const parent = tree.nodes.find((entry) => entry.id === node.parentId);
-  return parent ? `${nodePath(tree, parent)} / ${node.name}` : node.name;
+  const nodes = new Map(tree.nodes.map((entry) => [entry.id, entry]));
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let current: TreeNode | undefined = node;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    names.push(current.name);
+    current = current.parentId === null ? undefined : nodes.get(current.parentId);
+  }
+  return names.reverse().join(" / ");
 }
 
+/** Validated trees can move to every folder except the node and its descendants. */
 export function folderDestinations(tree: Tree, node: TreeNode) {
-  return tree.nodes.filter((entry) => {
-    if (entry.kind !== "folder") return false;
-    try {
-      applyTreeCommand(tree, { type: "move", id: node.id, parentId: entry.id });
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  if (!tree.nodes.some((entry) => entry.id === node.id)) return [];
+  const children = new Map<string, string[]>();
+  for (const entry of tree.nodes) {
+    if (entry.parentId === null) continue;
+    const siblings = children.get(entry.parentId) ?? [];
+    siblings.push(entry.id);
+    children.set(entry.parentId, siblings);
+  }
+  const descendants = new Set<string>();
+  const pending = [node.id];
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (descendants.has(id)) continue;
+    descendants.add(id);
+    for (const child of children.get(id) ?? []) pending.push(child);
+  }
+  return tree.nodes.filter((entry) => entry.kind === "folder" && !descendants.has(entry.id));
+}
+
+export type NodeActionRequest =
+  | { action: "up" | "down" | "top" | "bottom" | "hide" | "delete" }
+  | { action: "rename"; name: string }
+  | { action: "folder"; id: string; name: string; parentId: string | null }
+  | { action: "move"; parentId: string | null }
+  | { action: "merge"; targetId: string }
+  | { action: "split"; member: { serverId: string; projectId: string }; id: string; name: string }
+  | { action: "hideEmpty"; ids: string[] };
+
+/** Both presentation adapters turn the same node intent into the same tree command. */
+export function nodeActionCommand(
+  tree: Tree,
+  nodeId: string | undefined,
+  request: NodeActionRequest,
+): TreeCommand | null {
+  if (request.action === "folder") {
+    const name = request.name.trim();
+    return name ? { type: "folder", id: request.id, name, parentId: request.parentId } : null;
+  }
+  if (request.action === "hideEmpty")
+    return request.ids.length ? { type: "hideEmpty", ids: request.ids } : null;
+  const node = tree.nodes.find((entry) => entry.id === nodeId);
+  if (!node) return null;
+  switch (request.action) {
+    case "up":
+    case "down":
+      return adjacentMove(tree, node, request.action);
+    case "top":
+    case "bottom":
+      return edgeMove(tree, node, request.action);
+    case "hide":
+      return { type: "hide", id: node.id, hidden: !node.hidden };
+    case "rename":
+      return request.name.trim()
+        ? { type: "rename", id: node.id, name: request.name.trim() }
+        : null;
+    case "move":
+      return { type: "move", id: node.id, parentId: request.parentId };
+    case "merge":
+      return { type: "merge", sourceId: node.id, targetId: request.targetId };
+    case "split":
+      return {
+        type: "split",
+        id: node.id,
+        member: request.member,
+        newId: request.id,
+        name: request.name,
+      };
+    case "delete":
+      return { type: "removeFolder", id: node.id };
+  }
 }

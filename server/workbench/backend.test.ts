@@ -1,0 +1,377 @@
+import { mkdtempSync, rmSync, existsSync, readFileSync, symlinkSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PaseoApi, PaseoWorkspaceCreateOptions } from "@getpaseo/client";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { createOperationStore } from "./operations";
+import { createWorkbenchTools } from "./tools";
+import { createPersonalAI } from "./personal-ai";
+import { createSkillStore } from "./skills";
+import { createPersonalAISession } from "../../shared/workbench/ai";
+
+const homes: string[] = [];
+function home() {
+  const value = mkdtempSync(join(tmpdir(), "workbench-test-"));
+  homes.push(value);
+  return value;
+}
+afterEach(() => {
+  for (const value of homes.splice(0)) rmSync(value, { recursive: true, force: true });
+});
+function fakeApi() {
+  const workspace = {
+    id: "workspace",
+    projectId: "project",
+    directory: "/workspace",
+    refresh: vi.fn(async () => ({})),
+    setTitle: vi.fn(async () => ({ title: "知行空间" })),
+    agents: { create: vi.fn(async () => ({ id: "agent" })) },
+  };
+  const api = {
+    hosts: {
+      list: vi.fn(async () => ({ self: { serverId: "self" }, hosts: [] })),
+      client: vi.fn(),
+    },
+    workspaces: {
+      create: vi.fn(async (_options: PaseoWorkspaceCreateOptions) => workspace),
+      open: vi.fn(async () => workspace),
+      ref: vi.fn(() => workspace),
+    },
+    dispose: vi.fn(),
+  };
+  return { api: api as unknown as PaseoApi, raw: api, workspace };
+}
+describe("creation operations", () => {
+  it("rejects a provider without its model before saving or executing", () => {
+    expect(
+      createPersonalAISession.input.safeParse({ provider: "codex", title: "Test" }).success,
+    ).toBe(false);
+    const store = createOperationStore(join(home(), "operations.json"));
+    expect(() =>
+      store.prepare({
+        kind: "session",
+        serverId: "self",
+        workspaceId: "workspace",
+        provider: "codex",
+        name: "Test",
+      }),
+    ).toThrow("provider/model");
+    expect(store.list()).toEqual([]);
+  });
+  it("requires revision confirmation, executes exactly once and routes remote operations", async () => {
+    const store = createOperationStore(join(home(), "operations.json"));
+    const local = fakeApi();
+    const remote = fakeApi();
+    local.raw.hosts.client.mockResolvedValue(remote.api);
+    const plan = store.prepare({
+      kind: "workspace",
+      serverId: "remote",
+      name: "Work",
+      path: "/remote/path",
+      provider: "codex/test-model",
+    });
+    expect(remote.raw.workspaces.create).not.toHaveBeenCalled();
+    const first = store.execute(plan.id, plan.revision, local.api);
+    await expect(store.execute(plan.id, plan.revision, local.api)).rejects.toThrow("计划已更新");
+    const result = await first;
+    expect(result.status).toBe("completed");
+    expect(local.raw.workspaces.create).not.toHaveBeenCalled();
+    expect(remote.raw.workspaces.create).toHaveBeenCalledExactlyOnceWith({
+      idempotencyKey: plan.id,
+      source: { kind: "directory", path: "/remote/path", projectId: undefined },
+      title: "Work",
+      onEvent: expect.any(Function),
+    });
+    expect(remote.raw.dispose).toHaveBeenCalledOnce();
+    expect(result.result?.agentId).toBe("agent");
+  });
+  it("creates only a confirmed local project directory and keeps partial success", async () => {
+    const directory = join(home(), "new-project");
+    const store = createOperationStore(join(home(), "operations.json"));
+    const { api, workspace } = fakeApi();
+    workspace.agents.create.mockRejectedValue(new Error("provider unavailable"));
+    const plan = store.prepare({
+      kind: "project",
+      serverId: "self",
+      name: "Project",
+      path: directory,
+      provider: "codex/test-model",
+    });
+    expect(existsSync(directory)).toBe(false);
+    const result = await store.execute(plan.id, 0, api);
+    expect(existsSync(directory)).toBe(true);
+    expect(result.status).toBe("partial");
+    expect(result.result?.workspaceId).toBe("workspace");
+    await expect(store.execute(plan.id, result.revision, api)).rejects.toThrow("不能重复执行");
+  });
+  it("preserves uncertain outcome after restart and rejects edits without corrupting the draft", async () => {
+    const filename = join(home(), "operations.json");
+    const store = createOperationStore(filename);
+    const { api, raw } = fakeApi();
+    const plan = store.prepare({
+      kind: "workspace",
+      serverId: "self",
+      name: "Work",
+      path: "/existing",
+    });
+    expect(() => store.edit(plan.id, 0, { ...plan.payload, path: "relative" })).toThrow();
+    expect(store.get(plan.id).payload.path).toBe("/existing");
+    raw.workspaces.create.mockImplementation(() => new Promise(() => {}));
+    void store.execute(plan.id, 0, api);
+    await Promise.resolve();
+    const recovered = createOperationStore(filename).get(plan.id);
+    expect(recovered.status).toBe("unknown");
+  });
+  it("records a confirmed workspace event before a later failure", async () => {
+    const filename = join(home(), "operations.json");
+    const store = createOperationStore(filename);
+    const { api, raw } = fakeApi();
+    raw.workspaces.create.mockImplementation(async (options) => {
+      options.onEvent?.({
+        phase: "workspace_ready",
+        workspace: {
+          id: "created-workspace",
+          projectId: "created-project",
+          workspaceDirectory: "/existing",
+        },
+      } as never);
+      options.onEvent?.({ phase: "failed" } as never);
+      throw new Error("setup failed after workspace creation");
+    });
+    const plan = store.prepare({
+      kind: "workspace",
+      serverId: "self",
+      name: "Work",
+      path: "/existing",
+    });
+    const result = await store.execute(plan.id, 0, api);
+    expect(result.status).toBe("partial");
+    expect(result.result?.workspaceId).toBe("created-workspace");
+    expect(createOperationStore(filename).get(plan.id).result).toEqual(result.result);
+  });
+  it("distinguishes authoritative failure from a connection with unknown outcome", async () => {
+    const store = createOperationStore(join(home(), "operations.json"));
+    const { api, raw } = fakeApi();
+    raw.workspaces.create
+      .mockImplementationOnce(async (options) => {
+        options.onEvent?.({ phase: "failed" } as never);
+        throw new Error("directory does not exist");
+      })
+      .mockRejectedValueOnce(new Error("connection lost"));
+    const payload = {
+      kind: "workspace" as const,
+      serverId: "self",
+      name: "Work",
+      path: "/missing",
+    };
+    const failed = store.prepare(payload);
+    expect((await store.execute(failed.id, 0, api)).status).toBe("failed");
+    const unknown = store.prepare(payload);
+    const outcome = await store.execute(unknown.id, 0, api);
+    expect(outcome.status).toBe("unknown");
+    await expect(store.execute(unknown.id, outcome.revision, api)).rejects.toThrow("不能重复执行");
+  });
+  it("does not mutate on an offline target or execute a cancelled plan", async () => {
+    const store = createOperationStore(join(home(), "operations.json"));
+    const { api, raw } = fakeApi();
+    raw.hosts.client.mockRejectedValue(new Error("host offline"));
+    const payload = {
+      kind: "workspace" as const,
+      serverId: "remote",
+      name: "Work",
+      path: "/existing",
+    };
+    const offline = store.prepare(payload);
+    expect((await store.execute(offline.id, 0, api)).status).toBe("failed");
+    expect(raw.workspaces.create).not.toHaveBeenCalled();
+    const cancelled = store.prepare(payload);
+    const saved = store.cancel(cancelled.id, 0);
+    await expect(store.execute(cancelled.id, saved.revision, api)).rejects.toThrow("不能重复执行");
+    expect(raw.hosts.client).toHaveBeenCalledOnce();
+  });
+});
+
+describe("personal AI and skills", () => {
+  it("initializes once, loads real files, disables by moving, and injects MCP into actual sessions", async () => {
+    const directory = home();
+    const tools = createWorkbenchTools(createOperationStore(join(directory, "operations.json")));
+    const ai = createPersonalAI(directory, tools);
+    const { api, raw, workspace } = fakeApi();
+    expect(ai.read().initialized).toBe(false);
+    expect(existsSync(join(directory, "workbench"))).toBe(false);
+    const [a, b] = await Promise.all([ai.initialize(api), ai.initialize(api)]);
+    expect(a).toEqual(b);
+    expect(raw.workspaces.open).toHaveBeenCalledOnce();
+    expect(a.skills).toHaveLength(3);
+    ai.saveSkill({
+      slug: "my-skill",
+      name: "Mine",
+      description: "Test",
+      content: "Do the requested thing.",
+    });
+    const skill = ai.read().skills.find((item) => item.slug === "my-skill")!;
+    expect(readFileSync(skill.path, "utf8")).toContain("Do the requested thing.");
+    const disabled = ai
+      .toggleSkill("my-skill", false)
+      .skills.find((item) => item.slug === "my-skill")!;
+    expect(disabled.enabled).toBe(false);
+    expect(existsSync(skill.path)).toBe(false);
+    expect(existsSync(disabled.path)).toBe(true);
+    await ai.createSession(api, { provider: "codex/test-model", title: "Personal" });
+    expect(workspace.agents.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          provider: "codex/test-model",
+          mcpServers: { "toolkit-workbench": expect.objectContaining({ type: "http" }) },
+        }),
+      }),
+    );
+    await tools.close();
+  });
+  it("rejects symbolic skill directories", () => {
+    const directory = home();
+    mkdirSync(join(directory, ".agents"));
+    symlinkSync(home(), join(directory, ".agents", "skills"));
+    expect(() =>
+      createSkillStore(directory).save({
+        slug: "test",
+        name: "Test",
+        description: "Test",
+        content: "Content",
+      }),
+    ).toThrow("符号链接");
+  });
+});
+
+it("serves real MCP read/prepare/result tools with session isolation and no execution tool", async () => {
+  const operations = createOperationStore(join(home(), "operations.json"));
+  const tools = createWorkbenchTools(operations);
+  const capability = await tools.issue("personal-agent", async () => ({
+    memory: "Personal context",
+  }));
+  const client = new Client({ name: "workbench-test", version: "1" });
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(capability.config.url), {
+        requestInit: { headers: capability.config.headers },
+      }),
+    );
+    const listed = await client.listTools();
+    expect(listed.tools.map((tool) => tool.name)).toEqual([
+      "read_context",
+      "prepare_creation",
+      "get_creation_result",
+    ]);
+    const context = await client.callTool({ name: "read_context", arguments: {} });
+    expect(JSON.stringify(context)).toContain("Personal context");
+    const result = await client.callTool({
+      name: "prepare_creation",
+      arguments: { kind: "workspace", serverId: "self", name: "Draft", path: "/existing" },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(operations.list()[0].status).toBe("pending");
+    const other = operations.prepare(
+      { kind: "workspace", serverId: "self", name: "Other", path: "/other" },
+      "other-agent",
+    );
+    const denied = await client.callTool({
+      name: "get_creation_result",
+      arguments: { id: other.id },
+    });
+    expect(denied.isError).toBe(true);
+    const unauthenticated = await fetch(capability.config.url, { method: "POST", body: "{}" });
+    expect(unauthenticated.status).toBe(401);
+  } finally {
+    await client.close();
+    await tools.close();
+  }
+});
+
+it("adds context to native conversations only in the reserved workspace and binds plans to the real agent", async () => {
+  const directory = home();
+  const operations = createOperationStore(join(directory, "operations.json"));
+  const tools = createWorkbenchTools(operations);
+  const readContext = vi.fn(async (scope?: string) =>
+    scope === "project-ref" ? "CONFIRMED_PROJECT_MEMORY" : "CONFIRMED_PERSONAL_MEMORY",
+  );
+  const ai = createPersonalAI(directory, tools, readContext);
+  const { api, workspace, raw } = fakeApi();
+  const client = new Client({ name: "native-context-test", version: "1" });
+  try {
+    const state = await ai.initialize(api);
+    await ai.initialize(api);
+    expect(raw.workspaces.open).toHaveBeenCalledOnce();
+    expect(workspace.setTitle).toHaveBeenCalledWith("知行空间");
+    ai.setReference({
+      id: "project-ref",
+      name: "Reference",
+      instances: [{ serverId: "self", projectId: "ref", path: "/reference" }],
+    });
+    ai.saveSkill({
+      slug: "enabled",
+      name: "Enabled",
+      description: "Enabled",
+      content: "ENABLED_NATIVE_SKILL",
+    });
+    ai.saveSkill({
+      slug: "disabled",
+      name: "Disabled",
+      description: "Disabled",
+      content: "DISABLED_NATIVE_SKILL",
+    });
+    ai.toggleSkill("disabled", false);
+    const config = {
+      provider: "codex",
+      cwd: state.root,
+      model: "user-choice",
+      systemPrompt: "USER_INSTRUCTIONS",
+      mcpServers: { existing: { type: "stdio" as const, command: "test" } },
+    };
+    expect(
+      await ai.configureNative(api, { config: { ...config, cwd: state.root + "-other" } }),
+    ).toBeUndefined();
+    expect(
+      await ai.configureNative(api, { config: { ...config, internal: true } }),
+    ).toBeUndefined();
+    const prepared = await ai.configureNative(api, { config, env: { EXISTING: "kept" } });
+    expect(prepared!.config.model).toBe("user-choice");
+    expect(prepared!.config.mcpServers!.existing).toEqual(config.mcpServers.existing);
+    expect(prepared!.config.systemPrompt).toContain("USER_INSTRUCTIONS");
+    expect(prepared!.config.systemPrompt).toContain("ENABLED_NATIVE_SKILL");
+    expect(prepared!.config.systemPrompt).toContain("CONFIRMED_PROJECT_MEMORY");
+    expect(prepared!.config.systemPrompt).not.toContain("DISABLED_NATIVE_SKILL");
+    expect(prepared!.env.EXISTING).toBe("kept");
+    tools.bind(prepared!.env.TOOLKIT_WORKBENCH_CONTEXT, "actual-native-agent");
+    const mcp = prepared!.config.mcpServers!["toolkit-workbench"] as {
+      url: string;
+      headers: Record<string, string>;
+    };
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(mcp.url), {
+        requestInit: { headers: mcp.headers },
+      }),
+    );
+    const context = JSON.stringify(await client.callTool({ name: "read_context", arguments: {} }));
+    expect(context).toContain("CONFIRMED_PROJECT_MEMORY");
+    expect(context).toContain("/reference");
+    await client.callTool({
+      name: "prepare_creation",
+      arguments: { kind: "project", serverId: "self", path: "/future", name: "Future" },
+    });
+    expect(operations.list()[0]!.sourceAgentId).toBe("actual-native-agent");
+    expect(operations.list()[0]!.status).toBe("pending");
+    ai.setReference(undefined);
+    const updated = JSON.stringify(await client.callTool({ name: "read_context", arguments: {} }));
+    expect(updated).toContain("CONFIRMED_PERSONAL_MEMORY");
+    expect(updated).not.toContain("CONFIRMED_PROJECT_MEMORY");
+    workspace.refresh.mockResolvedValueOnce(null as never);
+    await expect(ai.initialize(api)).rejects.toThrow("已有记录已保留");
+    expect(raw.workspaces.open).toHaveBeenCalledOnce();
+    expect(ai.read().workspaceId).toBe(state.workspaceId);
+  } finally {
+    await client.close();
+    await tools.close();
+  }
+});

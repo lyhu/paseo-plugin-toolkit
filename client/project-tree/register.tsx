@@ -4,23 +4,13 @@ import {
   type PluginClientContext,
   type PluginScreenProps,
   type PluginSidebarItemProps,
-  type PluginHostSummary,
 } from "@getpaseo/plugin/client";
 import { settingsRpc } from "@getpaseo/plugin";
-import { SidebarRow } from "@getpaseo/plugin/client/ui";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { SidebarRow, Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import {
-  catalogCacheSchema,
-  createCatalog,
-  projectWorkspaces,
-  projectTreeChildren,
-  projectAvailable,
-  readHostCatalog,
-  type CatalogWorkspace,
-} from "./catalog";
-import { mountProjectSidebar, renderProjectSidebar } from "../web";
+import { catalogCacheSchema, createCatalog, readHostCatalog } from "./catalog";
+import { mountProjectSidebar, renderProjectSidebar, type WorkspaceMenuExtra } from "../web";
 import { loadDevicePreferences, readDevicePreference, writeDevicePreference } from "./device";
 import { tr, useLocale } from "../i18n";
 import { subscribeLocale } from "../chat-view/locale";
@@ -31,14 +21,19 @@ import {
   projectTreeSettings,
   projectTreeViewName,
 } from "../../shared/project-tree/contracts";
-import {
-  applyTreeCommand,
-  memberKey,
-  type TreeCommand,
-  type TreeNodeAction,
-} from "../../shared/project-tree/model";
-import { NodeActionsDialog } from "./node-actions";
-import { mountProjectTreeMenu } from "./native-menu";
+import { createWorkbenchSync } from "./sync";
+import { registerWorkbench } from "../workbench/register";
+import { useWorkbenchModel } from "../workbench/data";
+import { projectsInGroup, toggleFavoriteGroup } from "../workbench/groups";
+import type { WorkbenchProject } from "../workbench/types";
+import { groupSidebarSnapshot } from "./group-projection";
+import { mountSidebarViewSwitcher } from "./view-switcher";
+import { useKnowledgeSpaceHeader } from "../workbench/knowledge-space";
+import { FAVORITES_GROUP_NAME } from "../../shared/workbench/names";
+
+/** Lucide star, matching the workbench project card's favorite affordance. */
+const STAR_GLYPH =
+  "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z";
 
 export function registerProjectTree(client: PluginClientContext) {
   const catalog = createCatalog();
@@ -67,27 +62,21 @@ export function registerProjectTree(client: PluginClientContext) {
       cachedCatalogs = catalogs;
     });
   });
-  let mode = "custom";
-  let showHidden = false;
+  let mode: "custom" | "native" = "custom";
   const listeners = new Set<() => void>();
   const collapsed = new Set<string>();
-  const sessionLimits = new Map<string, number>();
-  const sessionVisibility = new Map<string, boolean>();
-  let showSessionsByDefault = false;
   let viewName = DEFAULT_PROJECT_TREE_VIEW_NAME;
   let configuration: Promise<void> | null = null;
   function configureSource(id: string) {
-    if (configuration) return configuration;
+    if (configuration && sourceId === id) return configuration;
     sourceId = id;
+    sync.reset();
+    collapsed.clear();
     configuration = (async () => {
-      await loadDevicePreferences(
-        ["cache", "view", "collapsed", "showHidden", "sessionProjects", "sessionVisibility"].map(
-          preferenceKey,
-        ),
-      );
-      if (stopped) return;
-      mode = readDevicePreference(preferenceKey("view")) === "native" ? "native" : "custom";
-      showHidden = readDevicePreference(preferenceKey("showHidden")) === "true";
+      await loadDevicePreferences(["cache", "navigationView", "collapsed"].map(preferenceKey));
+      if (stopped || sourceId !== id) return;
+      mode =
+        readDevicePreference(preferenceKey("navigationView")) === "native" ? "native" : "custom";
       let cached: ReturnType<typeof catalogCacheSchema.parse> | undefined;
       try {
         cached = catalogCacheSchema.parse(
@@ -103,39 +92,14 @@ export function registerProjectTree(client: PluginClientContext) {
       } catch {
         /* Ignore stale device preferences. */
       }
-      try {
-        const saved: unknown = JSON.parse(
-          readDevicePreference(preferenceKey("sessionProjects")) ?? "[]",
-        );
-        if (Array.isArray(saved))
-          for (const id of saved) if (typeof id === "string") sessionVisibility.set(id, true);
-        const overrides: unknown = JSON.parse(
-          readDevicePreference(preferenceKey("sessionVisibility")) ?? "[]",
-        );
-        if (Array.isArray(overrides))
-          for (const entry of overrides)
-            if (
-              Array.isArray(entry) &&
-              typeof entry[0] === "string" &&
-              typeof entry[1] === "boolean"
-            )
-              sessionVisibility.set(entry[0], entry[1]);
-      } catch {
-        /* Ignore stale device preferences. */
-      }
       catalog.restore(cached);
       for (const listener of listeners) listener();
     })();
     return configuration;
   }
-  function setMode(next: "custom" | "native") {
-    mode = next;
-    if (sourceId) writeDevicePreference(preferenceKey("view"), next);
-    for (const listener of listeners) listener();
-  }
-  function setShowHidden(next: boolean) {
-    showHidden = next;
-    if (sourceId) writeDevicePreference(preferenceKey("showHidden"), String(next));
+  function selectNavigation(view: "workbench" | "native") {
+    mode = view === "native" ? "native" : "custom";
+    if (sourceId) writeDevicePreference(preferenceKey("navigationView"), view);
     for (const listener of listeners) listener();
   }
   const subscribeMode = (listener: () => void) => {
@@ -145,218 +109,24 @@ export function registerProjectTree(client: PluginClientContext) {
     };
   };
   const cleanups = new Set<() => void>();
-  let busy = false;
-  let epoch = 0;
-  let pollUsers = 0;
-  let historyUsers = 0;
-  let pollGeneration = 0;
-  let pollTimer: ReturnType<typeof setTimeout> | undefined;
-  let liveHosts: readonly PluginHostSummary[] = [];
-  let syncing: Promise<void> | null = null;
-  function synchronize() {
-    if (syncing) return syncing;
-    const started = epoch;
-    syncing = (async () => {
-      const remote = await client.rpc(readProjectTree, {});
-      if (stopped || !enabled || !pollUsers || started !== epoch) return;
-      const projects = Object.values(catalog.read().catalogs).flatMap((entry) => entry.projects);
-      const projected = applyTreeCommand(remote, { type: "discover", projects });
-      const next =
-        JSON.stringify(remote.nodes) === JSON.stringify(projected.nodes)
-          ? remote
-          : await client.rpc(changeProjectTree, {
-              revision: remote.revision,
-              command: { type: "discover", projects },
-            });
-      if (!stopped && enabled && pollUsers && started === epoch) catalog.organize(next);
-    })().finally(() => {
-      syncing = null;
-    });
-    return syncing;
-  }
-  async function run(command: TreeCommand) {
-    if (busy || !catalog.read().editable)
-      throw new Error(tr("配置 Host 当前不可编辑，请等待恢复连接。"));
-    busy = true;
-    catalog.connection(false);
-    try {
-      if (syncing) await syncing;
-      if (stopped || !enabled) throw new Error(tr("工作台已停用。"));
-      const next = await client.rpc(changeProjectTree, {
-        revision: catalog.read().tree.revision,
-        command,
-      });
-      if (!stopped && enabled) {
-        catalog.organize(next);
-        catalog.connection(true);
-      }
-    } catch (error) {
-      if (!stopped && enabled)
-        catalog.connection(false, error instanceof Error ? error.message : String(error));
-      throw error;
-    } finally {
-      busy = false;
-    }
-  }
-  async function createWorkspace(
-    groupId: string,
-    serverId: string,
-    path: string,
-    title: string,
-    mergeId?: string,
-  ) {
-    if (!catalog.read().editable) throw new Error(tr("配置 Host 当前不可编辑，请等待恢复连接。"));
-    const api = getPaseoClient(serverId);
-    catalog.update(serverId, await readHostCatalog(api, serverId));
-    await synchronize();
-    if (stopped || !enabled || !catalog.read().editable)
-      throw new Error(tr("工作台已停用或配置 Host 已断开。"));
-    const known = new Set([
-      ...Object.values(catalog.read().catalogs)
-        .flatMap((entry) => entry.projects)
-        .map(memberKey),
-      ...catalog
-        .read()
-        .tree.nodes.flatMap((node) => (node.kind === "project" ? node.members.map(memberKey) : [])),
-    ]);
-    const projects = catalog.read().catalogs[serverId]?.projects ?? [];
-    path = path.trim();
-    const normalizedPath = path.replace(/\/+$/, "");
-    const existing = projects
-      .filter(
-        (project) =>
-          normalizedPath === project.root.replace(/\/+$/, "") ||
-          normalizedPath.startsWith(`${project.root.replace(/\/+$/, "")}/`),
-      )
-      .sort((a, b) => b.root.length - a.root.length)[0];
-    const workspace = await api.workspaces.create({
-      ...(title ? { title } : {}),
-      source: { kind: "directory", path, ...(existing ? { projectId: existing.projectId } : {}) },
-    });
-    const current = await workspace.refresh();
-    if (!current) throw new Error(tr("工作区已创建，请刷新后检查归属。"));
-    if (stopped || !enabled) return;
-    catalog.update(serverId, await readHostCatalog(api, serverId));
-    await synchronize();
-    const member = { serverId, projectId: current.projectId };
-    const group = catalog
-      .read()
-      .tree.nodes.find(
-        (node) =>
-          node.kind === "project" &&
-          node.members.some((entry) => memberKey(entry) === memberKey(member)),
-      );
-    if (!known.has(memberKey(member)))
-      await run({ type: "placeNewProject", targetId: groupId, member });
-    else if (group && group.id !== groupId) {
-      if (group.id !== mergeId)
-        throw new Error(tr("工作区已创建，但实际项目归属发生变化；请通过项目节点的菜单确认合并。"));
-      await run({ type: "merge", sourceId: group.id, targetId: groupId });
-    }
-  }
-  function sessionDemand(serverId: string) {
-    const limits = new Map<string, number>();
-    if (!historyUsers || mode !== "custom") return limits;
-    const snapshot = catalog.read();
-    for (const node of snapshot.tree.nodes) {
-      if (node.kind !== "project" || (node.hidden && !showHidden)) continue;
-      let current: (typeof snapshot.tree.nodes)[number] | undefined = node;
-      let closed = false;
-      while (current) {
-        if (collapsed.has(current.id) || (current.hidden && !showHidden)) {
-          closed = true;
-          break;
-        }
-        current = snapshot.tree.nodes.find((entry) => entry.id === current!.parentId);
-      }
-      if (closed) continue;
-      for (const workspace of projectWorkspaces(snapshot, node.members, node.id)) {
-        const visible =
-          sessionVisibility.get(`${workspace.serverId}:${workspace.id}`) ??
-          sessionVisibility.get(node.id) ??
-          showSessionsByDefault;
-        if (visible && workspace.serverId === serverId)
-          limits.set(
-            workspace.id,
-            sessionLimits.get(JSON.stringify([serverId, workspace.id])) ?? 5,
-          );
-      }
-    }
-    return limits;
-  }
-  let polling = false;
-  let refreshRequested = false;
-  async function refreshCatalog() {
-    if (stopped || !enabled || !pollUsers) return;
-    if (polling) {
-      refreshRequested = true;
-      return;
-    }
-    polling = true;
-    clearTimeout(pollTimer);
-    const generation = pollGeneration;
-    const active = () => !stopped && enabled && pollUsers > 0 && generation === pollGeneration;
-    const results = await Promise.all(
-      liveHosts
-        .filter((host) => host.status === "online")
-        .map(async (host) => {
-          try {
-            const limits = sessionDemand(host.serverId);
-            const result = await readHostCatalog(getPaseoClient(host.serverId), host.serverId, {
-              sessions: limits.size > 0,
-              sessionLimits: limits,
-              active: () =>
-                active() &&
-                liveHosts.some(
-                  (entry) => entry.serverId === host.serverId && entry.status === "online",
-                ),
-            });
-            return { serverId: host.serverId, result };
-          } catch (error) {
-            return { serverId: host.serverId, error };
-          }
-        }),
-    );
-    if (active())
-      catalog.batch(() => {
-        for (const entry of results) {
-          if (entry.result) catalog.update(entry.serverId, entry.result);
-          else catalog.error(entry.serverId, entry.error);
-        }
-      });
-    if (active() && !busy) {
-      try {
-        await synchronize();
-        if (active() && !busy) catalog.connection(true);
-      } catch (error) {
-        if (active())
-          catalog.connection(false, error instanceof Error ? error.message : String(error));
-      }
-    }
-    polling = false;
-    if (!stopped && enabled && pollUsers) {
-      const delay = refreshRequested || !active() ? 0 : 5000;
-      refreshRequested = false;
-      pollTimer = setTimeout(() => {
-        void refreshCatalog();
-      }, delay);
-    }
-  }
-  function useCatalog(configurationHost: string, history = false) {
+  const sync = createWorkbenchSync(catalog, {
+    readTree: () => client.rpc(readProjectTree, {}),
+    changeTree: (revision, command) => client.rpc(changeProjectTree, { revision, command }),
+    readHost: (serverId, demand) => readHostCatalog(getPaseoClient(serverId), serverId, demand),
+    sessionDemand: () => new Map(),
+  });
+  const refreshCatalog = () => sync.refresh();
+  function useCatalog(configurationHost: string, demand: boolean | "all" = false) {
     const hosts = useHosts();
     const signature = JSON.stringify(hosts);
     useEffect(() => {
-      catalog.hosts(hosts);
-      liveHosts = hosts;
+      sync.hosts(hosts);
       let alive = true;
-      let acquired = false;
+      let release: (() => void) | undefined;
       void configureSource(configurationHost)
         .then(() => {
           if (!alive || stopped) return;
-          acquired = true;
-          pollUsers += 1;
-          if (history) historyUsers += 1;
-          if (pollUsers === 1) void refreshCatalog();
+          release = sync.acquire(demand);
         })
         .catch((error: unknown) => {
           if (alive)
@@ -364,74 +134,105 @@ export function registerProjectTree(client: PluginClientContext) {
         });
       const stop = () => {
         alive = false;
-        if (acquired) {
-          pollUsers -= 1;
-          if (history) historyUsers -= 1;
-          if (!pollUsers) {
-            pollGeneration += 1;
-            epoch += 1;
-            clearTimeout(pollTimer);
-          }
-        }
+        release?.();
         cleanups.delete(stop);
       };
       cleanups.add(stop);
       return stop;
       // Host summaries are immutable values; avoid restarting demand for a new array identity.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [signature, configurationHost, history]);
+    }, [signature, configurationHost, demand]);
     return useSyncExternalStore(catalog.subscribe, catalog.read, catalog.read);
   }
   function Sidebar(props: PluginSidebarItemProps) {
     useLocale();
     const snapshot = useCatalog(props.host.id, props.layout.platform === "web");
+    const model = useWorkbenchModel(client, props, snapshot, refreshCatalog);
+    useKnowledgeSpaceHeader(client, model.ai);
+    const latestModel = useRef(model);
+    latestModel.current = model;
+    const displayBusy = useRef(false);
+    const [displayPending, setDisplayPending] = useState(false),
+      [displayError, setDisplayError] = useState("");
     const selectedMode = useSyncExternalStore(
       subscribeMode,
       () => mode,
       () => mode,
     );
-    const selectedHidden = useSyncExternalStore(
-      subscribeMode,
-      () => showHidden,
-      () => showHidden,
-    );
-    const selectedSessionsDefault = useSyncExternalStore(
-      subscribeMode,
-      () => showSessionsByDefault,
-      () => showSessionsByDefault,
-    );
-    const selectedViewName = useSyncExternalStore(
-      subscribeMode,
-      () => viewName,
-      () => viewName,
-    );
+    const projected = groupSidebarSnapshot(snapshot, model.preferences, model.projects);
     const mounted = useRef<ReturnType<typeof mountProjectSidebar> | null>(null);
+    const selector = useRef<ReturnType<typeof mountSidebarViewSwitcher> | null>(null);
+    const selectorOptions = {
+      view: selectedMode === "native" ? ("native" as const) : ("workbench" as const),
+      theme: props.theme,
+      select: selectNavigation,
+    };
     const render = (container: Parameters<typeof renderProjectSidebar>[0]) =>
       renderProjectSidebar(container, {
-        snapshot,
+        snapshot: { ...projected, organizationError: displayError || projected.organizationError },
         theme: props.theme,
+        readOnly: true,
+        knowledgeSpace: {
+          open: () => props.openScreen({ screenId: "workbench", params: { page: "ai" } }),
+        },
         collapsed,
-        sessionLimits,
-        sessionVisibility,
-        loadSessions() {
-          void refreshCatalog();
-        },
-        showSessionsByDefault: selectedSessionsDefault,
-        viewName: selectedViewName,
-        toggleSessions(id) {
-          sessionVisibility.set(id, !(sessionVisibility.get(id) ?? showSessionsByDefault));
-          writeDevicePreference(
-            preferenceKey("sessionVisibility"),
-            JSON.stringify([...sessionVisibility]),
+        workspaceMenuExtras(workspace) {
+          const extras: WorkspaceMenuExtra[] = [];
+          const current = latestModel.current;
+          const project = current.projects.find((candidate) =>
+            candidate.instances.some(
+              (instance) =>
+                instance.serverId === workspace.serverId &&
+                instance.projectId === workspace.projectId,
+            ),
           );
-          mounted.current?.update(render);
-          void refreshCatalog();
+          if (project && !project.system) {
+            const favorited = current.preferences.favorites.includes(project.id);
+            extras.push({
+              key: "favorite-project",
+              label: tr(favorited ? "取消收藏" : "收藏项目"),
+              glyph: STAR_GLYPH,
+              disabled: !current.editable,
+              action: () => {
+                void toggleFavoriteProject(project.id, favorited);
+              },
+            });
+          }
+          return extras;
         },
-        openSession(workspace, session) {
-          props.openScreen({
-            screenId: "project-tree",
-            params: { serverId: workspace.serverId, agentId: session.id },
-          });
+        viewName: tr("工作台视图"),
+        projectSourceId: (id) => projected.projectSources.get(id) ?? id,
+        isFavoriteProject: (id) =>
+          model.preferences.favorites.includes(projected.projectSources.get(id) ?? id),
+        groupDisplay(id) {
+          const groupId = projected.groupIds.get(id),
+            group = model.preferences.tabs.find((tab) => tab.id === groupId);
+          if (!group) return;
+          return {
+            favorite: group.kind === "favorites",
+            workspacesOnly: !!group.workspacesOnly,
+            disabled: !model.editable || displayPending,
+            toggle() {
+              if (displayBusy.current) return;
+              const current = latestModel.current,
+                selected = current.preferences.tabs.find((tab) => tab.id === groupId);
+              if (!selected) return;
+              displayBusy.current = true;
+              setDisplayPending(true);
+              setDisplayError("");
+              void current
+                .savePreferences({
+                  tabs: current.preferences.tabs.map((tab) =>
+                    tab.id === groupId ? { ...tab, workspacesOnly: !selected.workspacesOnly } : tab,
+                  ),
+                })
+                .catch((error) => setDisplayError(String(error)))
+                .finally(() => {
+                  displayBusy.current = false;
+                  setDisplayPending(false);
+                });
+            },
+          };
         },
         toggle(id) {
           if (collapsed.has(id)) collapsed.delete(id);
@@ -445,26 +246,8 @@ export function registerProjectTree(client: PluginClientContext) {
             params: { serverId: workspace.serverId, workspaceId: workspace.id },
           });
         },
-        run,
         native() {
-          setMode("native");
-        },
-        showHidden: selectedHidden,
-        toggleHidden() {
-          setShowHidden(!selectedHidden);
-        },
-        move(id, parentId, beforeId) {
-          void run({ type: "move", id, parentId, ...(beforeId ? { beforeId } : {}) }).catch(
-            () => {},
-          );
-        },
-        moveWorkspace(workspace, targetId) {
-          void run({
-            type: "moveWorkspace",
-            serverId: workspace.serverId,
-            workspaceId: workspace.id,
-            targetId,
-          }).catch(() => {});
+          selectNavigation("native");
         },
         renameWorkspace(workspace) {
           props.openScreen({
@@ -478,13 +261,42 @@ export function registerProjectTree(client: PluginClientContext) {
           });
         },
       });
+    async function toggleFavoriteProject(projectId: string, favorited: boolean) {
+      const current = latestModel.current;
+      if (!current.editable) return;
+      setDisplayError("");
+      const update = toggleFavoriteGroup(
+        current.preferences,
+        projectId,
+        favorited,
+        tr(FAVORITES_GROUP_NAME),
+      );
+      try {
+        await current.savePreferences(update);
+      } catch (error) {
+        setDisplayError(String(error));
+        return;
+      }
+      if (!favorited) {
+        const favoritesTab = update.tabs.find((tab) => tab.kind === "favorites");
+        const groupId = favoritesTab && JSON.stringify(["workbench-group", favoritesTab.id]);
+        if (groupId && collapsed.delete(groupId)) {
+          writeDevicePreference(preferenceKey("collapsed"), JSON.stringify([...collapsed]));
+          mounted.current?.update(render);
+        }
+      }
+    }
     useEffect(() => {
       if (props.layout.platform !== "web" || !snapshot.initialized) return;
-      const mount = mountProjectSidebar(render);
+      const mount = mountProjectSidebar(render),
+        bar = mountSidebarViewSwitcher(selectorOptions);
       mounted.current = mount;
+      selector.current = bar;
       const cleanup = () => {
         mount.dispose();
+        bar.dispose();
         mounted.current = null;
+        selector.current = null;
         cleanups.delete(cleanup);
       };
       cleanups.add(cleanup);
@@ -493,29 +305,14 @@ export function registerProjectTree(client: PluginClientContext) {
     useEffect(() => {
       mounted.current?.setEnabled(selectedMode === "custom");
       mounted.current?.update(render);
+      selector.current?.update(selectorOptions);
     });
-    useEffect(() => {
-      if (props.layout.platform !== "web" || !snapshot.initialized) return;
-      const remove = mountProjectTreeMenu({
-        title: selectedViewName,
-        theme: props.theme,
-        open: () => setMode("custom"),
-      });
-      const cleanup = () => {
-        remove();
-        cleanups.delete(cleanup);
-      };
-      cleanups.add(cleanup);
-      return cleanup;
-    }, [props.layout.platform, props.theme, snapshot.initialized]);
     if (props.layout.platform === "web") return null;
     return (
       <SidebarRow
         icon="FolderTree"
-        label={selectedViewName}
-        onPress={() => {
-          props.openScreen({ screenId: "project-tree" });
-        }}
+        label={tr(selectedMode === "native" ? "原生视图" : "工作台视图")}
+        onPress={() => props.openScreen({ screenId: "project-tree" })}
       />
     );
   }
@@ -589,42 +386,26 @@ export function registerProjectTree(client: PluginClientContext) {
   function Screen(props: PluginScreenProps) {
     useLocale();
     const snapshot = useCatalog(props.host.id);
-    const selectedViewName = useSyncExternalStore(
+    const model = useWorkbenchModel(client, props, snapshot, refreshCatalog);
+    const selectedMode = useSyncExternalStore(
       subscribeMode,
-      () => viewName,
-      () => viewName,
+      () => mode,
+      () => mode,
     );
-    const selectedHidden = useSyncExternalStore(
-      subscribeMode,
-      () => showHidden,
-      () => showHidden,
-    );
+    const [menuGroup, setMenuGroup] = useState<string | null>(null);
+    const [displayPending, setDisplayPending] = useState(false);
+    const [closed, setClosed] = useState(new Set<string>());
     const [error, setError] = useState("");
-    const [closed, setClosed] = useState(() => new Set(collapsed));
-    useEffect(() => {
-      if (snapshot.initialized) setClosed(new Set(collapsed));
-    }, [snapshot.initialized]);
-    const [intent, setIntent] = useState<{
-      nodeId?: string;
-      action: TreeNodeAction;
-      key: number;
-    } | null>(null);
     const { serverId, workspaceId, agentId } = props.params;
-    const open = (workspace: Pick<CatalogWorkspace, "serverId" | "id">) => {
-      try {
-        if (!props.navigation) throw new Error(tr("当前客户端不支持工作区导航，请更新 Paseo。"));
-        props.navigation.openWorkspace({ serverId: workspace.serverId, workspaceId: workspace.id });
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      }
-    };
     useEffect(() => {
-      if (serverId && agentId) {
-        if (props.navigation) props.navigation.openAgent({ serverId, agentId });
-        else setError(tr("当前客户端不支持工作区导航，请更新 Paseo。"));
-      } else if (serverId && workspaceId) open({ serverId, id: workspaceId });
+      try {
+        if (serverId && agentId) props.navigation?.openAgent({ serverId, agentId });
+        else if (serverId && workspaceId)
+          props.navigation?.openWorkspace({ serverId, workspaceId });
+      } catch (cause) {
+        setError(String(cause));
+      }
     }, [serverId, workspaceId, agentId]);
-    const colors = props.theme.colors;
     if (serverId && props.params.renameWorkspaceId)
       return (
         <WorkspaceRename
@@ -635,165 +416,189 @@ export function registerProjectTree(client: PluginClientContext) {
           theme={props.theme}
         />
       );
-    const renderNodes = (parentId: string | null, depth: number): React.ReactNode =>
-      projectTreeChildren(snapshot, parentId)
-        .filter(
-          (node) =>
-            (!node.hidden || selectedHidden) &&
-            (node.kind === "folder" || projectAvailable(snapshot, node.members, node.id)),
+    const colors = props.theme.colors;
+    const renderWorkspaces = (project: WorkbenchProject, key: string) =>
+      model.workspaces
+        .filter((workspace) =>
+          project.workspaceRefs
+            ? project.workspaceRefs.some(
+                (ref) => ref.serverId === workspace.serverId && ref.id === workspace.id,
+              )
+            : project.instances.some(
+                (instance) =>
+                  instance.serverId === workspace.serverId &&
+                  instance.projectId === workspace.projectId,
+              ),
         )
-        .map((node) => (
-          <View key={node.id} style={{ gap: 6, paddingLeft: depth ? 12 : 0 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36 }}>
-              <Pressable
-                accessibilityLabel={node.name}
-                onPress={() =>
-                  setClosed((previous) => {
-                    const next = new Set(previous);
-                    if (next.has(node.id)) next.delete(node.id);
-                    else next.add(node.id);
-                    collapsed.clear();
-                    for (const id of next) collapsed.add(id);
-                    writeDevicePreference(preferenceKey("collapsed"), JSON.stringify([...next]));
-                    return next;
-                  })
-                }
-                style={{
-                  flex: 1,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingVertical: 8,
-                }}
-              >
-                <Icon
-                  name={closed.has(node.id) ? "ChevronRight" : "ChevronDown"}
-                  size={14}
-                  color={colors.foregroundMuted}
-                />
-                <Icon
-                  name={node.kind === "folder" ? "Folder" : "FolderGit2"}
-                  size={18}
-                  color={colors.accent}
-                />
-                <Text
-                  numberOfLines={1}
-                  style={{ color: colors.foreground, fontWeight: "500", flex: 1 }}
-                >
-                  {node.name}
-                </Text>
-              </Pressable>
-              <Pressable
-                disabled={!snapshot.editable}
-                accessibilityLabel={`${tr("新建 workspace")} · ${node.name}`}
-                style={{ padding: 6 }}
-                onPress={() =>
-                  setIntent({
-                    nodeId: node.id,
-                    action: node.kind === "folder" ? "folder" : "new",
-                    key: Date.now(),
-                  })
-                }
-              >
-                <Icon name="Plus" size={16} color={colors.foregroundMuted} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel={`${tr("项目操作")} · ${node.name}`}
-                style={{ padding: 6 }}
-                onPress={() => setIntent({ nodeId: node.id, action: "menu", key: Date.now() })}
-              >
-                <Icon name="MoreVertical" size={16} color={colors.foregroundMuted} />
-              </Pressable>
-            </View>
-            {!closed.has(node.id) &&
-              (node.kind === "folder"
-                ? renderNodes(node.id, depth + 1)
-                : projectWorkspaces(snapshot, node.members, node.id).map((workspace) => {
-                    const host = snapshot.hosts.find(
-                      (entry) => entry.serverId === workspace.serverId,
-                    );
-                    const online = host?.status === "online";
-                    return (
-                      <Pressable
-                        key={`${workspace.serverId}:${workspace.id}`}
-                        disabled={!online}
-                        onPress={() => open(workspace)}
-                        style={{ padding: 10, opacity: online ? 1 : 0.5 }}
-                      >
-                        <Text style={{ color: colors.foreground }}>{workspace.name}</Text>
-                        <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>
-                          {host?.label ?? workspace.serverId}
-                          {online ? "" : ` · ${tr("离线")}`}
-                        </Text>
-                      </Pressable>
-                    );
-                  }))}
-          </View>
+        .map((workspace) => (
+          <Pressable
+            key={JSON.stringify([key, workspace.serverId, workspace.id])}
+            disabled={
+              !props.navigation ||
+              !model.hosts.some(
+                (host) =>
+                  host.id === workspace.serverId &&
+                  (host.status === "online" || host.status === "connected"),
+              )
+            }
+            onPress={() =>
+              props.navigation?.openWorkspace({
+                serverId: workspace.serverId,
+                workspaceId: workspace.id,
+              })
+            }
+            style={{ padding: 10 }}
+          >
+            <Text style={{ color: colors.foreground }}>{workspace.name}</Text>
+            <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>
+              {model.hosts.find((host) => host.id === workspace.serverId)?.name}
+            </Text>
+          </Pressable>
         ));
+    const renderProject = (project: WorkbenchProject, key: string) => (
+      <View key={key} style={{ gap: 6 }}>
+        <Pressable
+          onPress={() =>
+            setClosed((previous) => {
+              const next = new Set(previous);
+              if (next.has(key)) next.delete(key);
+              else next.add(key);
+              return next;
+            })
+          }
+        >
+          <Text style={{ color: colors.foreground, fontSize: 16 }}>
+            {closed.has(key) ? "›" : "⌄"} {project.name}
+          </Text>
+        </Pressable>
+        {!closed.has(key) && renderWorkspaces(project, key)}
+      </View>
+    );
     return (
       <ScrollView
         style={{ flex: 1, backgroundColor: colors.surface0 }}
-        contentContainerStyle={{ padding: props.layout.compact ? 16 : 24, gap: 12 }}
+        contentContainerStyle={{ padding: 16, gap: 12 }}
       >
-        <Text style={{ color: colors.foreground, fontSize: 22, fontWeight: "600" }}>
-          {selectedViewName}
-        </Text>
-        {props.layout.platform === "web" && (
-          <View style={{ flexDirection: "row", gap: 16 }}>
-            <Pressable onPress={() => setMode("custom")}>
-              <Text style={{ color: colors.accent }}>{tr("自定义视图")}</Text>
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          {(
+            [
+              ["workbench", "工作台视图"],
+              ["native", "原生视图"],
+            ] as const
+          ).map(([view, name]) => (
+            <Pressable
+              key={view}
+              accessibilityRole="button"
+              accessibilityLabel={tr(name)}
+              onPress={() => selectNavigation(view)}
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 8,
+                backgroundColor:
+                  (view === "native") === (selectedMode === "native")
+                    ? colors.surface2
+                    : colors.surface1,
+              }}
+            >
+              <Text style={{ color: colors.foreground }}>{tr(name)}</Text>
             </Pressable>
-            <Pressable onPress={() => setMode("native")}>
-              <Text style={{ color: colors.accent }}>{tr("原生视图")}</Text>
-            </Pressable>
-          </View>
+          ))}
+        </View>
+        {selectedMode === "custom" && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={tr("知行空间")}
+            onPress={() => client.openScreen({ screenId: "workbench", params: { page: "ai" } })}
+            style={{ padding: 12, borderRadius: 8, backgroundColor: colors.surface1 }}
+          >
+            <Text style={{ color: colors.foreground, fontWeight: "600" }}>{tr("知行空间")}</Text>
+          </Pressable>
         )}
-        {error ? <Text style={{ color: colors.foreground }}>{error}</Text> : null}
-        <Pressable onPress={() => setShowHidden(!selectedHidden)}>
-          <Text style={{ color: colors.accent }}>
-            {selectedHidden ? "✓ " : ""}
-            {tr("显示隐藏节点")}
-          </Text>
-        </Pressable>
-        <Text style={{ color: colors.foregroundMuted }}>
-          {tr("配置 Host")}: {props.host.label}
-        </Text>
-        <Text style={{ color: colors.foregroundMuted }}>
-          {tr("所有客户端请选择同一配置 Host；仅在该 Host 启用工作台。")}
-        </Text>
-        {snapshot.organizationError ? (
-          <Text style={{ color: colors.foregroundMuted }}>{snapshot.organizationError}</Text>
-        ) : null}
-        <Pressable onPress={() => setIntent({ action: "folder", key: Date.now() })}>
-          <Text style={{ color: colors.accent }}>{tr("新建分类文件夹")}</Text>
-        </Pressable>
-        {intent && (
-          <NodeActionsDialog
-            key={intent.key}
-            nodeId={intent.nodeId}
-            initialAction={intent.action}
-            snapshot={snapshot}
-            theme={props.theme}
-            run={run}
-            createWorkspace={createWorkspace}
-            onClose={() => setIntent((current) => (current?.key === intent.key ? null : current))}
-          />
-        )}
-        {snapshot.hosts.map((host) =>
-          snapshot.errors[host.serverId] ? (
-            <Text key={host.serverId} style={{ color: colors.foregroundMuted }}>
-              {host.label}: {snapshot.errors[host.serverId]}
-            </Text>
-          ) : null,
-        )}
-        {renderNodes(null, 0)}
-        {!snapshot.tree.nodes.length && (
-          <Text style={{ color: colors.foregroundMuted }}>{tr("正在读取项目…")}</Text>
-        )}
+        {error && <Text style={{ color: colors.statusDanger }}>{error}</Text>}
+        {selectedMode === "native"
+          ? model.nativeProjects.map((project) => renderProject(project, project.id))
+          : model.preferences.tabs
+              .filter((group) => group.id !== "all")
+              .map((group) => {
+                const key = JSON.stringify(["workbench-group", group.id]);
+                const members = projectsInGroup(model.projects, model.preferences, group);
+                return (
+                  <View key={key} style={{ gap: 8 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Pressable
+                        style={{ flex: 1 }}
+                        onPress={() =>
+                          setClosed((previous) => {
+                            const next = new Set(previous);
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
+                            return next;
+                          })
+                        }
+                      >
+                        <Text style={{ color: colors.foreground, fontSize: 17 }}>
+                          {closed.has(key) ? "›" : "⌄"} {group.name} ({members.length})
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel={`${tr("分组操作")} · ${group.name}`}
+                        onPress={() => setMenuGroup(menuGroup === group.id ? null : group.id)}
+                      >
+                        <Icon name="MoreHorizontal" size={18} color={colors.foregroundMuted} />
+                      </Pressable>
+                    </View>
+                    {menuGroup === group.id && (
+                      <Pressable
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: !!group.workspacesOnly }}
+                        disabled={displayPending || !model.editable}
+                        style={{ padding: 10, backgroundColor: colors.surface1 }}
+                        onPress={() => {
+                          setDisplayPending(true);
+                          setError("");
+                          setMenuGroup(null);
+                          void model
+                            .savePreferences({
+                              tabs: model.preferences.tabs.map((tab) =>
+                                tab.id === group.id
+                                  ? { ...tab, workspacesOnly: !group.workspacesOnly }
+                                  : tab,
+                              ),
+                            })
+                            .catch((error) => setError(String(error)))
+                            .finally(() => setDisplayPending(false));
+                        }}
+                      >
+                        <Text style={{ color: colors.foreground }}>
+                          {group.workspacesOnly ? "✓ " : ""}
+                          {tr("只显示工作空间")}
+                        </Text>
+                      </Pressable>
+                    )}
+                    {!closed.has(key) && (
+                      <View style={{ paddingLeft: 14, gap: 10 }}>
+                        {members.map((project) =>
+                          group.workspacesOnly ? (
+                            <View key={project.id}>
+                              {renderWorkspaces(project, JSON.stringify([group.id, project.id]))}
+                            </View>
+                          ) : (
+                            renderProject(project, JSON.stringify([group.id, project.id]))
+                          ),
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
       </ScrollView>
     );
   }
   const register = () => [
+    registerWorkbench(client, (props) =>
+      useWorkbenchModel(client, props, useCatalog(props.host.id, "all"), refreshCatalog),
+    ),
     client.addScreen({ id: "project-tree", title: viewName, Component: Screen }),
     client.addSidebarHeaderItem({
       id: "project-tree",
@@ -814,17 +619,13 @@ export function registerProjectTree(client: PluginClientContext) {
         settings.status === "ready" ? projectTreeSettings.schema.parse(settings.values) : null;
       const next = values?.enabled ?? false;
       const nextViewName = projectTreeViewName(values?.viewName);
-      if (
-        values &&
-        (values.showSessionsByDefault !== showSessionsByDefault || nextViewName !== viewName)
-      ) {
-        showSessionsByDefault = values.showSessionsByDefault;
+      if (values && nextViewName !== viewName) {
         viewName = nextViewName;
         for (const listener of listeners) listener();
       }
       if (next !== enabled || (enabled && viewName !== registeredViewName)) {
-        if (next !== enabled) epoch += 1;
         enabled = next;
+        sync.setEnabled(next);
         for (const remove of registrations) await remove();
         registrations = !stopped && enabled ? register() : [];
         registeredViewName = viewName;
@@ -845,7 +646,7 @@ export function registerProjectTree(client: PluginClientContext) {
   });
   return async () => {
     stopped = true;
-    epoch += 1;
+    sync.dispose();
     clearTimeout(settingsTimer);
     localeCleanup();
     removeCache();

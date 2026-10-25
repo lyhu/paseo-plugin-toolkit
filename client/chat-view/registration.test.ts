@@ -117,11 +117,13 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   });
   const quickRemove = vi.fn();
   const quickPills = vi.fn(() => ({ remove: quickRemove, update: vi.fn() }));
+  const archivePills = vi.fn(() => ({ remove: vi.fn(), update: vi.fn() }));
   const removeSettings = vi.fn();
   const addSettingsScreen = vi.fn(() => removeSettings);
   const addSlashCommand = vi.fn(() => vi.fn());
   const cleanup = exports.default({
     addWorkspacePanel: vi.fn(() => vi.fn()),
+    addHeaderButton: vi.fn(() => ({ remove: vi.fn(), update: vi.fn() })),
     addCommandCenterItem: vi.fn(() => vi.fn()),
     openSettings: vi.fn(),
     addSettingsScreen,
@@ -154,10 +156,20 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     addTimelineTransformer,
     addTimelineRenderer,
     addComposerPill: (pill) =>
-      pill.id.startsWith("quick-questions-") ? quickPills(pill) : addComposerPill(pill),
+      pill.id.startsWith("quick-questions-")
+        ? quickPills(pill)
+        : pill.id.startsWith("session-archive-")
+          ? archivePills(pill)
+          : addComposerPill(pill),
     addSlashCommand,
   });
   await Promise.resolve();
+  expect(archivePills).toHaveBeenCalledWith(
+    expect.objectContaining({
+      agentId: "active",
+      button: expect.objectContaining({ label: "归档新建" }),
+    }),
+  );
   expect(addComposerPill).toHaveBeenCalledTimes(1);
   expect(addComposerPill.mock.calls[0]![0].agentId).toBe("active");
   expect(
@@ -169,19 +181,22 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   expect(
     mermaid.transform({ item: { text: "```mermaid\nflowchart TD\nA --> B\n```" } }).items[0].kind,
   ).toBe("chat-view-mermaid-diagram");
-  expect(addSettingsScreen).toHaveBeenCalledTimes(2);
+  expect(addSettingsScreen).toHaveBeenCalledTimes(3);
+  expect(addSettingsScreen).toHaveBeenCalledWith(expect.objectContaining({ id: "session-title" }));
   expect(clientBundle).not.toContain("对话增强");
   expect(clientBundle).not.toContain("复制回答");
-  const page = addSettingsScreen.mock.calls[1]![0].Component({});
-  expect(addSettingsScreen.mock.calls[1]![0].title).toBe("功能设置");
-  const SettingsPage = addSettingsScreen.mock.calls[1]![0].Component;
+  const settingsRegistration = addSettingsScreen.mock.calls.find(
+    ([entry]) => entry.title === "功能设置",
+  )![0];
+  const page = settingsRegistration.Component({});
+  const SettingsPage = settingsRegistration.Component;
   const markup = renderToStaticMarkup(
     React.createElement(SettingsPage, {
       theme: { colors: { foreground: "white", foregroundMuted: "gray", statusDanger: "red" } },
     }),
   );
   expect(markup).toContain("Mermaid 图表");
-  expect(markup).toContain("Toolkit 版本 v0.1.0");
+  expect(markup).toContain("Toolkit 版本 v0.2.1");
   expect(markup).not.toContain("API Key");
   expect(actions.some((entry) => entry.label === "Toolkit 模型设置")).toBe(true);
   // 工作台不再是独立的设置页，而是“功能开关”里的第一项。
@@ -193,7 +208,6 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     true,
     true,
     false,
-    false,
   ]);
   expect(switches[0]!.label).toBe("工作台");
   for (const [index, key] of [
@@ -204,7 +218,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     "readonlyMessagesEnabled",
     "enhanceEnabled",
   ].entries()) {
-    const toggle = switches[index + (index === 5 ? 2 : 1)]!;
+    const toggle = switches[index + 1]!;
     const next = !toggle.value;
     toggle.onValueChange(next);
     expect(save).toHaveBeenLastCalledWith({ ...savedValues, [key]: next }, "saved-revision");
@@ -214,13 +228,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     { enabled: true, showSessionsByDefault: false, viewName: "我的工作台" },
     "tree-revision",
   );
-  const sessionsSwitch = switches.find((entry) => entry.label === "默认显示会话")!;
-  expect(sessionsSwitch.value).toBe(false);
-  sessionsSwitch.onValueChange(true);
-  expect(saveProjectTree).toHaveBeenLastCalledWith(
-    { enabled: false, showSessionsByDefault: true, viewName: "我的工作台" },
-    "tree-revision",
-  );
+  expect(switches.some((entry) => entry.label === "默认显示会话")).toBe(false);
   savedValues.compactActivityEnabled = false;
   selections.length = 0;
   renderToStaticMarkup(
@@ -251,7 +259,8 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   page.props.onSettingsChange({ ...enabledValues, enhanceEnabled: true });
   expect(addComposerPill).toHaveBeenCalledTimes(3);
   expect(addComposerPill.mock.calls[2]![0].id).toBe("enhance-active");
-  expect(addSlashCommand).toHaveBeenCalledOnce();
+  expect(addSlashCommand).toHaveBeenCalledTimes(2);
+  expect(addSlashCommand).toHaveBeenCalledWith(expect.objectContaining({ name: "session-title" }));
   page.props.onSettingsChange({ ...enabledValues, enhanceEnabled: false });
   expect(addComposerPill).toHaveBeenCalledTimes(3);
   page.props.onSettingsChange({ ...enabledValues, mermaidEnabled: false });
@@ -269,21 +278,27 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   const pillsBefore = addComposerPill.mock.calls.length;
   const commandsBefore = addSlashCommand.mock.calls.length;
   page.props.onSettingsChange({ ...enabledValues, language: "en-US" });
-  expect(addSettingsScreen).toHaveBeenCalledTimes(4);
-  expect(addSettingsScreen.mock.calls[2]![0].title).toBe("Toolkit models");
-  expect(addSettingsScreen.mock.calls[3]![0].title).toBe("Settings");
-  expect(removeSettings).toHaveBeenCalledTimes(2);
+  expect(addSettingsScreen).toHaveBeenCalledTimes(6);
+  expect(addSettingsScreen.mock.calls.slice(3).map(([entry]) => entry.title)).toEqual([
+    "Toolkit models",
+    "Settings",
+    "Smart session titles",
+  ]);
+  expect(removeSettings).toHaveBeenCalledTimes(3);
   expect(addComposerPill.mock.calls.slice(pillsBefore).map(([pill]) => pill.button.title)).toEqual([
     "Sticky Questions",
   ]);
   expect(
     addSlashCommand.mock.calls.slice(commandsBefore).map(([command]) => command.description),
-  ).toEqual(["Enhance prompt: expands vague request into actionable prompt"]);
+  ).toEqual([
+    "Enhance prompt: expands vague request into actionable prompt",
+    "Summarize in the background and automatically set the session title",
+  ]);
   await cleanup();
   // sticky removed on disable, enhance removed on disable, sticky removed again for the new
   // language, then removed once more on cleanup.
   expect(remove).toHaveBeenCalledTimes(4);
-  expect(removeSettings).toHaveBeenCalledTimes(4);
+  expect(removeSettings).toHaveBeenCalledTimes(6);
   expect(unsubscribe).not.toHaveBeenCalled();
   expect(release).toHaveBeenCalledOnce();
 });

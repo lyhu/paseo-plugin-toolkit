@@ -1,6 +1,228 @@
 import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./chat-view/i18n";
 
 const english: Record<string, string> = {
+  编辑器高亮: "Editor highlighting",
+  "当前高亮补丁无法匹配备份，请先恢复原始安装包。":
+    "This highlight patch has no matching backup. Restore the original app first.",
+  "补充 .env、INI、TOML、Shell、SQL、Dockerfile 和 .gitignore 的语法高亮。":
+    "Add syntax highlighting for .env, INI, TOML, Shell, SQL, Dockerfile and .gitignore.",
+  "作用于当前 Host 的 /Applications/Paseo.app；远程 Host 无法修改你电脑上的应用。":
+    "Applies to /Applications/Paseo.app on this Host. A remote Host cannot modify the app on your computer.",
+  "此功能会修改应用签名覆盖的前端资源，使原签名校验失败；不重新签名，也不重启 daemon。":
+    "This modifies signed frontend resources, invalidating the original app signature. It does not re-sign the app or restart the daemon.",
+  自动修补: "Automatic patching",
+  "加载 Toolkit 时自动检测并应用": "Check and apply when Toolkit loads",
+  "升级 Paseo 后重新加载 Toolkit，可重新应用；不兼容的版本会停止修改。":
+    "Reload Toolkit after upgrading Paseo to reapply. Incompatible builds are left unchanged.",
+  "正在检测高亮补丁…": "Checking highlight patch…",
+  "当前 Host 不是 macOS，无法修改本机 Paseo 应用。":
+    "This Host is not running macOS and cannot patch a local Paseo app.",
+  "当前 Host 未找到 /Applications/Paseo.app。": "This Host has no /Applications/Paseo.app.",
+  "检测到 Paseo，可应用编辑器高亮。": "Paseo detected. Editor highlighting can be applied.",
+  "高亮补丁已应用。请重新加载 Paseo 界面后打开文件。":
+    "Highlight patch applied. Reload the Paseo interface before opening files.",
+  "已恢复原始前端文件。请重新加载 Paseo 界面。":
+    "Original frontend restored. Reload the Paseo interface.",
+  "高亮补丁操作失败，详情如下。": "Highlight patch failed. See details below.",
+  "Paseo 版本：{0}": "Paseo version: {0}",
+  "检测时间：{0}": "Checked at: {0}",
+  "备份：{0}": "Backup: {0}",
+  重新检测: "Check again",
+  "正在应用高亮…": "Applying highlighting…",
+  立即应用高亮: "Apply highlighting now",
+  "正在恢复备份…": "Restoring backup…",
+  恢复高亮备份: "Restore highlight backup",
+  "恢复后如需保留原始文件，请先关闭自动修补；仅恢复与当前文件完全匹配的备份。":
+    "Turn off automatic patching before restoring if you want to keep the original files. Only a backup matching the current file can be restored.",
+  "应用补丁后需要重新加载整个 Paseo 界面，仅关闭再打开文件标签不会生效。请先保存未保存的文件。":
+    "Reload the entire Paseo interface after applying. Reopening a file tab is not enough. Save unsaved files first.",
+  "检测到其他版本或不完整的高亮补丁，请先恢复备份。":
+    "A different or incomplete highlight patch was found. Restore its backup first.",
+  "此 Paseo 前端结构不兼容，未修改任何文件。":
+    "This Paseo frontend structure is incompatible. No files were modified.",
+  "无法确认 Paseo 的高亮注册表，未修改任何文件。":
+    "Could not identify Paseo's highlight registry. No files were modified.",
+  "Paseo 文件已变化，已取消修改，请重新检测。":
+    "The Paseo file changed. Patching was cancelled; check again.",
+  "此 Paseo 版本尚未验证，未修改任何文件。":
+    "This Paseo version has not been verified. No files were modified.",
+  "无法确认 Paseo 的前端入口，未修改任何文件。":
+    "Could not identify Paseo's frontend entry. No files were modified.",
+  "Paseo 前端入口不是安装包内的普通文件，未修改任何文件。":
+    "Paseo's frontend entry is not a regular file inside the app. No files were modified.",
+  "高亮备份校验失败，未修改任何文件。":
+    "Highlight backup verification failed. No files were modified.",
+  "当前安装包没有可恢复的高亮补丁。": "The current app has no restorable highlight patch.",
+  "安装包与高亮备份不匹配，已取消恢复。":
+    "The highlight backup does not match this app. Restore was cancelled.",
+  "高亮备份校验失败，已取消恢复。": "Highlight backup verification failed. Restore was cancelled.",
+  会话列表: "Sessions",
+  刷新: "Refresh",
+  全部: "All",
+  进行中: "Active",
+  双击打开会话: "Double-click to open this session",
+  "会话列表读取失败，请刷新重试。": "Could not load sessions. Refresh to retry.",
+  "当前客户端不支持会话导航，请更新 Paseo。": "Update Paseo to open sessions from this list.",
+  "会话列表分页未前进，请重试。": "Session pagination made no progress. Retry.",
+  "正在读取会话列表…": "Loading sessions…",
+  暂无匹配会话: "No matching sessions",
+  "{0} 轮": "{0} turns",
+  "打开会话：{0}": "Open session: {0}",
+  "智能命名：{0}": "Generate title: {0}",
+  "会话操作：{0}": "Session actions: {0}",
+  "更多：{0}": "More: {0}",
+  关闭更多菜单: "Close session menu",
+  智能生成标题: "Generate smart title",
+  "正在生成标题...": "Generating title...",
+  复制标题: "Copy title",
+  标题已复制: "Title copied",
+  永久删除: "Delete permanently",
+  永久删除会话: "Delete session permanently",
+  确认永久删除: "Confirm permanent deletion",
+  "同时删除 Provider 原始历史，无法撤销。项目文件保留。":
+    "Also deletes the provider's original history. Cannot be undone. Project files are kept.",
+  会话标题: "Session title",
+  "正在处理…": "Processing…",
+  "操作失败，请重试。": "Action failed. Retry.",
+  "将永久删除此会话、Toolkit 总结和 Provider 原始历史，无法撤销。项目文件保留。":
+    "Permanently delete this session, Toolkit summaries and the provider's original history. This cannot be undone. Project files are kept.",
+  "命名请求失败，请重试。": "Could not start naming. Retry.",
+  智能命名: "Smart titles",
+  总结对话: "Summarizing",
+  "命名失败，请重试。": "Naming failed. Retry.",
+  总结归档: "Summarize & archive",
+  归档新建: "Archive & new",
+  "会话历史读取失败，请在智能命名中重试。":
+    "Could not read conversation history. Retry in Smart titles.",
+  "未能提交 /clear，请确认当前输入框后重试。":
+    "Could not submit /clear. Check the current composer and retry.",
+  "当前输入框已隐藏或会话已切换，请回到原会话后重试。":
+    "The composer is hidden or the session changed. Return to the original session and retry.",
+  "当前输入框包含附件，请移除后重试归档新建。":
+    "Remove attachments from this composer before retrying Archive & new.",
+  "无法写入 /clear，请确认当前输入框可编辑后重试。":
+    "Could not insert /clear. Check that this composer is editable and retry.",
+  "当前输入内容已变化，已取消归档新建，请重试。":
+    "The draft changed. Archive & new was cancelled; please retry.",
+  "无法定位当前输入框，请使用 /session-title 命名后手动输入 /clear。":
+    "Cannot locate this composer. Use /session-title, then enter /clear manually.",
+  已排队: "Queued",
+  生成标题: "Generating title",
+  写回标题: "Saving title",
+  轮次触发: "Turn completed",
+  手动命名: "Manual naming",
+  历史结果: "Previous result",
+  暂无记录: "No records yet",
+  "会话命名与归档记录，后台处理不会打断对话。":
+    "Session naming and archive history. Background processing does not interrupt your conversation.",
+  "会话列表（{0}）": "Sessions ({0})",
+  搜索会话: "Search sessions",
+  会话中: "Active",
+  "{0} 次记录": "{0} runs",
+  "暂无匹配会话；命名后会出现在这里。": "No matching sessions. Sessions appear after naming.",
+  "选择会话后查看当次命名结果与历史记录。":
+    "Select a session to inspect naming results and history.",
+  重新命名: "Rename",
+  命名记录: "Naming history",
+  当次标题已设置: "Title saved in this run",
+  当次标题未写回: "Title not saved in this run",
+  会话摘要: "Session summary",
+  收起详情: "Hide details",
+  详细信息: "Details",
+  "归档会话已变化，后台任务已停止，请重新命名。":
+    "The archived conversation changed. The background task stopped; generate a new title.",
+  "命名任务因插件重载中断，可重新命名。":
+    "Naming was interrupted by a plugin reload. Generate a new title.",
+  "会话归档未完成，请检查连接后重试。":
+    "Archiving did not complete. Check the connection and retry.",
+  "归档结果需要核对，请确认会话状态后重试。":
+    "The archive outcome needs verification. Check the session state before retrying.",
+  "「归档新建」立即执行 /clear，智能命名在后台继续；右侧「会话列表」可查找会话，行尾图标可触发智能命名。":
+    "Archive & new runs /clear immediately; smart naming continues in the background. Find sessions on the right and use the trailing icon to generate a title.",
+  自动总结调试: "Summary diagnostics",
+  自动总结: "Auto summary",
+  后台全量总结并自动设置会话标题:
+    "Summarize in the background and automatically set the session title",
+  "会话 ID：{0}": "Session ID: {0}",
+  "已处理自动轮数：{0}": "Automatic turns processed: {0}",
+  "最近触发：轮次结束": "Last trigger: turn completed",
+  "最近触发：手动命令": "Last trigger: command",
+  "正在设置会话标题…": "Setting session title…",
+  "生成标题：{0}": "Generated title: {0}",
+  重新总结并自动设置标题: "Summarize and set title again",
+  "使用 /session-title 后台全量总结并自动设置标题；顶部「自动总结」可查看调试信息。":
+    "Use /session-title to summarize and set the title in the background. Open Auto summary in the header for diagnostics.",
+  "此会话已暂停自动命名，以保护人工标题或无法确认的轮次边界。":
+    "Automatic naming is paused to protect a manual title or uncertain turn boundaries.",
+  "此推荐标题已应用，无需重复操作。": "This suggested title has already been applied.",
+  会话智能命名: "Smart session titles",
+  会话总结与标题: "Session summary and title",
+  "用法：/session-title（无需参数）": "Usage: /session-title (no arguments)",
+  "正在读取会话总结…": "Loading session summary…",
+  "会话文本将发送至 Toolkit 配置的模型服务；不包含工具原始输出和思考过程。":
+    "Conversation text is sent to the configured Toolkit model. Raw tool output and reasoning are excluded.",
+  "正在读取完整历史…": "Reading complete history…",
+  "正在总结分段 {0}/{1}": "Summarizing segment {0}/{1}",
+  "已取消会话总结。": "Session summary canceled.",
+  "标题已应用。": "Title applied.",
+  "覆盖 {0} 条用户与助手消息 · 截至位置 {1}":
+    "Covers {0} user and assistant messages · through position {1}",
+  "原有标题：{0}": "Previous title: {0}",
+  应用推荐标题: "Apply suggested title",
+  "如需收尾，先审阅此总结，再执行 /clear。当前 Paseo 不支持插件在 /clear 前拦截。":
+    "To wrap up, review this summary, then run /clear. This Paseo version has no plugin interception before /clear.",
+  "正在读取设置…": "Loading settings…",
+  重置设置: "Reset settings",
+  自动命名: "Automatic naming",
+  前几轮自动维护业务标题: "Maintain business titles during the first few turns",
+  "仅对能够确认轮次的新会话生效；人工改名后停止覆盖。":
+    "Applies to new sessions with known turn boundaries. Stops after a manual rename.",
+  "自动判断轮数（1–20）": "Automatic analysis turns (1–20)",
+  "标题最多字符数（1–100）": "Maximum title characters (1–100)",
+  "复用 Toolkit 模型：工作区覆盖优先，否则使用此 Host 默认模型。":
+    "Uses Toolkit models: workspace override first, otherwise this Host’s default.",
+  "请输入范围内的正整数。": "Enter a positive integer within the range.",
+  "会话历史不完整，请刷新后重试；未执行改名。":
+    "Conversation history is incomplete. Refresh and retry; no title was changed.",
+  "会话历史分页未前进，请刷新后重试。": "History pagination made no progress. Refresh and retry.",
+  "模型返回的总结格式无效，请重试。": "The model returned an invalid summary format. Retry.",
+  "会话没有可总结的文本。": "This conversation has no text to summarize.",
+  "推荐标题超过长度限制或格式无效，原标题已保留。":
+    "The suggested title exceeds the limit or is invalid. The previous title was preserved.",
+  "会话标题写回失败，请检查此 Host 的 Paseo CLI 与 daemon 连接。":
+    "Could not save the title. Check the Paseo CLI and daemon connection on this Host.",
+  "模型请求失败，请检查 Toolkit 模型配置后重试。":
+    "Model request failed. Check the Toolkit model configuration and retry.",
+  "会话不可用，请刷新后重试。": "Conversation unavailable. Refresh and retry.",
+  "请等待当前会话执行完成后再总结。":
+    "Wait for the current conversation turn to finish before summarizing.",
+  "会话标题已变化，请重新生成预览。": "The conversation title changed. Generate a fresh preview.",
+  "会话内容已变化，请重新生成预览。": "The conversation content changed. Generate a fresh preview.",
+  "请先配置 Toolkit 共用 AI 模型。": "Configure a shared Toolkit AI model first.",
+  "会话总结服务已停止。": "The session summary service has stopped.",
+  "会话总结保存失败，请重试。": "Could not save the session summary. Retry.",
+  "总结正在处理，请稍后重试。": "A summary is being processed. Retry shortly.",
+  "会话总结已变化，请刷新后重试。": "The session summary changed. Refresh and retry.",
+  "会话命名设置不可用，请刷新后重试。":
+    "Session title settings are unavailable. Refresh and retry.",
+  全域总览: "Global Overview",
+  知行空间: "Knowledge & Action",
+  打开知行空间: "Open Knowledge & Action",
+  知行上下文: "Knowledge context",
+  技能与记忆: "Skills and memory",
+  固定: "Pinned",
+  "在原生对话中继续思考与行动；技能和记忆在右侧管理。":
+    "Continue in native conversations; manage skills and memory in the right panel.",
+  "固定工作区，工作台内不提供删除或移除操作。":
+    "Pinned workspace. Workbench does not offer delete or remove actions.",
+  "请在知行空间工作区中打开此面板。": "Open this panel in the Knowledge & Action workspace.",
+  "更新技能或记忆后，新建对话可完整应用最新上下文；已有对话可能保留先前内容。":
+    "Start a new conversation to apply the latest skills and memory. Existing conversations may retain earlier context.",
+  "请更新 Paseo 后打开知行空间。": "Update Paseo to open Knowledge & Action.",
+  "知行空间尚未准备好，请重试。": "Knowledge & Action is not ready. Try again.",
+  "正在打开原生工作区…": "Opening native workspace…",
+  "原生文件打开暂不可用，请从文件树打开。":
+    "Native file opening is unavailable. Open it from the file tree.",
   未命名会话: "Untitled session",
   显示会话列表: "Show session list",
   隐藏会话列表: "Hide session list",
@@ -9,6 +231,11 @@ const english: Record<string, string> = {
   "重命名 workspace": "Rename workspace",
   工作区操作: "Workspace actions",
   工作区名称: "Workspace name",
+  收藏项目: "Favorite project",
+  取消收藏: "Remove from favorites",
+  所选项目将保存到: "Selected projects are saved to ",
+  "Host 分组按资源归属自动更新；本次选择将保存到":
+    "Host groups update automatically by resource ownership; this selection is saved to ",
   "配置 Host": "Configuration Host",
   "所有客户端请选择同一配置 Host；仅在该 Host 启用工作台。":
     "Choose the same configuration Host on all clients; enable Workbench only on that Host.",
@@ -29,6 +256,12 @@ const english: Record<string, string> = {
   隐藏项目节点: "Hide project",
   显示项目节点: "Show project",
   "隐藏空 workspace 项目节点": "Hide empty projects",
+  正常显示: "Show project and workspaces",
+  "仅显示 Workspace": "Show workspaces only",
+  "隐藏整个 Project": "Hide project and workspaces",
+  取消全部隐藏: "Unhide all projects",
+  已隐藏: "Hidden",
+  根节点更多操作: "More tree actions",
   显示隐藏节点: "Show hidden nodes",
   删除文件夹: "Delete folder",
   "合并到…": "Merge into…",
@@ -57,8 +290,26 @@ const english: Record<string, string> = {
   整理此显示组: "Organize this display group",
   切换原生视图: "Switch to native view",
   项目操作: "Project actions",
+  更多: "More",
+  更多项目: "More projects",
+  分组与场景: "Groups and scenarios",
+  "原生项目操作暂不可用，请切换原生视图后重试。":
+    "Native project actions are unavailable. Switch to Native view and try again.",
   复制分支名称: "Copy branch name",
   复制路径: "Copy path",
+  导航视图: "Navigation view",
+  工作台视图: "Workbench view",
+  分组操作: "Group actions",
+  只显示工作空间: "Show workspaces only",
+  分组在搜索工作台维护: "Manage groups in the search workbench",
+  "此分组暂无项目，请在搜索工作台添加。":
+    "This group has no projects. Add projects in the search workbench.",
+  复制完整路径: "Copy full path",
+  完整路径: "Full path",
+  已复制: "Copied",
+  复制失败: "Copy failed",
+  原生项目目录: "Native project directories",
+  "按 Host 展示原生项目及其工作空间。": "Native projects and their workspaces, grouped by Host.",
 
   工作台: "Workbench",
   "{0}设置": "{0} settings",

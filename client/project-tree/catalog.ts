@@ -20,12 +20,14 @@ export interface CatalogWorkspace {
   worktreeSlug?: string;
   diffStat?: { additions: number; deletions: number } | null;
   currentBranch?: string | null;
+  lastActivityAt?: string;
 }
 export interface HostCatalog {
   projects: CatalogProject[];
   workspaces: CatalogWorkspace[];
   sessions?: CatalogSession[];
   sessionCounts?: Record<string, number>;
+  sessionsTruncated?: boolean;
 }
 export interface CatalogSession {
   id: string;
@@ -38,6 +40,7 @@ export const catalogCacheSchema = z.object({
   catalogs: z.record(
     z.string(),
     z.object({
+      sessionsTruncated: z.boolean().optional(),
       sessionCounts: z.record(z.string(), z.number().int().nonnegative()).optional(),
       sessions: z
         .array(
@@ -71,6 +74,7 @@ export const catalogCacheSchema = z.object({
             .nullable()
             .optional(),
           currentBranch: z.string().nullable().optional(),
+          lastActivityAt: z.string().optional(),
         }),
       ),
     }),
@@ -92,6 +96,7 @@ export async function readHostCatalog(
   serverId: string,
   demand: {
     sessions?: boolean;
+    maxSessionPages?: number;
     active?: () => boolean;
     sessionLimits?: ReadonlyMap<string, number>;
   } = {},
@@ -120,6 +125,8 @@ export async function readHostCatalog(
         worktreeSlug: workspace.worktreeSlug,
         diffStat: workspace.diffStat,
         currentBranch: branch && branch !== "HEAD" ? branch : null,
+        lastActivityAt:
+          workspace.lastUserMessageAt ?? workspace.activityAt ?? workspace.createdAt ?? undefined,
       });
     }
     const next = page.pageInfo.nextCursor;
@@ -131,6 +138,8 @@ export async function readHostCatalog(
   const retained = new Map<string, number>();
   const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
   cursor = undefined;
+  let sessionPages = 0;
+  let sessionsTruncated = false;
   if (demand.sessions !== false)
     do {
       checkActive();
@@ -158,9 +167,19 @@ export async function readHostCatalog(
       const next = page.pageInfo.nextCursor;
       if (next && next === cursor) throw new Error("Session pagination did not advance");
       cursor = next ?? undefined;
+      sessionPages++;
+      if (
+        cursor &&
+        demand.maxSessionPages !== undefined &&
+        sessionPages >= demand.maxSessionPages
+      ) {
+        sessionsTruncated = true;
+        break;
+      }
     } while (cursor);
   return {
     sessions,
+    ...(sessionsTruncated ? { sessionsTruncated } : {}),
     ...(demand.sessionLimits ? { sessionCounts } : {}),
     projects: projects.map((project) => ({
       serverId,
@@ -375,16 +394,5 @@ export function projectAvailable(
   return (
     projectWorkspaces(snapshot, members, nodeId).length > 0 ||
     members.some((member) => catalogIndex(snapshot).projects.has(memberKey(member)))
-  );
-}
-
-/** Visible project nodes that currently show no workspace rows. */
-export function emptyProjectNodes(snapshot: CatalogSnapshot) {
-  return snapshot.tree.nodes.filter(
-    (node) =>
-      node.kind === "project" &&
-      !node.hidden &&
-      projectAvailable(snapshot, node.members, node.id) &&
-      projectWorkspaces(snapshot, node.members, node.id).length === 0,
   );
 }
