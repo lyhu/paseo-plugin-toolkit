@@ -25,16 +25,18 @@ vi.mock("react-native", () => ({
     onPointerEnter,
     onPointerLeave,
     accessibilityRole,
+    role,
   }: {
     children: ReactNode;
     style?: object;
     onPointerEnter?(): void;
     onPointerLeave?(): void;
     accessibilityRole?: string;
+    role?: string;
   }) =>
     createElement(
       "div",
-      { style, onPointerEnter, onPointerLeave, role: accessibilityRole },
+      { style, onPointerEnter, onPointerLeave, role: role ?? accessibilityRole },
       children,
     ),
   Text: ({ children, style }: { children: ReactNode; style?: object }) =>
@@ -88,11 +90,6 @@ vi.mock("react-native", () => ({
 vi.mock("@getpaseo/plugin/client/react-native", () => ({
   Icon: ({ name }: { name: string }) => createElement("span", { "data-icon": name }),
   copyText: api.copy,
-  Modal: Object.assign(
-    ({ open, children }: { open: boolean; children: ReactNode }) =>
-      open ? createElement("div", { role: "dialog" }, children) : null,
-    { Content: ({ children }: { children: ReactNode }) => createElement("div", null, children) },
-  ),
 }));
 vi.mock("@getpaseo/plugin/client", () => ({
   usePaseo: () => ({ agents: { list: api.list } }),
@@ -329,6 +326,10 @@ it("shows background failures and permits retry", async () => {
 it("restores an already running naming status when the session list is reopened", async () => {
   api.statuses = [{ agentId: "old", at: new Date().toISOString(), phase: "summarizing" }];
   const { node } = await mount();
+  const row = node.querySelector('button[aria-label="会员续费"]')!;
+  expect(row.textContent).toContain("已归档");
+  expect(row.lastElementChild!.textContent).toBe("生成标题");
+  expect(row.lastElementChild!.previousElementSibling!.textContent).toContain("已归档");
   await openActions(node);
   const button = node.querySelector<HTMLButtonElement>('[role="menu"] button')!;
   expect(button.disabled).toBe(true);
@@ -378,6 +379,10 @@ it("renames manually with the original title and workspace, without invoking a m
   await openActions(node);
   await act(async () => textButton(node, "重新命名").click());
   const dialog = node.querySelector('[role="dialog"]')!;
+  expect((dialog as HTMLElement).style.position).toBe("absolute");
+  expect((dialog as HTMLElement).style.width).toBe("320px");
+  expect(node.querySelector('[role="menu"]')).toBeNull();
+  expect(textButton(dialog, "保存").parentElement!.style.justifyContent).toBe("flex-end");
   expect(dialog.querySelector("input")!.value).toBe("会员续费");
   await act(async () => {
     const input = dialog.querySelector("input")!;

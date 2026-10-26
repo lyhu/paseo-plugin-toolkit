@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePaseo, useRpc, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
-import { copyText, Icon, Modal } from "@getpaseo/plugin/client/react-native";
+import { copyText, Icon } from "@getpaseo/plugin/client/react-native";
 import type { PaseoAgent } from "@getpaseo/client";
 import {
   ActivityIndicator,
@@ -22,7 +22,7 @@ import {
   type TitleJob,
 } from "../../shared/session-title/contracts";
 import { tr, useLocale } from "../i18n";
-import { Button, Field, Label, Row, Surface } from "../quick-questions/ui";
+import { Button, Field, Label, Surface } from "../quick-questions/ui";
 import {
   formatSessionTime,
   readWorkspaceSessions,
@@ -300,9 +300,9 @@ function SessionRow({
   const closeMenu = () => {
     if (action.isPending) return;
     setMenu(false);
-    if (dialog === "delete") setDialog(null);
+    setDialog(null);
   };
-  const popupWidth = dialog === "delete" ? 220 : 160;
+  const popupWidth = dialog === "rename" ? 320 : dialog === "delete" ? 220 : 160;
   return (
     <View
       onPointerEnter={() => hover(true)}
@@ -339,6 +339,14 @@ function SessionRow({
             {time} · {tr("{0} 轮", { "0": turns.data?.count ?? "—" })} ·{" "}
             {tr(agent.archivedAt ? "已归档" : "进行中")}
           </Text>
+          {busy ? (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={{ color: colors.foregroundMuted, fontSize: 11 }}
+            >
+              {tr(stage)}
+            </Text>
+          ) : null}
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -349,9 +357,6 @@ function SessionRow({
         >
           <Icon name="ArrowUpRight" size={16} color={colors.foregroundMuted} />
         </Pressable>
-        {busy ? (
-          <Text style={{ color: colors.foregroundMuted, fontSize: 11 }}>{tr(stage)}</Text>
-        ) : null}
         <Pressable
           ref={trigger}
           accessibilityRole="button"
@@ -380,7 +385,7 @@ function SessionRow({
         </Pressable>
       </View>
       <NativeModal
-        visible={menu || dialog === "delete"}
+        visible={menu || dialog !== null}
         transparent
         animationType="none"
         onRequestClose={closeMenu}
@@ -393,6 +398,7 @@ function SessionRow({
             style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }}
           />
           <View
+            role={dialog === "rename" ? "dialog" : undefined}
             accessibilityRole={dialog === "delete" ? "alert" : "menu"}
             accessibilityLabel={tr("会话操作：{0}", { "0": title })}
             style={{
@@ -412,7 +418,40 @@ function SessionRow({
               boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
             }}
           >
-            {dialog === "delete" ? (
+            {dialog === "rename" ? (
+              <Surface theme={props.theme} compact>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                  <Icon name="Pencil" size={15} color={colors.foregroundMuted} />
+                  <Label strong>{tr("重新命名")}</Label>
+                </View>
+                <Field
+                  value={draft}
+                  onChangeText={setDraft}
+                  placeholder={tr("会话标题")}
+                  disabled={action.isPending}
+                />
+                {action.isError ? (
+                  <Label error>{tr(sessionActionError(action.error.message))}</Label>
+                ) : null}
+                <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+                  <Button disabled={action.isPending} onPress={closeMenu}>
+                    {tr("取消")}
+                  </Button>
+                  <Button
+                    primary
+                    disabled={
+                      action.isPending ||
+                      !draft.trim() ||
+                      draft.trim().length > 200 ||
+                      /[\r\n]/.test(draft)
+                    }
+                    onPress={() => action.mutate("rename")}
+                  >
+                    {tr(action.isPending ? "正在处理…" : "保存")}
+                  </Button>
+                </View>
+              </Surface>
+            ) : dialog === "delete" ? (
               <View style={{ padding: 6, gap: 10 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
                   <Icon name="Trash2" size={15} color={colors.statusDanger} />
@@ -528,44 +567,6 @@ function SessionRow({
       {action.isError && !dialog ? (
         <Text style={{ color: colors.statusDanger, padding: 8 }}>{tr("操作失败，请重试。")}</Text>
       ) : null}
-      <Modal
-        title={tr("重新命名")}
-        open={dialog === "rename"}
-        onOpenChange={(value) => {
-          if (!value && !action.isPending) setDialog(null);
-        }}
-      >
-        <Modal.Content>
-          <Surface theme={props.theme} compact={props.layout.compact}>
-            <Field
-              value={draft}
-              onChangeText={setDraft}
-              placeholder={tr("会话标题")}
-              disabled={action.isPending}
-            />
-            {action.isError ? (
-              <Label error>{tr(sessionActionError(action.error.message))}</Label>
-            ) : null}
-            <Row>
-              <Button disabled={action.isPending} onPress={() => setDialog(null)}>
-                {tr("取消")}
-              </Button>
-              <Button
-                primary
-                disabled={
-                  action.isPending ||
-                  !draft.trim() ||
-                  draft.trim().length > 200 ||
-                  /[\r\n]/.test(draft)
-                }
-                onPress={() => action.mutate("rename")}
-              >
-                {tr(action.isPending ? "正在处理…" : "保存")}
-              </Button>
-            </Row>
-          </Surface>
-        </Modal.Content>
-      </Modal>
       {!busy && (naming.isError || phase === "error") ? (
         <Text style={{ color: colors.statusDanger, paddingHorizontal: 12, paddingBottom: 8 }}>
           {tr("命名失败，请重试。")}
