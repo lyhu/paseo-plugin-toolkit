@@ -20,8 +20,8 @@ export function registerSessionTitle(client: PluginClientContext) {
     }),
     client.addWorkspacePanel({
       id: "session-title",
-      title: tr("智能命名"),
-      icon: "NotebookPen",
+      title: tr("会话列表"),
+      icon: "MessagesSquare",
       context: "workspace",
       locations: ["explorer"],
       Component: SessionTitlePanel,
@@ -42,8 +42,8 @@ export function registerSessionTitle(client: PluginClientContext) {
     }),
     client.addCommandCenterItem({
       id: "session-title",
-      title: tr("智能命名"),
-      icon: "NotebookPen",
+      title: tr("会话列表"),
+      icon: "MessagesSquare",
       context: "workspace",
       onSelect({ openPanel }) {
         openPanel("session-title", { location: "explorer" });
