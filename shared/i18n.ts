@@ -1,6 +1,108 @@
 import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./chat-view/i18n";
 
 const english: Record<string, string> = {
+  智能命名: "Smart titles",
+  总结归档: "Summarize & archive",
+  已排队: "Queued",
+  生成标题: "Generating title",
+  写回标题: "Saving title",
+  轮次触发: "Turn completed",
+  手动命名: "Manual naming",
+  历史结果: "Previous result",
+  暂无记录: "No records yet",
+  "会话命名与归档记录，后台处理不会打断对话。":
+    "Session naming and archive history. Background processing does not interrupt your conversation.",
+  "会话列表（{0}）": "Sessions ({0})",
+  搜索会话: "Search sessions",
+  会话中: "Active",
+  "{0} 次记录": "{0} runs",
+  "暂无匹配会话；命名或总结归档后会出现在这里。":
+    "No matching sessions. Sessions appear after naming or summarizing and archiving.",
+  "选择会话后查看当次命名结果与历史记录。":
+    "Select a session to inspect naming results and history.",
+  重新命名: "Generate title again",
+  命名记录: "Naming history",
+  当次标题已设置: "Title saved in this run",
+  当次标题未写回: "Title not saved in this run",
+  会话摘要: "Session summary",
+  收起详情: "Hide details",
+  详细信息: "Details",
+  "归档会话已变化，后台任务已停止，请重新命名。":
+    "The archived conversation changed. The background task stopped; generate a new title.",
+  "命名任务因插件重载中断，可重新命名。":
+    "Naming was interrupted by a plugin reload. Generate a new title.",
+  "会话归档未完成，请检查连接后重试。":
+    "Archiving did not complete. Check the connection and retry.",
+  "归档结果需要核对，请确认会话状态后重试。":
+    "The archive outcome needs verification. Check the session state before retrying.",
+  "使用 /session-title 后台命名，或点击「总结归档」立即归档、后台命名；右侧「智能命名」可查看记录。":
+    "Use /session-title for background naming, or Summarize & archive to archive immediately and name in the background. Inspect results in Smart titles on the right.",
+  自动总结调试: "Summary diagnostics",
+  自动总结: "Auto summary",
+  后台全量总结并自动设置会话标题:
+    "Summarize in the background and automatically set the session title",
+  "会话 ID：{0}": "Session ID: {0}",
+  "已处理自动轮数：{0}": "Automatic turns processed: {0}",
+  "最近触发：轮次结束": "Last trigger: turn completed",
+  "最近触发：手动命令": "Last trigger: command",
+  "正在设置会话标题…": "Setting session title…",
+  "生成标题：{0}": "Generated title: {0}",
+  重新总结并自动设置标题: "Summarize and set title again",
+  "使用 /session-title 后台全量总结并自动设置标题；顶部「自动总结」可查看调试信息。":
+    "Use /session-title to summarize and set the title in the background. Open Auto summary in the header for diagnostics.",
+  "此会话已暂停自动命名，以保护人工标题或无法确认的轮次边界。":
+    "Automatic naming is paused to protect a manual title or uncertain turn boundaries.",
+  "此推荐标题已应用，无需重复操作。": "This suggested title has already been applied.",
+  会话智能命名: "Smart session titles",
+  会话总结与标题: "Session summary and title",
+  "用法：/session-title（无需参数）": "Usage: /session-title (no arguments)",
+  "正在读取会话总结…": "Loading session summary…",
+  "会话文本将发送至 Toolkit 配置的模型服务；不包含工具原始输出和思考过程。":
+    "Conversation text is sent to the configured Toolkit model. Raw tool output and reasoning are excluded.",
+  "正在读取完整历史…": "Reading complete history…",
+  "正在总结分段 {0}/{1}": "Summarizing segment {0}/{1}",
+  "已取消会话总结。": "Session summary canceled.",
+  "标题已应用。": "Title applied.",
+  "覆盖 {0} 条用户与助手消息 · 截至位置 {1}":
+    "Covers {0} user and assistant messages · through position {1}",
+  "原有标题：{0}": "Previous title: {0}",
+  应用推荐标题: "Apply suggested title",
+  "如需收尾，先审阅此总结，再执行 /clear。当前 Paseo 不支持插件在 /clear 前拦截。":
+    "To wrap up, review this summary, then run /clear. This Paseo version has no plugin interception before /clear.",
+  "正在读取设置…": "Loading settings…",
+  重置设置: "Reset settings",
+  自动命名: "Automatic naming",
+  前几轮自动维护业务标题: "Maintain business titles during the first few turns",
+  "仅对能够确认轮次的新会话生效；人工改名后停止覆盖。":
+    "Applies to new sessions with known turn boundaries. Stops after a manual rename.",
+  "自动判断轮数（1–20）": "Automatic analysis turns (1–20)",
+  "标题最多字符数（1–100）": "Maximum title characters (1–100)",
+  "复用 Toolkit 模型：工作区覆盖优先，否则使用此 Host 默认模型。":
+    "Uses Toolkit models: workspace override first, otherwise this Host’s default.",
+  "请输入范围内的正整数。": "Enter a positive integer within the range.",
+  "会话历史不完整，请刷新后重试；未执行改名。":
+    "Conversation history is incomplete. Refresh and retry; no title was changed.",
+  "会话历史分页未前进，请刷新后重试。": "History pagination made no progress. Refresh and retry.",
+  "模型返回的总结格式无效，请重试。": "The model returned an invalid summary format. Retry.",
+  "会话没有可总结的文本。": "This conversation has no text to summarize.",
+  "推荐标题超过长度限制或格式无效，原标题已保留。":
+    "The suggested title exceeds the limit or is invalid. The previous title was preserved.",
+  "会话标题写回失败，请检查此 Host 的 Paseo CLI 与 daemon 连接。":
+    "Could not save the title. Check the Paseo CLI and daemon connection on this Host.",
+  "模型请求失败，请检查 Toolkit 模型配置后重试。":
+    "Model request failed. Check the Toolkit model configuration and retry.",
+  "会话不可用，请刷新后重试。": "Conversation unavailable. Refresh and retry.",
+  "请等待当前会话执行完成后再总结。":
+    "Wait for the current conversation turn to finish before summarizing.",
+  "会话标题已变化，请重新生成预览。": "The conversation title changed. Generate a fresh preview.",
+  "会话内容已变化，请重新生成预览。": "The conversation content changed. Generate a fresh preview.",
+  "请先配置 Toolkit 共用 AI 模型。": "Configure a shared Toolkit AI model first.",
+  "会话总结服务已停止。": "The session summary service has stopped.",
+  "会话总结保存失败，请重试。": "Could not save the session summary. Retry.",
+  "总结正在处理，请稍后重试。": "A summary is being processed. Retry shortly.",
+  "会话总结已变化，请刷新后重试。": "The session summary changed. Refresh and retry.",
+  "会话命名设置不可用，请刷新后重试。":
+    "Session title settings are unavailable. Refresh and retry.",
   全域总览: "Global Overview",
   知行空间: "Knowledge & Action",
   打开知行空间: "Open Knowledge & Action",

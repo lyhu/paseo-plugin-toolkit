@@ -5,6 +5,7 @@ import { registerQuickQuestions } from "./client/quick-questions/register";
 import { registerChatView } from "./client/chat-view/register";
 import { ModelsScreen } from "./client/models/settings";
 import { registerProjectTree } from "./client/project-tree/register";
+import { registerSessionTitle } from "./client/session-title/register";
 export default function contribute(client: PluginClientContext) {
   const removeProjectTree = registerProjectTree(client);
   const addModels = () =>
@@ -23,7 +24,9 @@ export default function contribute(client: PluginClientContext) {
   const removeChat = registerChatView(client, (values) =>
     questions.setEnabled(values.quickQuestionsEnabled),
   );
+  const removeTitles = registerSessionTitle(client);
   return async () => {
+    await removeTitles();
     await removeProjectTree();
     unsubscribeLocale();
     await questions.dispose();
