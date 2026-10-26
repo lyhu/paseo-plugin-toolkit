@@ -77,7 +77,7 @@ export function SessionTitleSettings(props: PluginSurfaceProps) {
         </Label>
         <Label>
           {tr(
-            "使用 /session-title 后台命名，或点击「总结归档」立即归档、后台命名；右侧「智能命名」可查看记录。",
+            "「归档新建」立即执行 /clear 并打开新草稿，智能命名在后台继续；右侧「智能命名」可查看记录。",
           )}
         </Label>
         <Label muted>

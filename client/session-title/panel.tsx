@@ -26,7 +26,7 @@ const phases: Record<TitleJob["phase"], string> = {
 const sources: Record<TitleJob["source"], string> = {
   automatic: "轮次触发",
   command: "手动命名",
-  archive: "总结归档",
+  archive: "归档新建",
 };
 function time(at?: string | null) {
   return at ? new Date(at).toLocaleString() : tr("暂无记录");
@@ -95,7 +95,7 @@ export function SessionTitlePanel(props: PluginWorkspacePanelProps) {
                       {tr(
                         query.isPending
                           ? "正在读取会话总结…"
-                          : "暂无匹配会话；命名或总结归档后会出现在这里。",
+                          : "暂无匹配会话；命名后会出现在这里。",
                       )}
                     </Label>
                   ) : null}

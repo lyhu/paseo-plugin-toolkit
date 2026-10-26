@@ -3,6 +3,13 @@ import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./c
 const english: Record<string, string> = {
   智能命名: "Smart titles",
   总结归档: "Summarize & archive",
+  归档新建: "Archive & new",
+  "会话历史读取失败，请在智能命名中重试。":
+    "Could not read conversation history. Retry in Smart titles.",
+  "未能提交 /clear，请移除附件并确认当前输入框后重试。":
+    "Could not submit /clear. Remove attachments and check the current composer, then retry.",
+  "无法定位当前输入框，请使用 /session-title 命名后手动输入 /clear。":
+    "Cannot locate this composer. Use /session-title, then enter /clear manually.",
   已排队: "Queued",
   生成标题: "Generating title",
   写回标题: "Saving title",
@@ -16,8 +23,7 @@ const english: Record<string, string> = {
   搜索会话: "Search sessions",
   会话中: "Active",
   "{0} 次记录": "{0} runs",
-  "暂无匹配会话；命名或总结归档后会出现在这里。":
-    "No matching sessions. Sessions appear after naming or summarizing and archiving.",
+  "暂无匹配会话；命名后会出现在这里。": "No matching sessions. Sessions appear after naming.",
   "选择会话后查看当次命名结果与历史记录。":
     "Select a session to inspect naming results and history.",
   重新命名: "Generate title again",
@@ -35,8 +41,8 @@ const english: Record<string, string> = {
     "Archiving did not complete. Check the connection and retry.",
   "归档结果需要核对，请确认会话状态后重试。":
     "The archive outcome needs verification. Check the session state before retrying.",
-  "使用 /session-title 后台命名，或点击「总结归档」立即归档、后台命名；右侧「智能命名」可查看记录。":
-    "Use /session-title for background naming, or Summarize & archive to archive immediately and name in the background. Inspect results in Smart titles on the right.",
+  "「归档新建」立即执行 /clear 并打开新草稿，智能命名在后台继续；右侧「智能命名」可查看记录。":
+    "Archive & new runs /clear immediately and opens a fresh draft. Smart naming continues in the background; inspect records in Smart titles on the right.",
   自动总结调试: "Summary diagnostics",
   自动总结: "Auto summary",
   后台全量总结并自动设置会话标题:

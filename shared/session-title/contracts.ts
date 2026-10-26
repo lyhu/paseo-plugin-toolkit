@@ -71,7 +71,7 @@ export const readTitle = defineRpc({
 });
 export const cancelTitle = defineRpc({
   name: "session-title.cancel",
-  input: scope,
+  input: scope.extend({ jobId: z.string().optional() }),
   output: z.object({ canceled: z.boolean() }),
 });
 export const applyTitle = defineRpc({
@@ -83,6 +83,11 @@ export const archiveTitle = defineRpc({
   name: "session-title.archive",
   input: scope,
   output: z.object({ archived: z.boolean() }),
+});
+export const queueClearTitle = defineRpc({
+  name: "session-title.queue-clear",
+  input: scope,
+  output: jobSchema,
 });
 export const resumeTitles = defineRpc({
   name: "session-title.resume",
