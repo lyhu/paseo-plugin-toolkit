@@ -8,13 +8,20 @@ import {
   listTitles,
   archiveTitle,
   resumeTitles,
+  queueClearTitle,
+  countSessionTurns,
 } from "../../shared/session-title/contracts";
 import type { ModelStore } from "../models/storage";
 import { createTitleStore } from "./storage";
 import { createTitleService } from "./service";
+import { createSessionTurnCounter } from "./turns";
 
 export function registerSessionTitle(server: PluginServerContext, models: ModelStore) {
   const settings = server.registerSettings(sessionTitleSettings);
+  const countTurns = createSessionTurnCounter();
+  server.handle(countSessionTurns, ({ agentId, workspaceId }, { paseo }) =>
+    countTurns(paseo, agentId, workspaceId),
+  );
   const service = createTitleService({
     store: createTitleStore(),
     models,
@@ -36,15 +43,18 @@ export function registerSessionTitle(server: PluginServerContext, models: ModelS
         .automatic(paseo, agent.id)
         .catch(() => console.error("Session title analysis could not start"));
   });
-  const removeArchived = server.on("agent.archived", ({ agent, archivedAt }) => {
-    service.archived(agent.id, archivedAt);
+  const removeArchived = server.on("agent.archived", ({ agent, archivedAt }, { paseo }) => {
+    service.archived(agent.id, archivedAt, paseo);
   });
   server.handle(listTitles, ({ workspaceId }) => service.list(workspaceId));
   server.handle(archiveTitle, ({ agentId }, { paseo }) => service.archive(paseo, agentId));
+  server.handle(queueClearTitle, ({ agentId }, { paseo }) => service.queueClear(paseo, agentId));
   server.handle(resumeTitles, (_input, { paseo }) => service.recover(paseo));
   server.handle(readTitle, ({ agentId }) => service.read(agentId));
   server.handle(startTitle, ({ agentId }, { paseo }) => service.start(paseo, agentId));
-  server.handle(cancelTitle, ({ agentId }) => ({ canceled: service.cancel(agentId) }));
+  server.handle(cancelTitle, ({ agentId, jobId }) => ({
+    canceled: service.cancel(agentId, jobId),
+  }));
   server.handle(applyTitle, ({ agentId, resultId }, { paseo }) =>
     service.apply(paseo, agentId, resultId),
   );

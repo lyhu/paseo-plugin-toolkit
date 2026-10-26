@@ -1,17 +1,15 @@
 // @vitest-environment jsdom
 import { createElement, act, type ReactNode } from "react";
 import { createRequire } from "node:module";
-type Root = { render(node: ReactNode): void; unmount(): void };
-const { createRoot } = createRequire(import.meta.url)("react-dom/client") as {
-  createRoot(node: Element): Root;
-};
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
-import type { PluginAgentPanelProps, PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
-import type { TitleJob, TitleResult } from "../../shared/session-title/contracts";
-const api = vi.hoisted(() => ({ call: vi.fn() }));
+import type { PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
+import type { PaseoAgent } from "@getpaseo/client";
+const { createRoot } = createRequire(import.meta.url)("react-dom/client") as {
+  createRoot(node: Element): { render(node: ReactNode): void; unmount(): void };
+};
+const api = vi.hoisted(() => ({ call: vi.fn(), list: vi.fn() }));
 vi.mock("react-native", () => ({
-  ScrollView: ({ children }: { children: ReactNode }) => createElement("section", null, children),
   View: ({ children, style }: { children: ReactNode; style?: object }) =>
     createElement("div", { style }, children),
   Text: ({ children, style }: { children: ReactNode; style?: object }) =>
@@ -32,20 +30,48 @@ vi.mock("react-native", () => ({
       { disabled, onClick: onPress, "aria-label": accessibilityLabel },
       children,
     ),
-  TextInput: () => null,
+  TextInput: ({
+    value,
+    placeholder,
+    onChangeText,
+  }: {
+    value: string;
+    placeholder: string;
+    onChangeText(value: string): void;
+  }) =>
+    createElement("input", {
+      value,
+      placeholder,
+      onInput: (event: { currentTarget: { value: string } }) =>
+        onChangeText(event.currentTarget.value),
+    }),
+  FlatList: ({
+    data,
+    renderItem,
+    ListEmptyComponent,
+  }: {
+    data: PaseoAgent[];
+    renderItem(input: { item: PaseoAgent; index: number }): ReactNode;
+    ListEmptyComponent: ReactNode;
+  }) =>
+    createElement(
+      "section",
+      null,
+      data.length ? data.map((item, index) => renderItem({ item, index })) : ListEmptyComponent,
+    ),
 }));
+vi.mock("@getpaseo/plugin/client/react-native", () => ({ Icon: () => null }));
 vi.mock("@getpaseo/plugin/client", () => ({
+  usePaseo: () => ({ agents: { list: api.list } }),
   useRpc: (contract: { name: string }) => (input: unknown) => api.call(contract.name, input),
 }));
 vi.mock("../i18n", () => ({
   useLocale: () => "zh-CN",
-  tr: (text: string, values?: Record<string, string>) =>
-    text.replace(/\{(\d+)\}/g, (_, key) => values?.[key] ?? ""),
+  tr: (text: string, values?: Record<string, string | number>) =>
+    text.replace(/\{(\d+)\}/g, (_, key) => String(values?.[key] ?? "")),
 }));
-import { SessionTitlePanel, TitleContent } from "./panel";
-import { Surface } from "../quick-questions/ui";
-
-let root: Root | undefined;
+import { SessionTitlePanel } from "./panel";
+let root: ReturnType<typeof createRoot> | undefined;
 let cache: QueryClient;
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -54,53 +80,46 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.clearAllMocks();
 });
-const result: TitleResult = {
-  id: "result",
-  agentId: "a",
-  workspaceId: "w",
-  previousTitle: "原始标题",
-  fingerprint: "f",
-  messages: 40,
-  through: 80,
-  at: "2026-10-26T10:00:00Z",
-  applied: false,
-  analysis: {
-    summary: "目标：修复会员权益同步。关键决策：按订单号幂等。待办：回归测试。",
-    title: "修复会员权益同步",
-    changed: true,
-    reason: "明确了业务目标",
+const entries = [
+  {
+    id: "old",
+    workspaceId: "w",
+    title: "会员续费",
+    createdAt: "2026-10-24T10:00:00Z",
+    lastUserMessageAt: "2026-10-24T12:00:00Z",
+    updatedAt: "2026-10-26T12:00:00Z",
+    archivedAt: "2026-10-25",
+    status: "closed",
   },
-};
-async function mount(
-  job: TitleJob | null,
-  compact = false,
-  dark = false,
-  workspace = false,
-  history: TitleJob[] = [],
-) {
+  {
+    id: "new",
+    workspaceId: "w",
+    title: "订单退款",
+    createdAt: "2026-10-26T10:00:00Z",
+    lastUserMessageAt: "2026-10-26T11:00:00Z",
+    updatedAt: "2026-10-26T11:00:00Z",
+    archivedAt: null,
+    status: "idle",
+  },
+  {
+    id: "foreign",
+    workspaceId: "other",
+    title: "其他空间",
+    createdAt: "2026-10-26T13:00:00Z",
+    lastUserMessageAt: null,
+    updatedAt: "2026-10-26T13:00:00Z",
+    status: "idle",
+  },
+] as PaseoAgent[];
+async function mount(compact = false, dark = false) {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  api.call.mockImplementation(async (method: string, input: { agentId?: string }) => {
-    if (method === "session-title.list")
-      return [
-        { agentId: "a", title: "会员续费", archived: true, runs: 2, at: result.at, phase: "done" },
-        { agentId: "b", title: "订单退款", archived: false, runs: 1, at: result.at, phase: "done" },
-      ];
-    if (method === "session-title.read")
-      return {
-        history,
-        job,
-        result:
-          input.agentId === "b"
-            ? { ...result, analysis: { ...result.analysis, title: "订单退款业务" } }
-            : result,
-        protected: false,
-        error: null,
-      };
-    if (method === "session-title.apply") return { applied: true };
-    if (method === "session-title.cancel") {
-      if (job) job.phase = "canceled";
-      return { canceled: true };
-    }
+  api.list.mockResolvedValue({
+    entries: entries.map((agent) => ({ agent })),
+    pageInfo: { nextCursor: null },
+  });
+  api.call.mockImplementation(async (name: string, input: { agentId: string }) => {
+    if (name === "session-title.turns") return { count: input.agentId === "new" ? 12 : null };
+    if (name === "session-title.start") return { id: "job", phase: "queued" };
     throw new Error("unexpected RPC");
   });
   cache = new QueryClient({
@@ -109,10 +128,13 @@ async function mount(
   const node = document.createElement("div");
   document.body.append(node);
   root = createRoot(node);
+  const openAgent = vi.fn();
   const props = {
-    params: { agentId: "a", workspaceId: "w" },
+    workspaceId: "w",
+    params: {},
     host: { id: "host" },
-    layout: { compact },
+    layout: { compact, platform: "web" },
+    navigation: { openAgent },
     theme: {
       colors: {
         foreground: dark ? "#eeeeee" : "#111111",
@@ -125,117 +147,82 @@ async function mount(
         statusDanger: "#cc0000",
       },
     },
-  } as unknown as PluginAgentPanelProps;
+  } as unknown as PluginWorkspacePanelProps;
   await act(async () => {
     root!.render(
       <QueryClientProvider client={cache}>
-        {workspace ? (
-          <SessionTitlePanel {...(props as unknown as PluginWorkspacePanelProps)} workspaceId="w" />
-        ) : (
-          <Surface theme={props.theme}>
-            <TitleContent agentId="a" hostId="host" />
-          </Surface>
-        )}
+        <SessionTitlePanel {...props} />
       </QueryClientProvider>,
     );
   });
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   });
-  return node;
+  return { node, openAgent };
 }
 it.each([
   [false, false],
   [true, true],
 ])(
-  "renders the persisted preview in compact=%s dark=%s without applying automatically",
+  "renders all workspace sessions sorted by activity in compact=%s dark=%s",
   async (compact, dark) => {
-    const node = await mount(null, compact, dark);
-    expect(node.textContent).toContain("修复会员权益同步");
-    await act(async () => {
-      [...node.querySelectorAll("button")]
-        .find((button) => button.textContent === "详细信息")!
-        .click();
-    });
-    expect(node.textContent).toContain("覆盖 40 条");
-    expect(node.textContent).toContain("待办：回归测试");
+    const { node } = await mount(compact, dark);
+    expect(node.textContent).toContain("会话列表（2）");
+    expect(node.textContent).not.toContain("其他空间");
+    expect(node.textContent).toContain("12 轮");
+    expect(node.textContent).toContain("— 轮");
+    expect(node.textContent!.indexOf("订单退款")).toBeLessThan(
+      node.textContent!.indexOf("会员续费"),
+    );
+    expect(node.textContent).not.toContain("命名记录");
+    expect(node.textContent).not.toContain("会话摘要");
     expect(node.innerHTML).toContain(dark ? "rgb(238, 238, 238)" : "rgb(17, 17, 17)");
-    expect(api.call.mock.calls.every(([name]) => name === "session-title.read")).toBe(true);
-    const apply = [...node.querySelectorAll("button")].find(
-      (button) => button.textContent === "应用推荐标题",
-    )!;
-    await act(async () => {
-      apply.click();
-    });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 15));
-    });
-    expect(api.call).toHaveBeenCalledWith("session-title.apply", {
-      agentId: "a",
-      resultId: "result",
-    });
-    expect(node.textContent).toContain("标题已应用");
+    expect(api.call.mock.calls.every(([method]) => method === "session-title.turns")).toBe(true);
   },
 );
-it("shows progress, disables apply during work, and sends cancellation for the current session", async () => {
-  const node = await mount({
-    id: "job",
-    source: "automatic",
-    phase: "summarizing",
-    completed: 1,
-    total: 4,
-    error: null,
-    result,
-  });
-  expect(node.textContent).toContain("正在总结分段 2/4");
-  expect(
-    [...node.querySelectorAll("button")].find((button) => button.textContent === "应用推荐标题")!
-      .disabled,
-  ).toBe(true);
-  await act(async () => {
-    [...node.querySelectorAll("button")]
-      .find((button) => button.textContent === "取消总结")!
-      .click();
-  });
-  expect(api.call).toHaveBeenCalledWith("session-title.cancel", { agentId: "a" });
+it("opens only on double press or the explicit open action, on the selected host", async () => {
+  const { node, openAgent } = await mount();
+  const row = node.querySelector<HTMLButtonElement>('button[aria-label="订单退款"]')!;
+  await act(async () => row.click());
+  expect(openAgent).not.toHaveBeenCalled();
+  await act(async () => row.click());
+  expect(openAgent).toHaveBeenCalledExactlyOnceWith({ agentId: "new", serverId: "host" });
+  await act(async () =>
+    node.querySelector<HTMLButtonElement>('button[aria-label="打开会话：会员续费"]')!.click(),
+  );
+  expect(openAgent).toHaveBeenLastCalledWith({ agentId: "old", serverId: "host" });
 });
-it("switches conversations inside the same workspace panel without opening more tabs", async () => {
-  const node = await mount(null, true, true, true);
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  });
-  expect(api.call).toHaveBeenCalledWith("session-title.list", { workspaceId: "w" });
-  expect(node.textContent).toContain("会话列表（2）");
-  await act(async () => {
-    node.querySelector<HTMLButtonElement>('button[aria-label="订单退款"]')!.click();
-  });
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  });
-  expect(api.call).toHaveBeenCalledWith("session-title.read", { agentId: "b" });
-  expect(node.textContent).toContain("订单退款业务");
+it("filters archived sessions without opening a tab or requesting naming", async () => {
+  const { node, openAgent } = await mount();
+  await act(async () =>
+    [...node.querySelectorAll("button")].find((button) => button.textContent === "已归档")!.click(),
+  );
+  expect(node.textContent).toContain("会员续费");
+  expect(node.textContent).not.toContain("订单退款");
+  await act(async () =>
+    [...node.querySelectorAll("button")].find((button) => button.textContent === "进行中")!.click(),
+  );
+  expect(node.textContent).toContain("订单退款");
+  expect(node.textContent).not.toContain("会员续费");
+  expect(openAgent).not.toHaveBeenCalled();
+  expect(api.call.mock.calls.every(([method]) => method === "session-title.turns")).toBe(true);
 });
-it("inspects an older persisted run without generating or applying anything", async () => {
-  const old: TitleJob = {
-    id: "old",
-    source: "automatic",
-    phase: "done",
-    at: "2026-10-25T10:00:00Z",
-    completed: 1,
-    total: 1,
-    error: null,
-    result: { ...result, applied: true, analysis: { ...result.analysis, title: "旧业务标题" } },
-  };
-  const current: TitleJob = { ...old, id: "new", at: "2026-10-26T10:00:00Z", result };
-  const node = await mount(current, true, false, false, [old, current]);
+it("starts silent naming from the trailing icon without opening a conversation or diagnostics", async () => {
+  const { node, openAgent } = await mount();
+  await act(async () =>
+    node.querySelector<HTMLButtonElement>('button[aria-label="智能命名：会员续费"]')!.click(),
+  );
+  expect(api.call).toHaveBeenCalledWith("session-title.start", { agentId: "old" });
+  expect(openAgent).not.toHaveBeenCalled();
+  expect(node.textContent).not.toContain("会话摘要");
+});
+it("searches session titles", async () => {
+  const { node } = await mount();
   await act(async () => {
-    [...node.querySelectorAll("button")]
-      .find(
-        (button) =>
-          button.textContent?.includes("2026/10/25") || button.textContent?.includes("10/25/2026"),
-      )!
-      .click();
+    const input = node.querySelector("input")!;
+    input.value = "退款";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  expect(node.textContent).toContain("旧业务标题");
-  expect(api.call.mock.calls.every(([method]) => method === "session-title.read")).toBe(true);
+  expect(node.textContent).toContain("订单退款");
+  expect(node.textContent).not.toContain("会员续费");
 });

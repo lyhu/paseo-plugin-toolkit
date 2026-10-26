@@ -264,9 +264,23 @@ export function createTitleService(options: {
         title,
       }));
     },
-    archived(id: string, at: string) {
-      const state = options.store.update(id, (value) => ({ ...value, archivedAt: at }));
-      if (!state.archiveRequest) invalidate(id);
+    archived(id: string, at: string, paseo?: PaseoApi) {
+      const state = options.store.update(id, (value) => ({
+        ...value,
+        archivedAt: at,
+        archiveRequest: value.archiveRequest
+          ? { ...value.archiveRequest, archivedAt: value.archiveRequest.archivedAt ?? at }
+          : null,
+      }));
+      if (!state.archiveRequest) return invalidate(id);
+      if (!paseo || disposed || recovering.has(id)) return;
+      const job = state.jobs.find((entry) => entry.id === state.archiveRequest!.jobId);
+      if (job?.phase === "queued") {
+        job.phase = "reading";
+        saveJob(id, job);
+        jobs.set(id, job);
+        void runTitle(paseo, id, job);
+      }
     },
     invalidate,
     async automatic(paseo: PaseoApi, id: string) {
@@ -451,6 +465,31 @@ export function createTitleService(options: {
         recovering.delete(id);
       }
     },
+    async queueClear(paseo: PaseoApi, id: string) {
+      if (disposed) throw new Error("会话总结服务已停止。");
+      const agent = await ensureIdle(paseo, id);
+      if (agent.archivedAt) throw new Error("会话不可用，请刷新后重试。");
+      const initial = options.store.read(id);
+      if (initial.archiveRequest) {
+        const pending = initial.jobs.find((entry) => entry.id === initial.archiveRequest!.jobId);
+        if (pending && working(pending)) return pending;
+      }
+      invalidate(id);
+      // The native /clear command owns archiving and navigation. This only persists naming work.
+      const job = newJob(id, "archive");
+      options.store.update(id, (state) => ({
+        ...state,
+        workspaceId: agent.workspaceId ?? null,
+        title: agent.title,
+        archiveRequest: {
+          jobId: job.id,
+          title: agent.title,
+          lastUserMessageAt: agent.lastUserMessageAt ?? null,
+          archivedAt: null,
+        },
+      }));
+      return job;
+    },
     async recover(paseo: PaseoApi) {
       if (disposed) return { resumed: 0 };
       let resumed = 0;
@@ -499,8 +538,12 @@ export function createTitleService(options: {
       }
       return { resumed };
     },
-    cancel(id: string) {
-      const active = tasks.has(id);
+    cancel(id: string, jobId?: string) {
+      const state = options.store.read(id);
+      const current = jobs.get(id) ?? state.jobs.at(-1);
+      // Failed client submission may only abandon its own not-yet-archived intent.
+      if (jobId && (current?.id !== jobId || state.archiveRequest?.archivedAt)) return false;
+      const active = tasks.has(id) || working(current);
       invalidate(id);
       options.store.update(id, (state) => ({ ...state, archiveRequest: null }));
       const job = jobs.get(id);
