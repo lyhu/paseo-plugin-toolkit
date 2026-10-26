@@ -9,7 +9,7 @@ import { settingsRpc } from "@getpaseo/plugin";
 import { SidebarRow, Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { catalogCacheSchema, createCatalog, projectWorkspaces, readHostCatalog } from "./catalog";
+import { catalogCacheSchema, createCatalog, readHostCatalog } from "./catalog";
 import { mountProjectSidebar, renderProjectSidebar, type WorkspaceMenuExtra } from "../web";
 import { loadDevicePreferences, readDevicePreference, writeDevicePreference } from "./device";
 import { tr, useLocale } from "../i18n";
@@ -22,7 +22,6 @@ import {
   projectTreeViewName,
 } from "../../shared/project-tree/contracts";
 import { createWorkbenchSync } from "./sync";
-import { sessionVisible } from "./session-visibility";
 import { registerWorkbench } from "../workbench/register";
 import { useWorkbenchModel } from "../workbench/data";
 import { projectsInGroup, toggleFavoriteGroup } from "../workbench/groups";
@@ -64,12 +63,8 @@ export function registerProjectTree(client: PluginClientContext) {
     });
   });
   let mode: "custom" | "native" = "custom";
-  let navigationSnapshot: ReturnType<typeof groupSidebarSnapshot> | null = null;
   const listeners = new Set<() => void>();
   const collapsed = new Set<string>();
-  const sessionLimits = new Map<string, number>();
-  const sessionVisibility = new Map<string, boolean>();
-  let showSessionsByDefault = false;
   let viewName = DEFAULT_PROJECT_TREE_VIEW_NAME;
   let configuration: Promise<void> | null = null;
   function configureSource(id: string) {
@@ -77,14 +72,8 @@ export function registerProjectTree(client: PluginClientContext) {
     sourceId = id;
     sync.reset();
     collapsed.clear();
-    sessionVisibility.clear();
-    sessionLimits.clear();
     configuration = (async () => {
-      await loadDevicePreferences(
-        ["cache", "navigationView", "collapsed", "sessionProjects", "sessionVisibility"].map(
-          preferenceKey,
-        ),
-      );
+      await loadDevicePreferences(["cache", "navigationView", "collapsed"].map(preferenceKey));
       if (stopped || sourceId !== id) return;
       mode =
         readDevicePreference(preferenceKey("navigationView")) === "native" ? "native" : "custom";
@@ -100,26 +89,6 @@ export function registerProjectTree(client: PluginClientContext) {
         const saved: unknown = JSON.parse(readDevicePreference(preferenceKey("collapsed")) ?? "[]");
         if (Array.isArray(saved))
           for (const key of saved) if (typeof key === "string") collapsed.add(key);
-      } catch {
-        /* Ignore stale device preferences. */
-      }
-      try {
-        const saved: unknown = JSON.parse(
-          readDevicePreference(preferenceKey("sessionProjects")) ?? "[]",
-        );
-        if (Array.isArray(saved))
-          for (const id of saved) if (typeof id === "string") sessionVisibility.set(id, true);
-        const overrides: unknown = JSON.parse(
-          readDevicePreference(preferenceKey("sessionVisibility")) ?? "[]",
-        );
-        if (Array.isArray(overrides))
-          for (const entry of overrides)
-            if (
-              Array.isArray(entry) &&
-              typeof entry[0] === "string" &&
-              typeof entry[1] === "boolean"
-            )
-              sessionVisibility.set(entry[0], entry[1]);
       } catch {
         /* Ignore stale device preferences. */
       }
@@ -144,43 +113,9 @@ export function registerProjectTree(client: PluginClientContext) {
     readTree: () => client.rpc(readProjectTree, {}),
     changeTree: (revision, command) => client.rpc(changeProjectTree, { revision, command }),
     readHost: (serverId, demand) => readHostCatalog(getPaseoClient(serverId), serverId, demand),
-    sessionDemand,
+    sessionDemand: () => new Map(),
   });
   const refreshCatalog = () => sync.refresh();
-  function sessionDemand(serverId: string) {
-    const limits = new Map<string, number>();
-    if (mode !== "custom") return limits;
-    const snapshot = navigationSnapshot ?? catalog.read();
-    for (const node of snapshot.tree.nodes) {
-      if (node.kind !== "project" || node.hidden) continue;
-      let current: (typeof snapshot.tree.nodes)[number] | undefined = node;
-      let closed = false;
-      while (current) {
-        if (collapsed.has(current.id) && (current.kind === "folder" || !current.flattened)) {
-          closed = true;
-          break;
-        }
-        current = snapshot.tree.nodes.find((entry) => entry.id === current!.parentId);
-      }
-      if (closed) continue;
-      for (const workspace of projectWorkspaces(
-        snapshot,
-        node.members,
-        navigationSnapshot?.projectSources.get(node.id) ?? node.id,
-      )) {
-        const visible =
-          sessionVisibility.get(`${workspace.serverId}:${workspace.id}`) ??
-          sessionVisibility.get(navigationSnapshot?.projectSources.get(node.id) ?? node.id) ??
-          showSessionsByDefault;
-        if (visible && workspace.serverId === serverId)
-          limits.set(
-            workspace.id,
-            sessionLimits.get(JSON.stringify([serverId, workspace.id])) ?? 5,
-          );
-      }
-    }
-    return limits;
-  }
   function useCatalog(configurationHost: string, demand: boolean | "all" = false) {
     const hosts = useHosts();
     const signature = JSON.stringify(hosts);
@@ -225,14 +160,8 @@ export function registerProjectTree(client: PluginClientContext) {
       () => mode,
     );
     const projected = groupSidebarSnapshot(snapshot, model.preferences, model.projects);
-    navigationSnapshot = projected;
     const mounted = useRef<ReturnType<typeof mountProjectSidebar> | null>(null);
     const selector = useRef<ReturnType<typeof mountSidebarViewSwitcher> | null>(null);
-    const selectedSessionsDefault = useSyncExternalStore(
-      subscribeMode,
-      () => showSessionsByDefault,
-      () => showSessionsByDefault,
-    );
     const selectorOptions = {
       view: selectedMode === "native" ? ("native" as const) : ("workbench" as const),
       theme: props.theme,
@@ -247,27 +176,8 @@ export function registerProjectTree(client: PluginClientContext) {
           open: () => props.openScreen({ screenId: "workbench", params: { page: "ai" } }),
         },
         collapsed,
-        sessionLimits,
-        sessionVisibility,
-        showSessionsByDefault: selectedSessionsDefault,
-        workspaceMenuExtras(workspace, projectId) {
-          const extras: WorkspaceMenuExtra[] = [
-            {
-              key: "toggle-sessions",
-              label: tr(
-                sessionVisible(
-                  sessionVisibility,
-                  showSessionsByDefault,
-                  `${workspace.serverId}:${workspace.id}`,
-                  projectId,
-                )
-                  ? "隐藏会话"
-                  : "显示会话",
-              ),
-              action: () =>
-                toggleWorkspaceSessions(`${workspace.serverId}:${workspace.id}`, projectId),
-            },
-          ];
+        workspaceMenuExtras(workspace) {
+          const extras: WorkspaceMenuExtra[] = [];
           const current = latestModel.current;
           const project = current.projects.find((candidate) =>
             candidate.instances.some(
@@ -292,11 +202,14 @@ export function registerProjectTree(client: PluginClientContext) {
         },
         viewName: tr("工作台视图"),
         projectSourceId: (id) => projected.projectSources.get(id) ?? id,
+        isFavoriteProject: (id) =>
+          model.preferences.favorites.includes(projected.projectSources.get(id) ?? id),
         groupDisplay(id) {
           const groupId = projected.groupIds.get(id),
             group = model.preferences.tabs.find((tab) => tab.id === groupId);
           if (!group) return;
           return {
+            favorite: group.kind === "favorites",
             workspacesOnly: !!group.workspacesOnly,
             disabled: !model.editable || displayPending,
             toggle() {
@@ -321,10 +234,6 @@ export function registerProjectTree(client: PluginClientContext) {
             },
           };
         },
-        loadSessions() {
-          void refreshCatalog();
-        },
-        toggleSessions: toggleWorkspaceSessions,
         toggle(id) {
           if (collapsed.has(id)) collapsed.delete(id);
           else collapsed.add(id);
@@ -335,12 +244,6 @@ export function registerProjectTree(client: PluginClientContext) {
           props.openScreen({
             screenId: "project-tree",
             params: { serverId: workspace.serverId, workspaceId: workspace.id },
-          });
-        },
-        openSession(workspace, session) {
-          props.openScreen({
-            screenId: "project-tree",
-            params: { serverId: workspace.serverId, agentId: session.id },
           });
         },
         native() {
@@ -358,18 +261,6 @@ export function registerProjectTree(client: PluginClientContext) {
           });
         },
       });
-    function toggleWorkspaceSessions(id: string, projectId?: string) {
-      sessionVisibility.set(
-        id,
-        !sessionVisible(sessionVisibility, showSessionsByDefault, id, projectId),
-      );
-      writeDevicePreference(
-        preferenceKey("sessionVisibility"),
-        JSON.stringify([...sessionVisibility]),
-      );
-      mounted.current?.update(render);
-      void refreshCatalog();
-    }
     async function toggleFavoriteProject(projectId: string, favorited: boolean) {
       const current = latestModel.current;
       if (!current.editable) return;
@@ -728,11 +619,7 @@ export function registerProjectTree(client: PluginClientContext) {
         settings.status === "ready" ? projectTreeSettings.schema.parse(settings.values) : null;
       const next = values?.enabled ?? false;
       const nextViewName = projectTreeViewName(values?.viewName);
-      if (
-        values &&
-        (values.showSessionsByDefault !== showSessionsByDefault || nextViewName !== viewName)
-      ) {
-        showSessionsByDefault = values.showSessionsByDefault;
+      if (values && nextViewName !== viewName) {
         viewName = nextViewName;
         for (const listener of listeners) listener();
       }

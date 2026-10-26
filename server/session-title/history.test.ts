@@ -84,4 +84,16 @@ describe("complete conversation history", () => {
     expect(chunks.every((chunk) => chunk.length <= 1000)).toBe(true);
     expect(chunks.join("")).toBe(JSON.stringify({ role: "user", text }) + "\n");
   });
+  it("reports unavailable archived history without exposing provider details", async () => {
+    const refetch = vi.fn().mockRejectedValue(new Error("thread not loaded: private-thread-id"));
+    await expect(readConversation({ refetch }, new AbortController().signal)).rejects.toThrow(
+      "会话历史读取失败，请在智能命名中重试。",
+    );
+    const controller = new AbortController();
+    refetch.mockImplementation(async () => {
+      controller.abort();
+      throw new Error("aborted provider call");
+    });
+    await expect(readConversation({ refetch }, controller.signal)).rejects.toThrow("已取消");
+  });
 });
