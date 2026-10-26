@@ -10,7 +10,7 @@ import { SidebarRow, Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { catalogCacheSchema, createCatalog, projectWorkspaces, readHostCatalog } from "./catalog";
-import { mountProjectSidebar, renderProjectSidebar } from "../web";
+import { mountProjectSidebar, renderProjectSidebar, type WorkspaceMenuExtra } from "../web";
 import { loadDevicePreferences, readDevicePreference, writeDevicePreference } from "./device";
 import { tr, useLocale } from "../i18n";
 import { subscribeLocale } from "../chat-view/locale";
@@ -25,11 +25,15 @@ import { createWorkbenchSync } from "./sync";
 import { sessionVisible } from "./session-visibility";
 import { registerWorkbench } from "../workbench/register";
 import { useWorkbenchModel } from "../workbench/data";
-import { projectsInGroup } from "../workbench/groups";
+import { projectsInGroup, toggleFavoriteGroup } from "../workbench/groups";
 import type { WorkbenchProject } from "../workbench/types";
 import { groupSidebarSnapshot } from "./group-projection";
 import { mountSidebarViewSwitcher } from "./view-switcher";
 import { useKnowledgeSpaceHeader } from "../workbench/knowledge-space";
+
+/** Lucide star, matching the workbench project card's favorite affordance. */
+const STAR_GLYPH =
+  "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z";
 
 export function registerProjectTree(client: PluginClientContext) {
   const catalog = createCatalog();
@@ -245,6 +249,46 @@ export function registerProjectTree(client: PluginClientContext) {
         sessionLimits,
         sessionVisibility,
         showSessionsByDefault: selectedSessionsDefault,
+        workspaceMenuExtras(workspace, projectId) {
+          const extras: WorkspaceMenuExtra[] = [
+            {
+              key: "toggle-sessions",
+              label: tr(
+                sessionVisible(
+                  sessionVisibility,
+                  showSessionsByDefault,
+                  `${workspace.serverId}:${workspace.id}`,
+                  projectId,
+                )
+                  ? "隐藏会话"
+                  : "显示会话",
+              ),
+              action: () =>
+                toggleWorkspaceSessions(`${workspace.serverId}:${workspace.id}`, projectId),
+            },
+          ];
+          const current = latestModel.current;
+          const project = current.projects.find((candidate) =>
+            candidate.instances.some(
+              (instance) =>
+                instance.serverId === workspace.serverId &&
+                instance.projectId === workspace.projectId,
+            ),
+          );
+          if (project && !project.system) {
+            const favorited = current.preferences.favorites.includes(project.id);
+            extras.push({
+              key: "favorite-project",
+              label: tr(favorited ? "取消收藏" : "收藏项目"),
+              glyph: STAR_GLYPH,
+              disabled: !current.editable,
+              action: () => {
+                void toggleFavoriteProject(project.id, favorited);
+              },
+            });
+          }
+          return extras;
+        },
         viewName: tr("工作台视图"),
         projectSourceId: (id) => projected.projectSources.get(id) ?? id,
         groupDisplay(id) {
@@ -279,18 +323,7 @@ export function registerProjectTree(client: PluginClientContext) {
         loadSessions() {
           void refreshCatalog();
         },
-        toggleSessions(id, projectId) {
-          sessionVisibility.set(
-            id,
-            !sessionVisible(sessionVisibility, showSessionsByDefault, id, projectId),
-          );
-          writeDevicePreference(
-            preferenceKey("sessionVisibility"),
-            JSON.stringify([...sessionVisibility]),
-          );
-          mounted.current?.update(render);
-          void refreshCatalog();
-        },
+        toggleSessions: toggleWorkspaceSessions,
         toggle(id) {
           if (collapsed.has(id)) collapsed.delete(id);
           else collapsed.add(id);
@@ -324,6 +357,38 @@ export function registerProjectTree(client: PluginClientContext) {
           });
         },
       });
+    function toggleWorkspaceSessions(id: string, projectId?: string) {
+      sessionVisibility.set(
+        id,
+        !sessionVisible(sessionVisibility, showSessionsByDefault, id, projectId),
+      );
+      writeDevicePreference(
+        preferenceKey("sessionVisibility"),
+        JSON.stringify([...sessionVisibility]),
+      );
+      mounted.current?.update(render);
+      void refreshCatalog();
+    }
+    async function toggleFavoriteProject(projectId: string, favorited: boolean) {
+      const current = latestModel.current;
+      if (!current.editable) return;
+      setDisplayError("");
+      const update = toggleFavoriteGroup(current.preferences, projectId, favorited, tr("常用项目"));
+      try {
+        await current.savePreferences(update);
+      } catch (error) {
+        setDisplayError(String(error));
+        return;
+      }
+      if (!favorited) {
+        const favoritesTab = update.tabs.find((tab) => tab.kind === "favorites");
+        const groupId = favoritesTab && JSON.stringify(["workbench-group", favoritesTab.id]);
+        if (groupId && collapsed.delete(groupId)) {
+          writeDevicePreference(preferenceKey("collapsed"), JSON.stringify([...collapsed]));
+          mounted.current?.update(render);
+        }
+      }
+    }
     useEffect(() => {
       if (props.layout.platform !== "web" || !snapshot.initialized) return;
       const mount = mountProjectSidebar(render),

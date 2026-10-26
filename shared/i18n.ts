@@ -27,6 +27,8 @@ const english: Record<string, string> = {
   "重命名 workspace": "Rename workspace",
   工作区操作: "Workspace actions",
   工作区名称: "Workspace name",
+  收藏项目: "Favorite project",
+  取消收藏: "Remove from favorites",
   "配置 Host": "Configuration Host",
   "所有客户端请选择同一配置 Host；仅在该 Host 启用工作台。":
     "Choose the same configuration Host on all clients; enable Workbench only on that Host.",

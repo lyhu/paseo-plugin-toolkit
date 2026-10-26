@@ -486,16 +486,14 @@ function openNativeMenu(
   return true;
 }
 
-export function mountWorkspaceSessionMenuItem(options: {
+export interface WorkspaceMenuExtra {
+  key: string;
   label: string;
-  border: string;
-  foreground: string;
-  muted: string;
-  hover: string;
+  glyph?: string;
+  disabled?: boolean;
   action(): void;
-}): () => void {
-  return mountNativeMenuItem(options);
 }
+
 function mountNativeMenuItem(options: {
   label: string;
   border: string;
@@ -625,6 +623,141 @@ function mountNativeMenuItem(options: {
   return remove;
 }
 
+/**
+ * Injects a small group of plugin rows above the native archive action. The native workspace
+ * menu has no plugin extension point, so this mirrors the same DOM seam as the rest of the
+ * workbench sidebar.
+ */
+function mountWorkspaceMenuExtras(options: {
+  items: readonly WorkspaceMenuExtra[];
+  border: string;
+  foreground: string;
+  muted: string;
+  hover: string;
+}): () => void {
+  if (Platform.OS !== "web" || !options.items.length) return () => {};
+  const entry = document.createElement("div");
+  entry.setAttribute("data-toolkit-workspace-menu-extras", "true");
+  const separator = () => {
+    const rule = document.createElement("div");
+    rule.setAttribute("role", "separator");
+    rule.setAttribute("aria-orientation", "horizontal");
+    Object.assign(rule.style, {
+      height: "1px",
+      margin: "4px 0",
+      background: options.border,
+      flexShrink: "0",
+    });
+    return rule;
+  };
+  entry.appendChild(separator());
+  for (const item of options.items) {
+    const button = document.createElement("button");
+    button.setAttribute("type", "button");
+    button.setAttribute("role", "menuitem");
+    button.setAttribute("data-menu-item", "true");
+    button.setAttribute("data-menu-disabled", item.disabled ? "true" : "false");
+    button.setAttribute("data-toolkit-workspace-menu-item", item.key);
+    button.setAttribute("tabindex", "-1");
+    button.setAttribute("aria-label", item.label);
+    if (item.disabled) {
+      button.setAttribute("disabled", "true");
+      button.setAttribute("aria-disabled", "true");
+    }
+    Object.assign(button.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      width: "calc(100% - 8px)",
+      minHeight: "28px",
+      margin: "0 4px",
+      padding: "4px 8px",
+      boxSizing: "border-box",
+      border: "1px solid transparent",
+      borderRadius: "6px",
+      outline: "none",
+      background: "transparent",
+      color: options.foreground,
+      font: "14px system-ui, sans-serif",
+      lineHeight: "18px",
+      textAlign: "left",
+      cursor: item.disabled ? "default" : "pointer",
+      opacity: item.disabled ? "0.45" : "1",
+    });
+    const glyph = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [key, value] of Object.entries({
+      width: "16",
+      height: "16",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: options.muted,
+      "stroke-width": "1.6",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+    }))
+      glyph.setAttribute(key, value);
+    glyph.style.flexShrink = "0";
+    const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    shape.setAttribute(
+      "d",
+      item.glyph ??
+        "M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z",
+    );
+    glyph.appendChild(shape);
+    button.appendChild(glyph);
+    button.appendChild(document.createTextNode(item.label));
+    const highlight = () => {
+      if (!item.disabled) button.style.background = options.hover;
+    };
+    const clear = () => {
+      button.style.background = "transparent";
+    };
+    button.addEventListener("mouseenter", highlight);
+    button.addEventListener("focus", highlight);
+    button.addEventListener("mouseleave", clear);
+    button.addEventListener("blur", clear);
+    button.addEventListener("click", (event) => {
+      (event as { stopPropagation(): void }).stopPropagation();
+      if (item.disabled) return;
+      item.action();
+      try {
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      } catch {
+        /* The host owns dismissal on platforms without KeyboardEvent. */
+      }
+    });
+    entry.appendChild(button);
+  }
+  entry.appendChild(separator());
+  let seen = false;
+  const remove = () => {
+    observer.disconnect();
+    entry.remove();
+  };
+  const place = () => {
+    const surface = Array.from(document.querySelectorAll('[data-menu-surface="true"]')).find(
+      (candidate) => candidate.querySelector('[data-testid^="sidebar-workspace-menu-"]'),
+    );
+    if (!surface) {
+      if (seen) remove();
+      return;
+    }
+    seen = true;
+    const items = Array.from(surface.querySelectorAll('[data-menu-item="true"]')).filter(
+      (item) => !entry.contains(item),
+    );
+    const last = items[items.length - 1];
+    const page = last?.parentElement;
+    if (!page || (entry.parentElement === page && entry.nextElementSibling === last)) return;
+    if (page) page.insertBefore(entry, last);
+  };
+  const observer = new MutationObserver(place);
+  observer.observe(document.body, { childList: true, subtree: true });
+  place();
+  return remove;
+}
+
 export function openNativeWorkspaceMenu(
   workspace: Pick<CatalogWorkspace, "serverId" | "id">,
   anchor: Element,
@@ -734,23 +867,31 @@ export async function openWorkbenchWorkspaceMenu(
 function createNativeWorkspaceMenu(options: {
   workspace: CatalogWorkspace;
   groups: NativeProjectGroup[];
-  sessionItem?(): Parameters<typeof mountWorkspaceSessionMenuItem>[0];
+  colors: PluginTheme["colors"];
+  workspaceMenuExtras?(): WorkspaceMenuExtra[];
   fallback(anchor: Element): void;
 }) {
   let generation = 0;
   let disposed = false;
-  let removeSessionItem: (() => void) | undefined;
+  let removeExtras: (() => void) | undefined;
   return {
     async open(anchor: Element) {
       if (Platform.OS !== "web" || disposed) return;
       const started = ++generation;
-      removeSessionItem?.();
-      removeSessionItem = undefined;
+      removeExtras?.();
+      removeExtras = undefined;
       const active = () => !disposed && started === generation && anchor.isConnected;
       const open = () => {
         if (!active() || !openNativeWorkspaceMenu(options.workspace, anchor)) return false;
-        if (options.sessionItem)
-          removeSessionItem = mountWorkspaceSessionMenuItem(options.sessionItem());
+        const items = options.workspaceMenuExtras?.() ?? [];
+        if (items.length)
+          removeExtras = mountWorkspaceMenuExtras({
+            items,
+            border: options.colors.border,
+            foreground: options.colors.foreground,
+            muted: options.colors.foregroundMuted,
+            hover: options.colors.surface2,
+          });
         return true;
       };
       if (open()) return;
@@ -795,8 +936,8 @@ function createNativeWorkspaceMenu(options: {
     dispose() {
       disposed = true;
       generation++;
-      removeSessionItem?.();
-      removeSessionItem = undefined;
+      removeExtras?.();
+      removeExtras = undefined;
     },
   };
 }
@@ -1190,6 +1331,7 @@ export function renderProjectSidebar(
     sessionVisibility?: ReadonlyMap<string, boolean>;
     showSessionsByDefault?: boolean;
     toggleSessions?(id: string, projectId?: string): void;
+    workspaceMenuExtras?(workspace: CatalogWorkspace, projectId: string): WorkspaceMenuExtra[];
     loadSessions?(): void;
     run?(command: TreeCommand): Promise<void>;
     native(): void;
@@ -2875,19 +3017,9 @@ export function renderProjectSidebar(
       const nativeMenu = createNativeWorkspaceMenu({
         workspace,
         groups: nativeGroups,
-        sessionItem: options.toggleSessions
-          ? () => ({
-              label: tr(workspaceSessionsVisible(workspace, node.id) ? "隐藏会话" : "显示会话"),
-              border: colors.border,
-              foreground: colors.foreground,
-              muted: colors.foregroundMuted,
-              hover: colors.surface2,
-              action: () =>
-                options.toggleSessions?.(
-                  `${workspace.serverId}:${workspace.id}`,
-                  sourceProjectId(node.id),
-                ),
-            })
+        colors,
+        workspaceMenuExtras: options.workspaceMenuExtras
+          ? () => options.workspaceMenuExtras!(workspace, sourceProjectId(node.id))
           : undefined,
         fallback(anchor) {
           const hidden = !workspaceSessionsVisible(workspace, sourceProjectId(node.id));

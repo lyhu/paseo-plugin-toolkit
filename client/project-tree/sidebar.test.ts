@@ -20,6 +20,7 @@ function setup() {
   vi.stubGlobal("document", dom.window.document);
   vi.stubGlobal("MutationObserver", dom.window.MutationObserver);
   vi.stubGlobal("window", dom.window);
+  vi.stubGlobal("KeyboardEvent", dom.window.KeyboardEvent);
   const original = dom.window.document.querySelector("section")!;
   const render = (container: { textContent: string | null }) => {
     container.textContent = "Toolkit tree";
@@ -456,6 +457,7 @@ it("mirrors the live native workspace row, delegates its menu, and drags only th
     move = vi.fn();
   const open = vi.fn();
   const toggleSessions = vi.fn();
+  const favoriteProject = vi.fn();
   update((container) =>
     renderProjectSidebar(container, {
       snapshot: catalog.read(),
@@ -468,6 +470,20 @@ it("mirrors the live native workspace row, delegates its menu, and drags only th
       moveWorkspace,
       toggleSessions,
       showSessionsByDefault: false,
+      workspaceMenuExtras(workspace, projectId) {
+        return [
+          {
+            key: "toggle-sessions",
+            label: "显示会话",
+            action: () => toggleSessions(`${workspace.serverId}:${workspace.id}`, projectId),
+          },
+          {
+            key: "favorite-project",
+            label: "收藏项目",
+            action: favoriteProject,
+          },
+        ];
+      },
     }),
   );
   const row = document.querySelector('[data-toolkit-workspace="w"]')!;
@@ -536,16 +552,24 @@ it("mirrors the live native workspace row, delegates its menu, and drags only th
   expect(nativeMenu).toHaveBeenCalledOnce();
   expect(otherMenu).not.toHaveBeenCalled();
   expect(open).not.toHaveBeenCalled();
-  const toggle = document.querySelector("[data-toolkit-workspace-session-toggle]") as HTMLElement;
-  expect(toggle).not.toBeNull();
-  expect(menu.children[1]).toBe(toggle);
+  const extras = document.querySelector("[data-toolkit-workspace-menu-extras]") as HTMLElement;
+  expect(extras).not.toBeNull();
+  expect(menu.children[1]).toBe(extras);
   expect(menu.children[2]).toBe(archive);
-  const toggleButton = toggle.querySelector("button")!;
+  const toggleButton = extras.querySelector<HTMLButtonElement>(
+    '[data-toolkit-workspace-menu-item="toggle-sessions"]',
+  )!;
+  const favoriteButton = extras.querySelector<HTMLButtonElement>(
+    '[data-toolkit-workspace-menu-item="favorite-project"]',
+  )!;
   expect(toggleButton.getAttribute("aria-label")).toBe("显示会话");
-  expect(toggle.querySelectorAll('[role="separator"]')).toHaveLength(2);
-  expect(toggle.lastElementChild?.getAttribute("role")).toBe("separator");
+  expect(favoriteButton.getAttribute("aria-label")).toBe("收藏项目");
+  expect(extras.querySelectorAll('[role="separator"]')).toHaveLength(2);
+  expect(extras.lastElementChild?.getAttribute("role")).toBe("separator");
   toggleButton.click();
   expect(toggleSessions).toHaveBeenCalledWith("pro:w", catalog.read().tree.nodes[0]!.id);
+  favoriteButton.click();
+  expect(favoriteProject).toHaveBeenCalledOnce();
   source.querySelector(".native-status")!.textContent = "Idle";
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(row.querySelector(".native-status")!.textContent).toBe("Idle");
@@ -1763,13 +1787,22 @@ it.each(["collapsed", "paginated", "disposed"])(
         open() {},
         native() {},
         toggleSessions,
+        workspaceMenuExtras(workspace, projectId) {
+          return [
+            {
+              key: "toggle-sessions",
+              label: "显示会话",
+              action: () => toggleSessions(`${workspace.serverId}:${workspace.id}`, projectId),
+            },
+          ];
+        },
       }),
     );
     document.querySelector<HTMLButtonElement>('[aria-label="工作区操作 · W"]')!.click();
     if (state === "disposed") dispose!();
     for (let tick = 0; tick < 4; tick++) await new Promise((resolve) => setTimeout(resolve, 0));
     const toggle = document.querySelector<HTMLButtonElement>(
-      "[data-toolkit-workspace-session-toggle] button",
+      '[data-toolkit-workspace-menu-item="toggle-sessions"]',
     );
     if (state === "disposed") {
       expect(toggle).toBeNull();
@@ -1781,7 +1814,7 @@ it.each(["collapsed", "paginated", "disposed"])(
     toggle!.click();
     expect(toggleSessions).toHaveBeenCalledWith("pro:w", catalog.read().tree.nodes[0]!.id);
     dispose!();
-    expect(document.querySelector("[data-toolkit-workspace-session-toggle]")).toBeNull();
+    expect(document.querySelector("[data-toolkit-workspace-menu-extras]")).toBeNull();
   },
 );
 

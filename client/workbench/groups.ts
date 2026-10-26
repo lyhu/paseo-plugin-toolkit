@@ -34,3 +34,25 @@ export function reorderIds(ids: string[], source: string, target: string, after:
   next.splice(next.indexOf(target) + Number(after), 0, source);
   return next;
 }
+
+/**
+ * Adds a project to the favorites group or removes it. A deleted favorites group is recreated
+ * first so a successful action is always visible in the sidebar.
+ */
+export function toggleFavoriteGroup(
+  preferences: WorkbenchPreferences,
+  projectId: string,
+  favorited: boolean,
+  groupName = "常用项目",
+): Pick<WorkbenchPreferences, "favorites" | "tabs"> {
+  const favorites = favorited
+    ? preferences.favorites.filter((id) => id !== projectId)
+    : [...preferences.favorites, projectId];
+  let tabs = preferences.tabs;
+  if (!favorited && !tabs.some((tab) => tab.kind === "favorites")) {
+    let id = "favorites";
+    for (let suffix = 2; tabs.some((tab) => tab.id === id); suffix++) id = `favorites-${suffix}`;
+    tabs = [{ id, name: groupName, kind: "favorites" }, ...tabs];
+  }
+  return { favorites, tabs };
+}
