@@ -20,7 +20,7 @@ export default function contribute(server: PluginServerContext) {
   });
   const models = createModelStore();
   registerModels(server, models);
-  const disposeTitles = registerSessionTitle(server, models);
+  const disposeTitles = registerSessionTitle(server, models, disposeSearch.removeSession);
   const settings = server.registerSettings(activitySettings);
   const readFeatures = async () => {
     const state = await settings.read();

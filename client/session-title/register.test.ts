@@ -13,7 +13,7 @@ vi.mock("../chat-view/locale", () => ({ subscribeLocale: () => () => {} }));
 import { registerSessionTitle } from "./register";
 import { startTitle } from "../../shared/session-title/contracts";
 
-it("runs the command silently and opens diagnostics only on explicit selection", async () => {
+it("runs naming silently and registers one workspace session list", async () => {
   const remove = vi.fn();
   let command!: Extract<PluginClientSlashCommandContribution, { context: "agent" }>;
   const addWorkspacePanel = vi.fn(() => remove),
@@ -31,10 +31,10 @@ it("runs the command silently and opens diagnostics only on explicit selection",
   } as unknown as PluginClientContext);
   expect(command.name).toBe("session-title");
   expect(addWorkspacePanel).toHaveBeenCalledWith(
-    expect.objectContaining({ context: "workspace", title: "智能命名", locations: ["explorer"] }),
+    expect.objectContaining({ context: "workspace", title: "会话列表", locations: ["explorer"] }),
   );
   expect(addCommandCenterItem).toHaveBeenCalledWith(
-    expect.objectContaining({ title: "智能命名", context: "workspace" }),
+    expect.objectContaining({ title: "会话列表", context: "workspace" }),
   );
   const rpc = vi.fn(),
     openPanel = vi.fn();

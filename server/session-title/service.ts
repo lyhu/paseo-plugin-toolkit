@@ -25,6 +25,12 @@ export function createTitleService(options: {
   const jobs = new Map<string, TitleJob>();
   const versions = new Map<string, number>();
   const recovering = new Set<string>();
+  const blocked = new Set(
+    options.store
+      .list()
+      .filter((state) => state.deleting)
+      .map((state) => state.agentId!),
+  );
   let disposed = false;
   function saveJob(id: string, job: TitleJob) {
     options.store.update(id, (state) => ({
@@ -51,6 +57,7 @@ export function createTitleService(options: {
     return job;
   }
   const invalidate = (id: string) => {
+    if (blocked.has(id)) return;
     versions.set(id, (versions.get(id) ?? 0) + 1);
     tasks.get(id)?.controller.abort();
     const job = jobs.get(id) ?? options.store.read(id).jobs.at(-1);
@@ -71,6 +78,7 @@ export function createTitleService(options: {
     };
   };
   const ensureIdle = async (paseo: PaseoApi, id: string, allowArchived = false) => {
+    if (blocked.has(id)) throw new Error("会话正在删除，请在会话列表重试永久删除。");
     const snapshot = await paseo.agents.ref(id).refresh();
     if (!snapshot) throw new Error("会话不可用，请刷新后重试。");
     if (
@@ -87,6 +95,7 @@ export function createTitleService(options: {
     return createChatClient(config);
   };
   function enqueue(id: string, work: (signal: AbortSignal, version: number) => Promise<void>) {
+    if (blocked.has(id)) throw new Error("会话正在删除，请在会话列表重试永久删除。");
     const prior = tasks.get(id)?.done;
     const controller = new AbortController();
     const version = versions.get(id) ?? 0;
@@ -222,7 +231,7 @@ export function createTitleService(options: {
   // A normal in-flight request cannot be replayed safely after a reload. Durable archive intents can.
   for (const state of options.store.list()) {
     const id = state.agentId ?? state.result?.agentId;
-    if (!id) continue;
+    if (!id || blocked.has(id)) continue;
     for (const job of state.jobs)
       if (working(job) && state.archiveRequest?.jobId !== job.id) {
         job.phase = "error";
@@ -231,6 +240,52 @@ export function createTitleService(options: {
       }
   }
   return {
+    async rename(
+      paseo: PaseoApi,
+      id: string,
+      workspaceId: string,
+      previousTitle: string | null,
+      title: string,
+    ) {
+      if (!validTitle(title, 200)) throw new Error("标题不能为空、换行或超过 200 字符。");
+      const agent = await ensureIdle(paseo, id, true);
+      if (agent.workspaceId !== workspaceId || agent.title !== previousTitle)
+        throw new Error("会话标题或工作区已变化，请刷新后重试。");
+      invalidate(id);
+      options.store.update(id, (state) => ({ ...state, protected: true, archiveRequest: null }));
+      await enqueue(id, async (signal) => {
+        const current = await ensureIdle(paseo, id, true);
+        if (current.workspaceId !== workspaceId || current.title !== previousTitle)
+          throw new Error("会话标题或工作区已变化，请刷新后重试。");
+        await (options.rename ?? renameSession)(id, title, signal);
+        options.store.update(id, (state) => ({
+          ...state,
+          agentId: id,
+          workspaceId,
+          title,
+          protected: true,
+          error: null,
+        }));
+      });
+      return { renamed: true };
+    },
+    async block(id: string) {
+      invalidate(id);
+      blocked.add(id);
+      options.store.update(id, (state) => ({
+        ...state,
+        agentId: id,
+        deleting: true,
+        protected: true,
+        archiveRequest: null,
+      }));
+      await tasks.get(id)?.done;
+    },
+    forget(id: string) {
+      jobs.delete(id);
+      options.store.remove(id);
+      // Keep the process-local fence against late lifecycle events after deletion.
+    },
     read,
     list(workspaceId: string) {
       return options.store
@@ -256,6 +311,7 @@ export function createTitleService(options: {
         );
     },
     created(id: string, title: string | null, workspaceId: string | null = null) {
+      if (blocked.has(id)) return;
       options.store.update(id, (state) => ({
         ...state,
         agentId: id,
@@ -264,12 +320,28 @@ export function createTitleService(options: {
         title,
       }));
     },
-    archived(id: string, at: string) {
-      const state = options.store.update(id, (value) => ({ ...value, archivedAt: at }));
-      if (!state.archiveRequest) invalidate(id);
+    archived(id: string, at: string, paseo?: PaseoApi) {
+      if (blocked.has(id)) return;
+      const state = options.store.update(id, (value) => ({
+        ...value,
+        archivedAt: at,
+        archiveRequest: value.archiveRequest
+          ? { ...value.archiveRequest, archivedAt: value.archiveRequest.archivedAt ?? at }
+          : null,
+      }));
+      if (!state.archiveRequest) return invalidate(id);
+      if (!paseo || disposed || recovering.has(id)) return;
+      const job = state.jobs.find((entry) => entry.id === state.archiveRequest!.jobId);
+      if (job?.phase === "queued") {
+        job.phase = "reading";
+        saveJob(id, job);
+        jobs.set(id, job);
+        void runTitle(paseo, id, job);
+      }
     },
     invalidate,
     async automatic(paseo: PaseoApi, id: string) {
+      if (blocked.has(id)) return;
       const settings = await options.settings();
       const initial = options.store.read(id);
       if (initial.archiveRequest) return;
@@ -377,6 +449,7 @@ export function createTitleService(options: {
       });
     },
     async start(paseo: PaseoApi, id: string) {
+      if (blocked.has(id)) throw new Error("会话正在删除，请在会话列表重试永久删除。");
       if (disposed) throw new Error("会话总结服务已停止。");
       if (working(jobs.get(id)) && jobs.get(id)?.source !== "automatic") return jobs.get(id)!;
       invalidate(id);
@@ -451,6 +524,31 @@ export function createTitleService(options: {
         recovering.delete(id);
       }
     },
+    async queueClear(paseo: PaseoApi, id: string) {
+      if (disposed) throw new Error("会话总结服务已停止。");
+      const agent = await ensureIdle(paseo, id);
+      if (agent.archivedAt) throw new Error("会话不可用，请刷新后重试。");
+      const initial = options.store.read(id);
+      if (initial.archiveRequest) {
+        const pending = initial.jobs.find((entry) => entry.id === initial.archiveRequest!.jobId);
+        if (pending && working(pending)) return pending;
+      }
+      invalidate(id);
+      // The native /clear command owns archiving and navigation. This only persists naming work.
+      const job = newJob(id, "archive");
+      options.store.update(id, (state) => ({
+        ...state,
+        workspaceId: agent.workspaceId ?? null,
+        title: agent.title,
+        archiveRequest: {
+          jobId: job.id,
+          title: agent.title,
+          lastUserMessageAt: agent.lastUserMessageAt ?? null,
+          archivedAt: null,
+        },
+      }));
+      return job;
+    },
     async recover(paseo: PaseoApi) {
       if (disposed) return { resumed: 0 };
       let resumed = 0;
@@ -499,8 +597,12 @@ export function createTitleService(options: {
       }
       return { resumed };
     },
-    cancel(id: string) {
-      const active = tasks.has(id);
+    cancel(id: string, jobId?: string) {
+      const state = options.store.read(id);
+      const current = jobs.get(id) ?? state.jobs.at(-1);
+      // Failed client submission may only abandon its own not-yet-archived intent.
+      if (jobId && (current?.id !== jobId || state.archiveRequest?.archivedAt)) return false;
+      const active = tasks.has(id) || working(current);
       invalidate(id);
       options.store.update(id, (state) => ({ ...state, archiveRequest: null }));
       const job = jobs.get(id);

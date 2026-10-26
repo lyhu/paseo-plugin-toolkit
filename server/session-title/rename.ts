@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { paseoHome } from "../models/storage";
 
 const execute = promisify(execFile);
-export async function renameSession(agentId: string, title: string, signal: AbortSignal) {
+export async function localAgentCommand(args: string[], signal: AbortSignal) {
   const home = paseoHome();
   const binary =
     process.platform === "darwin" &&
@@ -34,11 +34,15 @@ export async function renameSession(agentId: string, title: string, signal: Abor
     const listen = status.listen
       .replace(/^0\.0\.0\.0:/, "127.0.0.1:")
       .replace(/^\[::\]:/, "[::1]:");
-    await execute(
-      binary,
-      ["--host", listen, "agent", "update", agentId, "--name", title, "--json"],
-      options,
-    );
+    const result = await execute(binary, ["--host", listen, "agent", ...args, "--json"], options);
+    return JSON.parse(result.stdout) as unknown;
+  } catch {
+    throw new Error("会话操作失败，请检查此 Host 的 Paseo CLI 与 daemon 连接。");
+  }
+}
+export async function renameSession(agentId: string, title: string, signal: AbortSignal) {
+  try {
+    await localAgentCommand(["update", agentId, "--name", title], signal);
   } catch {
     throw new Error("会话标题写回失败，请检查此 Host 的 Paseo CLI 与 daemon 连接。");
   }

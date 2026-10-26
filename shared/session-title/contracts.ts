@@ -52,6 +52,28 @@ export function working(job: TitleJob | null | undefined) {
   );
 }
 const scope = z.object({ agentId: z.string().min(1) });
+const workspaceScope = scope.extend({ workspaceId: z.string().min(1) });
+export const renameTitle = defineRpc({
+  name: "session-title.rename",
+  input: workspaceScope.extend({
+    previousTitle: z.string().nullable(),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .refine((value) => !/[\r\n]/.test(value)),
+  }),
+  output: z.object({ renamed: z.boolean() }),
+});
+export const deleteSession = defineRpc({
+  name: "session-title.delete",
+  input: workspaceScope.extend({
+    previousTitle: z.string().nullable(),
+    confirmed: z.literal(true),
+  }),
+  output: z.object({ deleted: z.boolean() }),
+});
 export const startTitle = defineRpc({
   name: "session-title.start",
   input: scope,
@@ -71,7 +93,7 @@ export const readTitle = defineRpc({
 });
 export const cancelTitle = defineRpc({
   name: "session-title.cancel",
-  input: scope,
+  input: scope.extend({ jobId: z.string().optional() }),
   output: z.object({ canceled: z.boolean() }),
 });
 export const applyTitle = defineRpc({
@@ -83,6 +105,16 @@ export const archiveTitle = defineRpc({
   name: "session-title.archive",
   input: scope,
   output: z.object({ archived: z.boolean() }),
+});
+export const queueClearTitle = defineRpc({
+  name: "session-title.queue-clear",
+  input: scope,
+  output: jobSchema,
+});
+export const countSessionTurns = defineRpc({
+  name: "session-title.turns",
+  input: scope.extend({ workspaceId: z.string().min(1) }),
+  output: z.object({ count: z.number().int().nonnegative().nullable() }),
 });
 export const resumeTitles = defineRpc({
   name: "session-title.resume",

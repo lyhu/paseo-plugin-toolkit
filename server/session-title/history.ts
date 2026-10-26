@@ -30,12 +30,17 @@ export async function readConversation(
   const identities = new Set<string>();
   do {
     checkCanceled(signal);
-    const page = await timeline.refetch({
-      direction: cursor ? "before" : "tail",
-      cursor,
-      limit: 100,
-      projection: "canonical",
-    });
+    const page = await timeline
+      .refetch({
+        direction: cursor ? "before" : "tail",
+        cursor,
+        limit: 100,
+        projection: "canonical",
+      })
+      .catch(() => {
+        checkCanceled(signal);
+        throw new Error("会话历史读取失败，请在智能命名中重试。");
+      });
     checkCanceled(signal);
     if (page.error || page.staleCursor || page.gap || (epoch !== undefined && page.epoch !== epoch))
       throw new Error("会话历史不完整，请刷新后重试；未执行改名。");

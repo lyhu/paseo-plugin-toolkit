@@ -331,5 +331,13 @@ export function registerWorkbenchSearch(server: PluginServerContext) {
     hits: index.search(query, serverId, limit),
     coverage: getJobs(paseo).statuses(),
   }));
-  return () => jobs?.dispose();
+  return Object.assign(() => jobs?.dispose(), {
+    removeSession(agentId: string) {
+      for (const session of [...index.statuses(), ...(jobs?.statuses() ?? [])]) {
+        if (session.agentId !== agentId) continue;
+        if (jobs) jobs.clear(session);
+        else index.remove(session);
+      }
+    },
+  });
 }

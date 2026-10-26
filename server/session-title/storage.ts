@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { z } from "zod";
 import { jobSchema, resultSchema } from "../../shared/session-title/contracts";
 import { createRevisionedJsonStore } from "../storage/revisioned-json";
@@ -29,6 +29,8 @@ const stateSchema = z.object({
   protected: z.boolean(),
   result: resultSchema.nullable(),
   error: z.string().nullable(),
+  deleting: z.boolean().default(false),
+  deletedProvider: z.object({ id: z.string(), provider: z.string() }).nullable().default(null),
 });
 export type TitleState = z.infer<typeof stateSchema>;
 export function createTitleStore(home = paseoHome()) {
@@ -57,10 +59,17 @@ export function createTitleStore(home = paseoHome()) {
         protected: false,
         result: null,
         error: null,
+        deleting: false,
+        deletedProvider: null,
       }),
       concurrencyError: "会话总结已变化，请刷新后重试。",
     });
   return {
+    remove(id: string) {
+      rmSync(join(directory, `${createHash("sha256").update(id).digest("hex")}.json`), {
+        force: true,
+      });
+    },
     list() {
       if (!existsSync(directory)) return [];
       return readdirSync(directory)

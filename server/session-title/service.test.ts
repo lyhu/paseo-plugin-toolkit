@@ -64,7 +64,7 @@ function fixture() {
   const archive = vi.fn(async () => {
     agent.archivedAt = "2026-10-26T10:00:00Z";
     agent.status = "closed";
-    service.archived("a", agent.archivedAt);
+    service.archived("a", agent.archivedAt, paseo);
     return { archivedAt: agent.archivedAt };
   });
   const paseo = {
@@ -121,6 +121,68 @@ function fixture() {
     },
   };
 }
+it("manually renames an archived session and protects it from later automatic naming", async () => {
+  const f = fixture();
+  f.round();
+  f.agent.archivedAt = "archived";
+  f.agent.status = "closed";
+  expect(await f.service.rename(f.paseo, "a", "w", null, "我的业务标题")).toEqual({
+    renamed: true,
+  });
+  expect(f.agent.title).toBe("我的业务标题");
+  expect(f.store.read("a").protected).toBe(true);
+  f.agent.archivedAt = null;
+  f.agent.status = "idle";
+  f.round();
+  await f.service.automatic(f.paseo, "a");
+  expect(f.complete).not.toHaveBeenCalled();
+});
+it("refuses stale manual renames and cross-workspace writes", async () => {
+  const f = fixture();
+  await expect(f.service.rename(f.paseo, "a", "other", null, "标题")).rejects.toThrow();
+  await expect(f.service.rename(f.paseo, "a", "w", "outdated", "标题")).rejects.toThrow();
+  expect(f.rename).not.toHaveBeenCalled();
+});
+it("cancels an in-flight model before applying a manual title", async () => {
+  const f = fixture();
+  f.round();
+  let finish!: () => void;
+  const started = new Promise<void>((resolve) => {
+    f.complete.mockImplementationOnce(async () => {
+      resolve();
+      await new Promise<void>((done) => {
+        finish = done;
+      });
+      return {
+        content: JSON.stringify({
+          summary: "旧总结",
+          title: "旧标题",
+          changed: true,
+          reason: "旧原因",
+        }),
+      };
+    });
+  });
+  await f.service.start(f.paseo, "a");
+  await started;
+  const renamed = f.service.rename(f.paseo, "a", "w", null, "人工标题");
+  finish();
+  await renamed;
+  expect(f.agent.title).toBe("人工标题");
+  expect(f.store.read("a").protected).toBe(true);
+});
+it("does not recreate deleted summaries after lifecycle events or plugin reload", async () => {
+  const f = fixture();
+  f.round();
+  await f.service.start(f.paseo, "a");
+  await f.service.block("a");
+  f.service.forget("a");
+  f.service.invalidate("a");
+  f.service.archived("a", "archived", f.paseo);
+  await f.service.automatic(f.paseo, "a");
+  expect(f.store.list()).toHaveLength(0);
+  await expect(f.service.start(f.paseo, "a")).rejects.toThrow("正在删除");
+});
 describe("session title lifecycle", () => {
   it("names only the first five completed requests, persists across reload, and ignores duplicate hooks", async () => {
     const f = fixture();
@@ -358,6 +420,113 @@ describe("session title lifecycle", () => {
     expect(f.service.read("a").history).toMatchObject([
       { source: "archive", phase: "done", result: { applied: true } },
     ]);
+  });
+  it("queues naming without reading history, running the model, or archiving, then continues after native /clear", async () => {
+    const f = fixture();
+    f.round();
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = f.complete.getMockImplementation()!;
+    f.complete.mockImplementation(async (...args) => {
+      enter();
+      await gate;
+      return original(...args);
+    });
+    const job = await f.service.queueClear(f.paseo, "a");
+    expect(job.phase).toBe("queued");
+    expect(f.refetch).not.toHaveBeenCalled();
+    expect(f.complete).not.toHaveBeenCalled();
+    expect(f.archive).not.toHaveBeenCalled();
+    expect(f.agent.archivedAt).toBeNull();
+    expect(f.store.read("a").archiveRequest?.jobId).toBe(job.id);
+    expect((await f.service.queueClear(f.paseo, "a")).id).toBe(job.id);
+    await f.archive(); // The host's native /clear owns this side effect and its draft navigation.
+    await entered;
+    f.service.archived("a", f.agent.archivedAt!, f.paseo); // duplicate lifecycle delivery
+    expect(f.rename).not.toHaveBeenCalled();
+    expect(f.agent.status).toBe("closed");
+    release();
+    await f.service.settled("a");
+    expect(f.complete).toHaveBeenCalledOnce();
+    expect(f.rename).toHaveBeenCalledWith("a", "修复会员权益同步", expect.any(AbortSignal));
+    expect(f.service.read("a").job?.phase).toBe("done");
+    expect(f.store.read("a").archiveRequest).toBeNull();
+  });
+  it("records a model failure after native /clear without reversing the archive", async () => {
+    const f = fixture();
+    f.round();
+    f.complete.mockRejectedValue(new Error("model offline"));
+    await f.service.queueClear(f.paseo, "a");
+    await f.archive();
+    await f.service.settled("a");
+    expect(f.agent.archivedAt).not.toBeNull();
+    expect(f.rename).not.toHaveBeenCalled();
+    expect(f.service.read("a").job).toMatchObject({ source: "archive", phase: "error" });
+  });
+  it("resumes a queued native-clear intent if the archive event arrives after a plugin reload", async () => {
+    const f = fixture();
+    f.round();
+    await f.service.queueClear(f.paseo, "a");
+    await f.reopen();
+    await f.archive();
+    await f.service.settled("a");
+    expect(f.complete).toHaveBeenCalledOnce();
+    expect(f.rename).toHaveBeenCalledOnce();
+  });
+  it("does not rename a restored conversation from an old native-clear task", async () => {
+    const f = fixture();
+    f.round();
+    await f.service.queueClear(f.paseo, "a");
+    f.agent.title = "用户的新标题";
+    await f.archive();
+    await f.service.settled("a");
+    expect(f.rename).not.toHaveBeenCalled();
+    expect(f.service.read("a").job?.phase).toBe("error");
+  });
+  it("abandons only an unsubmitted matching native-clear task", async () => {
+    const f = fixture();
+    const job = await f.service.queueClear(f.paseo, "a");
+    expect(f.service.cancel("a", "unrelated-job")).toBe(false);
+    expect(f.store.read("a").archiveRequest).not.toBeNull();
+    expect(f.service.cancel("a", job.id)).toBe(true);
+    expect(f.store.read("a").archiveRequest).toBeNull();
+    expect(f.service.read("a").job?.phase).toBe("canceled");
+    f.round();
+    const later = await f.service.queueClear(f.paseo, "a");
+    await f.archive();
+    expect(f.service.cancel("a", later.id)).toBe(false);
+    await f.service.settled("a");
+    expect(f.rename).toHaveBeenCalledOnce();
+  });
+  it("starts native-clear naming after aborting an earlier automatic request", async () => {
+    const f = fixture();
+    f.round();
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    f.complete.mockImplementationOnce(
+      (_messages, options) =>
+        new Promise((_resolve, reject) => {
+          enter();
+          options!.signal!.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
+    );
+    const automatic = f.service.automatic(f.paseo, "a");
+    await entered;
+    await f.service.queueClear(f.paseo, "a");
+    await f.archive();
+    await automatic;
+    await f.service.settled("a");
+    expect(f.rename).toHaveBeenCalledOnce();
+    expect(f.service.read("a").job).toMatchObject({ phase: "done", source: "archive" });
   });
   it("recovers interrupted archived work without archiving again", async () => {
     const f = fixture();

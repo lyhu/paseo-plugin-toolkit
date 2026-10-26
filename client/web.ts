@@ -11,6 +11,7 @@ import {
 } from "./project-tree/catalog";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { tr } from "./i18n";
+import { createComposerAccess, type ComposerAccess } from "./chat-view/enhance/dom";
 import {
   nativeGroupsWithin,
   nativeProjectGroups,
@@ -85,6 +86,76 @@ const compactDiffFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
+
+/** Capture this pill's composer before awaiting naming; never fall through to another pane. */
+export function getTitleComposer(
+  agentId: string,
+): (ComposerAccess & { submitClear(signal: AbortSignal): Promise<boolean> }) | undefined {
+  if (Platform.OS !== "web" || typeof document === "undefined") return undefined;
+  const markerId = `session-title-composer-${agentId}`;
+  const markers = document.body.querySelectorAll('[data-testid^="session-title-composer-"]');
+  const visible = (node: Element) =>
+    node.isConnected && node.clientWidth > 0 && node.clientHeight > 0;
+  const marker = Array.from(markers).find(
+    (node) => node.getAttribute("data-testid") === markerId && visible(node),
+  );
+  let scope = marker?.parentElement;
+  for (let depth = 0; scope && depth < 12; depth++, scope = scope.parentElement) {
+    const inputs = Array.from(scope.querySelectorAll("textarea[data-composer-input]")).filter(
+      visible,
+    );
+    if (!inputs.length) continue;
+    if (inputs.length !== 1) return undefined;
+    const input = inputs[0]!;
+    const access = createComposerAccess(input)!;
+    const owner = scope;
+    const current = () => {
+      const switched = Array.from(
+        owner.querySelectorAll('[data-testid^="session-title-composer-"]'),
+      ).some((node) => visible(node) && node.getAttribute("data-testid") !== markerId);
+      return input.isConnected && input.clientWidth > 0 && input.clientHeight > 0 && !switched;
+    };
+    const hasAttachments = () => !!owner.querySelector('[data-testid="composer-attachment-tray"]');
+    return {
+      read: access.read,
+      write(text) {
+        if (!current() || hasAttachments()) return false;
+        return access.write(text);
+      },
+      async submitClear(signal) {
+        if (signal.aborted) return false;
+        if (!current()) throw new Error(tr("当前输入框已隐藏或会话已切换，请回到原会话后重试。"));
+        if (hasAttachments()) throw new Error(tr("当前输入框包含附件，请移除后重试归档新建。"));
+        if (!access.write("/clear"))
+          throw new Error(tr("无法写入 /clear，请确认当前输入框可编辑后重试。"));
+        // Let the host commit the input update before using its normal send action.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (signal.aborted || !current() || hasAttachments() || access.read() !== "/clear")
+          return false;
+        const send = owner.querySelector(
+          '[role="button"][aria-label="发送消息"], [role="button"][aria-label="Send message"]',
+        );
+        if (
+          !send ||
+          send.getAttribute("aria-disabled") === "true" ||
+          send.getAttribute("disabled") !== null
+        )
+          return false;
+        send.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 0,
+            clientY: 0,
+          }),
+        );
+        return true;
+      },
+    };
+  }
+  return undefined;
+}
 const formatDiffCount = (value: number) => compactDiffFormatter.format(value).toLowerCase();
 /** Mirrors the native workspace card's path label, including the worktree slug when present. */
 const workspaceDirectoryLabel = (workspace: CatalogWorkspace) =>
@@ -2396,7 +2467,7 @@ export function renderProjectSidebar(
         }
       },
     }));
-    if (node.kind === "project") {
+    if (node.kind === "project" && options.toggleSessions) {
       const index = actions.findIndex((item) => item.action === "display");
       const hidden = !sessionsVisible(node.id);
       const separatorBefore = items[index]?.separatorBefore;
