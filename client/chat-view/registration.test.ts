@@ -167,7 +167,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   expect(archivePills).toHaveBeenCalledWith(
     expect.objectContaining({
       agentId: "active",
-      button: expect.objectContaining({ label: "总结归档" }),
+      button: expect.objectContaining({ label: "归档新建" }),
     }),
   );
   expect(addComposerPill).toHaveBeenCalledTimes(1);

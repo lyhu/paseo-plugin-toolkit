@@ -5,16 +5,25 @@ import type {
 } from "@getpaseo/plugin/client";
 import type { PaseoAgent } from "@getpaseo/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { archiveTitle } from "../../shared/session-title/contracts";
+import { View } from "react-native";
 import { observeAgents } from "../agent-directory";
 import { tr } from "../i18n";
+import { prepareClear } from "./prepare-clear";
 
 function ArchiveIcon(props: PluginButtonIconProps) {
-  return <Icon name="Archive" size={props.size} color={props.color} />;
+  return (
+    <View testID={`session-title-composer-${props.context === "agent" ? props.agentId : ""}`}>
+      <Icon name="ArchiveRestore" size={props.size} color={props.color} />
+    </View>
+  );
 }
 export function registerTitlePills(client: PluginClientContext) {
-  const pills = new Map<string, { workspaceId: string; registration: PluginButtonRegistration }>();
+  const pills = new Map<
+    string,
+    { workspaceId: string; registration: PluginButtonRegistration; controller: AbortController }
+  >();
   const remove = (id: string) => {
+    pills.get(id)?.controller.abort();
     pills.get(id)?.registration.remove();
     pills.delete(id);
   };
@@ -29,24 +38,25 @@ export function registerTitlePills(client: PluginClientContext) {
       existing.registration.update({ disabled: agent.status !== "idle" });
       return;
     }
+    const controller = new AbortController();
     const registration = client.addComposerPill({
       id: `session-archive-${agent.id}`,
       workspaceId: agent.workspaceId!,
       agentId: agent.id,
       button: {
-        title: tr("总结归档"),
-        label: tr("总结归档"),
+        title: tr("归档新建"),
+        label: tr("归档新建"),
         icon: ArchiveIcon,
         disabled: agent.status !== "idle",
         behavior: {
           kind: "action",
           onPress: async () => {
-            await client.rpc(archiveTitle, { agentId: agent.id });
+            await prepareClear(client, agent.id, controller.signal);
           },
         },
       },
     });
-    pills.set(agent.id, { workspaceId: agent.workspaceId, registration });
+    pills.set(agent.id, { workspaceId: agent.workspaceId, registration, controller });
   };
   const unobserve = observeAgents(client.paseo, {
     upsert,
@@ -55,7 +65,7 @@ export function registerTitlePills(client: PluginClientContext) {
   return {
     refresh: () => {
       for (const pill of pills.values())
-        pill.registration.update({ title: tr("总结归档"), label: tr("总结归档") });
+        pill.registration.update({ title: tr("归档新建"), label: tr("归档新建") });
     },
     dispose() {
       unobserve();

@@ -95,7 +95,7 @@ export function SessionTitlePanel(props: PluginWorkspacePanelProps) {
                       {tr(
                         query.isPending
                           ? "正在读取会话总结…"
-                          : "暂无匹配会话；命名或总结归档后会出现在这里。",
+                          : "暂无匹配会话；命名后会出现在这里。",
                       )}
                     </Label>
                   ) : null}
