@@ -30,6 +30,7 @@ import type { WorkbenchProject } from "../workbench/types";
 import { groupSidebarSnapshot } from "./group-projection";
 import { mountSidebarViewSwitcher } from "./view-switcher";
 import { useKnowledgeSpaceHeader } from "../workbench/knowledge-space";
+import { FAVORITES_GROUP_NAME } from "../../shared/workbench/names";
 
 /** Lucide star, matching the workbench project card's favorite affordance. */
 const STAR_GLYPH =
@@ -373,7 +374,12 @@ export function registerProjectTree(client: PluginClientContext) {
       const current = latestModel.current;
       if (!current.editable) return;
       setDisplayError("");
-      const update = toggleFavoriteGroup(current.preferences, projectId, favorited, tr("常用项目"));
+      const update = toggleFavoriteGroup(
+        current.preferences,
+        projectId,
+        favorited,
+        tr(FAVORITES_GROUP_NAME),
+      );
       try {
         await current.savePreferences(update);
       } catch (error) {

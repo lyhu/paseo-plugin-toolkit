@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { memoryContext, type Memory } from "./state";
+import { defaultWorkbenchState, memoryContext, migrateWorkbenchState, type Memory } from "./state";
 const memory = (id: string, extra: Partial<Memory> = {}): Memory => ({
   id,
   title: id,
@@ -42,4 +42,21 @@ it("bounds context bodies and number of records while retaining source attributi
   expect(records).toHaveLength(6);
   expect(records.reduce((total, m) => total + m.body.length, 0)).toBe(24000);
   expect(records.every((m) => m.body.length <= 4000 && m.source === "Source")).toBe(true);
+});
+it("uses the new favorites title and migrates only the legacy default name", () => {
+  const state = defaultWorkbenchState();
+  expect(state.preferences.tabs[0]?.name).toBe("收藏项目");
+  state.preferences.tabs = [
+    { id: "favorites", name: "常用项目", kind: "favorites" },
+    { id: "custom", name: "常用项目", kind: "manual" },
+    { id: "mine", name: "我的收藏", kind: "favorites" },
+  ];
+  const migrated = migrateWorkbenchState(state);
+  expect(migrated.preferences.tabs.map((tab) => tab.name)).toEqual([
+    "收藏项目",
+    "常用项目",
+    "我的收藏",
+  ]);
+  expect(state.preferences.tabs[0]?.name).toBe("常用项目");
+  expect(migrateWorkbenchState(migrated)).toBe(migrated);
 });

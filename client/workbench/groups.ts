@@ -1,4 +1,5 @@
 import type { WorkbenchPreferences, WorkbenchProject, WorkbenchTab } from "./types";
+import { FAVORITES_GROUP_NAME } from "../../shared/workbench/names";
 
 export function projectsInGroup(
   projects: WorkbenchProject[],
@@ -43,7 +44,7 @@ export function toggleFavoriteGroup(
   preferences: WorkbenchPreferences,
   projectId: string,
   favorited: boolean,
-  groupName = "常用项目",
+  groupName = FAVORITES_GROUP_NAME,
 ): Pick<WorkbenchPreferences, "favorites" | "tabs"> {
   const favorites = favorited
     ? preferences.favorites.filter((id) => id !== projectId)

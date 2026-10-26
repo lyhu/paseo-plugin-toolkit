@@ -151,7 +151,7 @@ it("favorites a workspace's project from its menu and reflects the toggle", asyn
   const tree = { revision: 0, nodes: [] };
   state.preferences.set("config.cache", JSON.stringify({ tree, catalogs: {} }));
   const projectId = JSON.stringify(["pro", "p"]);
-  const tabs = [{ id: "favorites", name: "常用项目", kind: "favorites" as const }];
+  const tabs = [{ id: "favorites", name: "收藏项目", kind: "favorites" as const }];
   const savePreferences = vi.fn(async (update: Record<string, unknown>) => {
     state.model = {
       ...state.model!,

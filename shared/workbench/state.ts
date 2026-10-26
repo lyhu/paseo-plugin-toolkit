@@ -1,5 +1,6 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
+import { FAVORITES_GROUP_NAME, LEGACY_FAVORITES_GROUP_NAME } from "./names";
 
 const id = z.string().trim().min(1).max(500);
 const title = z.string().trim().min(1).max(120);
@@ -44,12 +45,22 @@ export const defaultWorkbenchState = (): WorkbenchState => ({
   schemaVersion: 1,
   revision: 0,
   preferences: {
-    tabs: [{ id: "favorites", name: "常用项目", kind: "favorites" }],
+    tabs: [{ id: "favorites", name: FAVORITES_GROUP_NAME, kind: "favorites" }],
     favorites: [],
     focusTasks: [],
   },
   memories: [],
 });
+/** Renames the old default favorites title without touching user-chosen group names. */
+export function migrateWorkbenchState(state: WorkbenchState): WorkbenchState {
+  const tabs = state.preferences.tabs.map((tab) =>
+    tab.kind === "favorites" && tab.name === LEGACY_FAVORITES_GROUP_NAME
+      ? { ...tab, name: FAVORITES_GROUP_NAME }
+      : tab,
+  );
+  if (tabs.every((tab, index) => tab === state.preferences.tabs[index])) return state;
+  return { ...state, preferences: { ...state.preferences, tabs } };
+}
 export const readWorkbenchState = defineRpc({
   name: "workbench.state.read",
   input: z.object({}),

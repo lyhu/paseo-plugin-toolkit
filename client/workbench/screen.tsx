@@ -34,6 +34,7 @@ import type {
   WorkbenchSession,
   WorkbenchTab,
 } from "./types";
+import { FAVORITES_GROUP_NAME } from "../../shared/workbench/names";
 const pages: [WorkbenchPage, string][] = [
   ["home", "工作台"],
   ["ai", "知行空间"],
@@ -275,8 +276,8 @@ export function WorkbenchScreen(
         title: tr("添加已有项目"),
         detail:
           selectedTab?.kind === "host"
-            ? tr("Host 分组按资源归属自动更新；本次选择将保存到常用项目。")
-            : `${tr("所选项目将保存到")}「${favorites?.name ?? tr("常用项目")}」。`,
+            ? `${tr("Host 分组按资源归属自动更新；本次选择将保存到")}${tr(FAVORITES_GROUP_NAME)}。`
+            : `${tr("所选项目将保存到")}「${favorites?.name ?? tr(FAVORITES_GROUP_NAME)}」。`,
       });
     }
   }
@@ -1945,7 +1946,7 @@ export function WorkbenchScreen(
               } else {
                 const target = model.preferences.tabs.find((item) => item.kind === "favorites") ?? {
                   id: "favorites",
-                  name: tr("常用项目"),
+                  name: tr(FAVORITES_GROUP_NAME),
                   kind: "favorites" as const,
                 };
                 await model.savePreferences({
