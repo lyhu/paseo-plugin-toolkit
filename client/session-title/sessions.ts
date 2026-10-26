@@ -1,5 +1,11 @@
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 
+export function sessionActionError(message: string) {
+  return message
+    .replace(/^Request failed:\s*/, "")
+    .replace(/\s+requestType=plugin\.rpc\.invoke\.request(?:\s+code=[\w-]+)?$/, "");
+}
+
 export function sessionTime(agent: PaseoAgent) {
   return agent.lastUserMessageAt ?? agent.createdAt;
 }

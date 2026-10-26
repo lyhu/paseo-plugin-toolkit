@@ -408,7 +408,11 @@ it("requires explicit confirmation for deletion and keeps failed deletion availa
   expect(dialog.querySelectorAll("button")).toHaveLength(2);
   expect((dialog as HTMLElement).style.width).toBe("220px");
   expect(api.call.mock.calls.some(([name]) => name === "session-title.delete")).toBe(false);
-  api.call.mockRejectedValue(new Error("原始历史仍存在，请重试。"));
+  api.call.mockRejectedValue(
+    new Error(
+      "Request failed: 原始历史仍存在，请重试。 requestType=plugin.rpc.invoke.request code=handler_error",
+    ),
+  );
   await act(async () =>
     dialog.querySelector<HTMLButtonElement>('button[aria-label="确认永久删除"]')!.click(),
   );
@@ -422,6 +426,8 @@ it("requires explicit confirmation for deletion and keeps failed deletion availa
     confirmed: true,
   });
   expect(dialog.textContent).toContain("原始历史仍存在，请重试。");
+  expect(dialog.textContent).not.toContain("requestType=");
+  expect(dialog.textContent).not.toContain("Request failed:");
   expect(
     dialog.querySelector<HTMLButtonElement>('button[aria-label="确认永久删除"]')!.disabled,
   ).toBe(false);

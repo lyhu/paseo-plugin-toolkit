@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { createPaseoApi } from "@getpaseo/client";
 import { paseoHome } from "../models/storage";
 import { renameSession } from "./rename";
+import { prepareProviderHistory, providerLocation } from "./provider-history";
 
 // Opt-in acceptance against the local running plugin. Never prompts an AI or touches an existing agent.
 it.skipIf(process.env.TOOLKIT_TITLE_DAEMON !== "1")(
@@ -106,6 +107,82 @@ it.skipIf(process.env.TOOLKIT_TITLE_DAEMON !== "1")(
       expect(phase).toBe("error");
     } finally {
       if (agentId) await client.archiveAgent(agentId);
+      await client.close();
+    }
+  },
+  60000,
+);
+
+it.skipIf(process.env.TOOLKIT_GROK_DAEMON !== "1")(
+  "deletes a newly created archived Grok session and its synthetic original history through the plugin",
+  async () => {
+    const home = paseoHome();
+    const lock = JSON.parse(readFileSync(join(home, "paseo.pid"), "utf8")) as { listen: string };
+    const client = new DaemonClient({
+      url: `ws://${lock.listen}/ws`,
+      clientId: "toolkit-grok-delete-acceptance",
+      clientType: "cli",
+      localCredential: () => readFileSync(join(home, "local-credential"), "utf8").trim(),
+      reconnect: { enabled: false },
+    });
+    let id: string | undefined;
+    let original: string | undefined;
+    await client.connect();
+    try {
+      const { config } = await createPaseoApi(client).config.get();
+      const location = providerLocation("grok", config.providers);
+      expect(location.base).toBe("grok");
+      const created = await client.createAgent({
+        config: { provider: "grok", cwd: process.cwd(), title: "Toolkit Grok 删除验收空会话" },
+      });
+      id = created.id;
+      await client.archiveAgent(id);
+      const snapshot = await client.fetchAgent({ agentId: id });
+      const agent = snapshot!.agent;
+      const native = agent.persistence?.nativeHandle ?? agent.persistence?.sessionId;
+      expect(native).toMatch(/^[a-f0-9-]{36}$/i);
+      original = join(location.home, "sessions", encodeURIComponent(agent.cwd), native!);
+      mkdirSync(original, { recursive: true });
+      if (!existsSync(join(original, "summary.json")))
+        writeFileSync(
+          join(original, "summary.json"),
+          JSON.stringify({ info: { id: native, cwd: agent.cwd } }),
+        );
+      if (!existsSync(join(original, "chat_history.jsonl")))
+        writeFileSync(
+          join(original, "chat_history.jsonl"),
+          JSON.stringify({ role: "user", content: "synthetic cleanup acceptance fixture" }) + "\n",
+        );
+      expect(
+        await client.invokePluginRpc("toolkit", "session-title.delete", {
+          agentId: id,
+          workspaceId: agent.workspaceId,
+          previousTitle: agent.title,
+          confirmed: true,
+        }),
+      ).toEqual({ deleted: true });
+      expect(existsSync(original)).toBe(false);
+      expect(await client.fetchAgent({ agentId: id })).toBeNull();
+      expect(
+        await client.invokePluginRpc("toolkit", "session-title.read", { agentId: id }),
+      ).toMatchObject({ job: null, result: null });
+      id = undefined;
+    } finally {
+      if (id) {
+        await client.archiveAgent(id);
+        const snapshot = await client.fetchAgent({ agentId: id });
+        if (snapshot?.agent.persistence) {
+          const { config } = await createPaseoApi(client).config.get();
+          const cleanup = await prepareProviderHistory(snapshot.agent, config.providers);
+          try {
+            await cleanup.remove();
+          } finally {
+            cleanup.close();
+          }
+        }
+        await client.deleteAgent(id);
+      }
+      if (original) rmSync(original, { recursive: true, force: true });
       await client.close();
     }
   },

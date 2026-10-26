@@ -98,7 +98,8 @@
 - 先停止并等待该会话命名任务，持久化删除状态阻止后台和重载恢复重新写回摘要；关闭空闲 Provider runtime 后清理原始历史，再通过同 Host CLI 删除 Paseo 记录，重新读取确认消失后清理 Toolkit 摘要。Provider 清理失败时保留 Paseo 条目并显示错误，可重试；清理已完成而 Paseo 删除失败时，重试不重复删除 Provider 历史。
 - Codex 使用当前安装 CLI 的官方 app-server `thread/read` 验证身份及目录，调用 `thread/delete` 删除原始记录及 Provider 数据库条目，并清理同会话的提示历史、会话索引；全程不发起模型轮次。旧 CLI 不支持此接口时明确失败，不将归档显示成删除。
 - Claude 按精确 UUID 与 cwd 核对 `projects/*/<sessionId>.jsonl`，删除该文件及同名子 Agent 历史目录，并清理对应 `history.jsonl` 提示记录。拒绝符号链接和归属不匹配的路径，不删除整个项目历史目录。
-- 原始历史目录遵守当前 Host Provider 配置继承与 `CODEX_HOME`／`CLAUDE_CONFIG_DIR`。自定义启动命令、远程文件系统 Provider 和其他 Provider 尚不支持，删除前拒绝；无原始标识时仅允许经历史核验的空会话。范围是本机所配置 Provider 的原始会话存储，不包括外部导出、备份或远端服务日志，也不承诺磁盘安全覆写。
+- Grok 支持本机 ACP Profile：解析 `extends: "acp"` 及已知 Grok 启动命令，依 `GROK_HOME` 定位。核对 `sessions/<cwd目录>/<native UUID>/summary.json` 的 `info.id/cwd` 后删除该会话目录、子 Agent 历史和同 UUID 工具状态目录；按 Grok 自身的删除逻辑清理 `session_search*.sqlite` 中的目标 `session_docs`，由已核实的 FTS5 删除触发器同步移除全文索引。其他会话的目录及索引保留，不调用模型，不删除云端副本。索引格式、归属或路径无法确认时，在删除前拒绝。
+- 原始历史目录遵守当前 Host Provider 配置继承与 `CODEX_HOME`／`CLAUDE_CONFIG_DIR`／`GROK_HOME`。Grok 的 `grok acp`／`grok agent stdio` 本机启动配置可识别；任意其他自定义启动命令、远程文件系统 Provider 和其他 Provider 尚不支持，删除前拒绝；无原始标识时仅允许经历史核验的空会话。范围是本机所配置 Provider 的原始会话存储，不包括外部导出、备份或远端服务日志，也不承诺磁盘安全覆写。
 
 ## 4. 归档新建：立即 `/clear`，后台智能命名
 

@@ -23,7 +23,12 @@ import {
 } from "../../shared/session-title/contracts";
 import { tr, useLocale } from "../i18n";
 import { Button, Field, Label, Row, Surface } from "../quick-questions/ui";
-import { formatSessionTime, readWorkspaceSessions, sessionTime } from "./sessions";
+import {
+  formatSessionTime,
+  readWorkspaceSessions,
+  sessionTime,
+  sessionActionError,
+} from "./sessions";
 
 type Filter = "all" | "active" | "archived";
 type NamingStatus = { agentId: string; at: string | null; phase: TitleJob["phase"] | null };
@@ -426,7 +431,7 @@ function SessionRow({
                 </Text>
                 {action.isError ? (
                   <Text style={{ color: colors.statusDanger, fontSize: 12 }}>
-                    {tr(action.error.message)}
+                    {tr(sessionActionError(action.error.message))}
                   </Text>
                 ) : null}
                 <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 6 }}>
@@ -538,7 +543,9 @@ function SessionRow({
               placeholder={tr("会话标题")}
               disabled={action.isPending}
             />
-            {action.isError ? <Label error>{tr(action.error.message)}</Label> : null}
+            {action.isError ? (
+              <Label error>{tr(sessionActionError(action.error.message))}</Label>
+            ) : null}
             <Row>
               <Button disabled={action.isPending} onPress={() => setDialog(null)}>
                 {tr("取消")}

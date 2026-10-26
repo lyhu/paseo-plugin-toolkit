@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   existsSync,
   openSync,
@@ -60,18 +60,29 @@ export function providerLocation(provider: string, providers: unknown) {
     if (typeof config.extends !== "string") break;
     base = config.extends;
   }
-  if (base !== "codex" && base !== "claude")
+  const command = chain.findLast((config) => config.command)?.command;
+  const grokCommand =
+    Array.isArray(command) &&
+    (command.length === 2 ||
+      (command.length === 3 && command[1] === "agent" && command[2] === "stdio")) &&
+    typeof command[0] === "string" &&
+    /^(grok|grok\.exe)$/.test(basename(command[0])) &&
+    (command[1] === "acp" || command[1] === "agent");
+  if (base === "acp" && grokCommand) base = "grok";
+  if (base !== "codex" && base !== "claude" && base !== "grok")
     throw new Error("此 Provider 尚不支持原始历史物理删除，尚未删除会话。");
-  if (chain.some((config) => config.command))
+  if (chain.some((config) => config.command) && !(base === "grok" && grokCommand))
     throw new Error("自定义 Provider 启动命令暂不支持物理删除，尚未删除会话。");
   const env = { ...process.env };
   for (const config of chain)
     for (const [key, value] of Object.entries(record(config.env)))
       if (typeof value === "string") env[key] = value;
   const home =
-    base === "codex"
-      ? (env.CODEX_HOME ?? join(homedir(), ".codex"))
-      : (env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"));
+    base === "grok"
+      ? (env.GROK_HOME ?? join(homedir(), ".grok"))
+      : base === "codex"
+        ? (env.CODEX_HOME ?? join(homedir(), ".codex"))
+        : (env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"));
   if (!isAbsolute(home)) throw new Error("Provider 历史目录必须是绝对路径，尚未删除会话。");
   return { base, home: resolve(home), env };
 }
@@ -224,6 +235,7 @@ export async function prepareProviderHistory(agent: PaseoAgent, providers: unkno
     (persistence.nativeHandle && persistence.nativeHandle !== persistence.sessionId)
   )
     throw new Error("Provider 原始会话标识无效，尚未删除会话。");
+  if (location.base === "grok") return prepareGrokHistory(location.home, id, agent.cwd);
   if (location.base === "codex") {
     const api = codexHistory(location.env);
     try {
@@ -344,6 +356,83 @@ export async function prepareProviderHistory(agent: PaseoAgent, providers: unkno
         safePath(location.home, path);
         rmSync(path, { recursive: true, force: true });
       }
+    },
+  };
+}
+
+async function prepareGrokHistory(home: string, id: string, cwd: string) {
+  const directory = join(home, "sessions");
+  if (!existsSync(directory)) throw new Error("找不到 Grok 原始历史目录，尚未删除会话。");
+  safePath(home, directory);
+  const targets: string[] = [];
+  const indexes: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (/^session_search(?:[._-].*)?\.sqlite$/.test(entry.name)) {
+      indexes.push(safePath(home, join(directory, entry.name)));
+    }
+    if (!entry.isDirectory()) continue;
+    const target = join(directory, entry.name, id);
+    if (!existsSync(target)) continue;
+    safePath(home, target);
+    const summary = safePath(home, join(target, "summary.json"));
+    const info = record(record(JSON.parse(readFileSync(summary, "utf8"))).info);
+    if (info.id !== id || !sameDirectory(info.cwd, cwd))
+      throw new Error("Grok 原始会话归属不匹配，尚未删除会话。");
+    targets.push(target);
+  }
+  const state = join(directory, id);
+  if (existsSync(state)) targets.push(safePath(home, state));
+  const checkTree = (path: string) => {
+    safePath(home, path);
+    if (lstatSync(path).isDirectory())
+      for (const entry of readdirSync(path)) checkTree(join(path, entry));
+  };
+  for (const target of targets) checkTree(target);
+  // Grok's source deletes session_docs; its FTS5 trigger removes the searchable text atomically.
+  const { DatabaseSync } = await import("node:sqlite");
+  const checkIndex = (file: string, remove = false) => {
+    safePath(home, file);
+    const db = new DatabaseSync(file, { readOnly: !remove });
+    try {
+      db.exec("PRAGMA busy_timeout = 2000");
+      const row = db.prepare("SELECT cwd FROM session_docs WHERE session_id = ?").get(id);
+      if (row && !sameDirectory(row.cwd, cwd))
+        throw new Error("Grok 搜索索引归属不匹配，尚未删除会话。");
+      const fts = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_docs_fts'",
+        )
+        .get();
+      if (fts) {
+        const trigger = db
+          .prepare(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'session_docs_ad'",
+          )
+          .get();
+        if (!String(trigger?.sql).includes("session_docs_fts"))
+          throw new Error("Grok 搜索索引格式无法确认，尚未删除会话。");
+      }
+      if (remove && row) {
+        db.exec("PRAGMA trusted_schema = ON");
+        db.prepare("DELETE FROM session_docs WHERE session_id = ? AND cwd = ?").run(id, row.cwd);
+        if (db.prepare("SELECT 1 FROM session_docs WHERE session_id = ?").get(id))
+          throw new Error("Grok 搜索索引清理未完成，请重试。");
+      }
+    } finally {
+      db.close();
+    }
+  };
+  for (const file of indexes) checkIndex(file);
+  return {
+    id,
+    close() {},
+    async remove() {
+      for (const target of targets) {
+        if (!existsSync(target)) continue;
+        checkTree(target);
+        rmSync(target, { recursive: true, force: true });
+      }
+      for (const file of indexes) checkIndex(file, true);
     },
   };
 }

@@ -1,6 +1,15 @@
 import { expect, it, vi } from "vitest";
 import type { PaseoApi, PaseoAgent } from "@getpaseo/client";
-import { formatSessionTime, readWorkspaceSessions } from "./sessions";
+import { formatSessionTime, readWorkspaceSessions, sessionActionError } from "./sessions";
+it("shows the deletion error without the daemon RPC envelope", () => {
+  const message = "此 Provider 尚不支持原始历史物理删除，尚未删除会话。";
+  expect(
+    sessionActionError(
+      `Request failed: ${message} requestType=plugin.rpc.invoke.request code=handler_error`,
+    ),
+  ).toBe(message);
+  expect(sessionActionError("原始历史无法核实，请重试。")).toBe("原始历史无法核实，请重试。");
+});
 const agent = (id: string, workspaceId = "w", date = "2026-10-26T10:00:00Z") =>
   ({
     id,
