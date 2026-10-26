@@ -946,7 +946,6 @@ it("keeps native workspace creation while replacing the project menu with organi
     "置底",
     "合并到…",
     "取消合并",
-    "显示会话列表",
     "正常显示",
     "仅显示 Workspace",
     "隐藏整个 Project",

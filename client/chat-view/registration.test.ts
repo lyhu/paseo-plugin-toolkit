@@ -167,7 +167,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   expect(archivePills).toHaveBeenCalledWith(
     expect.objectContaining({
       agentId: "active",
-      button: expect.objectContaining({ label: "总结归档" }),
+      button: expect.objectContaining({ label: "归档新建" }),
     }),
   );
   expect(addComposerPill).toHaveBeenCalledTimes(1);
@@ -208,7 +208,6 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     true,
     true,
     false,
-    false,
   ]);
   expect(switches[0]!.label).toBe("工作台");
   for (const [index, key] of [
@@ -219,7 +218,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     "readonlyMessagesEnabled",
     "enhanceEnabled",
   ].entries()) {
-    const toggle = switches[index + (index === 5 ? 2 : 1)]!;
+    const toggle = switches[index + 1]!;
     const next = !toggle.value;
     toggle.onValueChange(next);
     expect(save).toHaveBeenLastCalledWith({ ...savedValues, [key]: next }, "saved-revision");
@@ -229,13 +228,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     { enabled: true, showSessionsByDefault: false, viewName: "我的工作台" },
     "tree-revision",
   );
-  const sessionsSwitch = switches.find((entry) => entry.label === "默认显示会话")!;
-  expect(sessionsSwitch.value).toBe(false);
-  sessionsSwitch.onValueChange(true);
-  expect(saveProjectTree).toHaveBeenLastCalledWith(
-    { enabled: false, showSessionsByDefault: true, viewName: "我的工作台" },
-    "tree-revision",
-  );
+  expect(switches.some((entry) => entry.label === "默认显示会话")).toBe(false);
   savedValues.compactActivityEnabled = false;
   selections.length = 0;
   renderToStaticMarkup(

@@ -1,8 +1,38 @@
 import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./chat-view/i18n";
 
 const english: Record<string, string> = {
+  会话列表: "Sessions",
+  刷新: "Refresh",
+  全部: "All",
+  进行中: "Active",
+  "双击打开会话 · 轮次按用户提问统计": "Double-click to open · turns count user questions",
+  双击打开会话: "Double-click to open this session",
+  "会话列表读取失败，请刷新重试。": "Could not load sessions. Refresh to retry.",
+  "当前客户端不支持会话导航，请更新 Paseo。": "Update Paseo to open sessions from this list.",
+  "会话列表分页未前进，请重试。": "Session pagination made no progress. Retry.",
+  "正在读取会话列表…": "Loading sessions…",
+  暂无匹配会话: "No matching sessions",
+  "{0} 轮": "{0} turns",
+  "打开会话：{0}": "Open session: {0}",
+  "智能命名：{0}": "Generate title: {0}",
+  "命名请求失败，请重试。": "Could not start naming. Retry.",
   智能命名: "Smart titles",
   总结归档: "Summarize & archive",
+  归档新建: "Archive & new",
+  "会话历史读取失败，请在智能命名中重试。":
+    "Could not read conversation history. Retry in Smart titles.",
+  "未能提交 /clear，请确认当前输入框后重试。":
+    "Could not submit /clear. Check the current composer and retry.",
+  "当前输入框已隐藏或会话已切换，请回到原会话后重试。":
+    "The composer is hidden or the session changed. Return to the original session and retry.",
+  "当前输入框包含附件，请移除后重试归档新建。":
+    "Remove attachments from this composer before retrying Archive & new.",
+  "无法写入 /clear，请确认当前输入框可编辑后重试。":
+    "Could not insert /clear. Check that this composer is editable and retry.",
+  "当前输入内容已变化，已取消归档新建，请重试。":
+    "The draft changed. Archive & new was cancelled; please retry.",
+  "无法定位当前输入框，请使用 /session-title 命名后手动输入 /clear。":
+    "Cannot locate this composer. Use /session-title, then enter /clear manually.",
   已排队: "Queued",
   生成标题: "Generating title",
   写回标题: "Saving title",
@@ -16,8 +46,7 @@ const english: Record<string, string> = {
   搜索会话: "Search sessions",
   会话中: "Active",
   "{0} 次记录": "{0} runs",
-  "暂无匹配会话；命名或总结归档后会出现在这里。":
-    "No matching sessions. Sessions appear after naming or summarizing and archiving.",
+  "暂无匹配会话；命名后会出现在这里。": "No matching sessions. Sessions appear after naming.",
   "选择会话后查看当次命名结果与历史记录。":
     "Select a session to inspect naming results and history.",
   重新命名: "Generate title again",
@@ -35,8 +64,8 @@ const english: Record<string, string> = {
     "Archiving did not complete. Check the connection and retry.",
   "归档结果需要核对，请确认会话状态后重试。":
     "The archive outcome needs verification. Check the session state before retrying.",
-  "使用 /session-title 后台命名，或点击「总结归档」立即归档、后台命名；右侧「智能命名」可查看记录。":
-    "Use /session-title for background naming, or Summarize & archive to archive immediately and name in the background. Inspect results in Smart titles on the right.",
+  "「归档新建」立即执行 /clear，智能命名在后台继续；右侧「会话列表」可查找会话，行尾图标可触发智能命名。":
+    "Archive & new runs /clear immediately; smart naming continues in the background. Find sessions on the right and use the trailing icon to generate a title.",
   自动总结调试: "Summary diagnostics",
   自动总结: "Auto summary",
   后台全量总结并自动设置会话标题:

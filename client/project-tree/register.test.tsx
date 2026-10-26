@@ -73,7 +73,7 @@ afterEach(() => {
 });
 
 it.each([false, true])(
-  "toggles a workspace against its inherited project visibility (default %s)",
+  "removes sidebar session expansion despite saved visibility preferences (default %s)",
   async (defaultVisible) => {
     const dom = new JSDOM("<div id='root'></div>");
     vi.stubGlobal("window", dom.window);
@@ -126,15 +126,12 @@ it.each([false, true])(
         ),
       );
       const options = () => state.render.mock.calls.at(-1)![0];
-      expect(options().sessionVisibility.has("pro:w")).toBe(false);
-      await act(async () => options().toggleSessions("pro:w", "project"));
-      expect(options().sessionVisibility.get("pro:w")).toBe(defaultVisible);
-      await act(async () => options().toggleSessions("pro:w", "project"));
-      expect(options().sessionVisibility.get("pro:w")).toBe(!defaultVisible);
-      expect(JSON.parse(state.preferences.get("config.sessionVisibility")!)).toContainEqual([
-        "pro:w",
-        !defaultVisible,
-      ]);
+      expect(options().openSession).toBeUndefined();
+      expect(options().toggleSessions).toBeUndefined();
+      expect(options().sessionVisibility).toBeUndefined();
+      expect(
+        options().workspaceMenuExtras({ serverId: "pro", projectId: "p", id: "w" }, "project"),
+      ).not.toEqual(expect.arrayContaining([expect.objectContaining({ key: "toggle-sessions" })]));
     } finally {
       await act(async () => root.unmount());
       await cleanup();
