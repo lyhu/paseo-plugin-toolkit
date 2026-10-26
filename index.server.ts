@@ -10,6 +10,7 @@ import { registerWorkbenchAI } from "./server/workbench/register-ai";
 import { registerWorkbenchState } from "./server/workbench/state";
 import { registerWorkbenchSearch } from "./server/workbench/search";
 import { memoryContext } from "./shared/workbench/state";
+import { registerSessionTitle } from "./server/session-title/register";
 export default function contribute(server: PluginServerContext) {
   const workbench = registerWorkbenchState(server);
   registerProjectTree(server, workbench);
@@ -19,6 +20,7 @@ export default function contribute(server: PluginServerContext) {
   });
   const models = createModelStore();
   registerModels(server, models);
+  const disposeTitles = registerSessionTitle(server, models);
   const settings = server.registerSettings(activitySettings);
   const readFeatures = async () => {
     const state = await settings.read();
@@ -28,6 +30,7 @@ export default function contribute(server: PluginServerContext) {
   registerEnhance(server, readFeatures, models);
   const disposeQuestions = registerQuickQuestions(server, models, readFeatures);
   return async () => {
+    await disposeTitles();
     disposeQuestions();
     disposeSearch();
     await disposeAI();

@@ -40,6 +40,7 @@ it("registers services together, limits personal context to confirmed enabled me
   };
   const dispose = contribute({
     before: () => () => {},
+    on: () => () => {},
     handle: (contract: unknown, handler: any) => handlers.set(contract, handler),
     registerSettings: () => ({ read: async () => ({ status: "ready", values: {} }) }),
   } as never);
