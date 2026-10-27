@@ -11,7 +11,9 @@ import { registerWorkbenchState } from "./server/workbench/state";
 import { registerWorkbenchSearch } from "./server/workbench/search";
 import { memoryContext } from "./shared/workbench/state";
 import { registerSessionTitle } from "./server/session-title/register";
+import { registerEditorHighlight } from "./server/editor-highlight/register";
 export default function contribute(server: PluginServerContext) {
+  const disposeHighlight = registerEditorHighlight(server);
   const workbench = registerWorkbenchState(server);
   registerProjectTree(server, workbench);
   const disposeSearch = registerWorkbenchSearch(server);
@@ -30,6 +32,7 @@ export default function contribute(server: PluginServerContext) {
   registerEnhance(server, readFeatures, models);
   const disposeQuestions = registerQuickQuestions(server, models, readFeatures);
   return async () => {
+    await disposeHighlight();
     await disposeTitles();
     disposeQuestions();
     disposeSearch();
