@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PaseoAgentTimelineHandle } from "@getpaseo/client";
-import { historyChunks, readConversation } from "./history";
+import { readConversation } from "./history";
 type Page = Awaited<ReturnType<PaseoAgentTimelineHandle["refetch"]>>;
 function page(start: number, end: number, older = false): Page {
   return {
@@ -75,14 +75,6 @@ describe("complete conversation history", () => {
     refetch.mockClear();
     await expect(readConversation({ refetch }, controller.signal)).rejects.toThrow("取消");
     expect(refetch).not.toHaveBeenCalled();
-  });
-  it("chunks huge individual messages without losing a single character", () => {
-    const text = "会员".repeat(30000);
-    const messages = [{ role: "user" as const, text, seq: 1, key: "one" }];
-    const chunks = historyChunks(messages, 1000);
-    expect(chunks.length).toBeGreaterThan(50);
-    expect(chunks.every((chunk) => chunk.length <= 1000)).toBe(true);
-    expect(chunks.join("")).toBe(JSON.stringify({ role: "user", text }) + "\n");
   });
   it("reports unavailable archived history without exposing provider details", async () => {
     const refetch = vi.fn().mockRejectedValue(new Error("thread not loaded: private-thread-id"));

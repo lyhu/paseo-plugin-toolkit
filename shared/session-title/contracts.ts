@@ -6,7 +6,7 @@ export const sessionTitleSettings = defineSettings({
   scope: "host",
   version: 1,
   schema: z.object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true),
     rounds: z.number().int().min(1).max(20).default(5),
     maxLength: z.number().int().min(1).max(100).default(30),
   }),

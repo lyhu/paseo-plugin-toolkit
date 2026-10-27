@@ -81,7 +81,7 @@ function fixture() {
   const rename = vi.fn(async (_id: string, title: string, _signal: AbortSignal) => {
     agent.title = title;
   });
-  const settings = sessionTitleSettings.schema.parse({ enabled: true });
+  const settings = sessionTitleSettings.schema.parse({});
   const build = () =>
     createTitleService({
       store,

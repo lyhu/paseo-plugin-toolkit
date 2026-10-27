@@ -256,6 +256,7 @@ it("starts silent naming from the trailing icon without opening a conversation o
   await openActions(node);
   await act(async () => textButton(node, "智能生成标题").click());
   expect(api.call).toHaveBeenCalledWith("session-title.start", { agentId: "old" });
+  expect(node.querySelector('[role="menu"]')).toBeNull();
   expect(openAgent).not.toHaveBeenCalled();
   expect(node.textContent).not.toContain("会话摘要");
 });
@@ -296,6 +297,8 @@ it("keeps the spinner and disables repeat naming until the actual background tas
   await openActions(node);
   const button = () => node.querySelector<HTMLButtonElement>('[role="menu"] button')!;
   await act(async () => button().click());
+  expect(node.querySelector('[role="menu"]')).toBeNull();
+  await openActions(node);
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
@@ -319,6 +322,7 @@ it("shows background failures and permits retry", async () => {
   await act(async () => button().click());
   await updatePhase("error");
   expect(node.textContent).toContain("命名失败，请重试。");
+  await openActions(node);
   expect(button().disabled).toBe(false);
   await act(async () => button().click());
   expect(api.call.mock.calls.filter(([name]) => name === "session-title.start")).toHaveLength(2);
@@ -328,13 +332,17 @@ it("restores an already running naming status when the session list is reopened"
   const { node } = await mount();
   const row = node.querySelector('button[aria-label="会员续费"]')!;
   expect(row.textContent).toContain("已归档");
-  expect(row.lastElementChild!.textContent).toBe("生成标题");
+  expect(row.lastElementChild!.textContent).toBe("正在生成标题...");
+  expect(row.lastElementChild!.firstElementChild!.getAttribute("role")).toBe("progressbar");
   expect(row.lastElementChild!.previousElementSibling!.textContent).toContain("已归档");
   await openActions(node);
   const button = node.querySelector<HTMLButtonElement>('[role="menu"] button')!;
   expect(button.disabled).toBe(true);
   expect(button.textContent).toContain("生成标题");
   expect(api.call.mock.calls.some(([name]) => name === "session-title.start")).toBe(false);
+  await updatePhase("done");
+  expect(row.textContent).not.toContain("正在生成标题...");
+  expect(row.querySelector('[role="progressbar"]')).toBeNull();
 });
 const textButton = (node: Element, text: string) =>
   [...node.querySelectorAll("button")].find((button) => button.textContent === text)!;
@@ -380,7 +388,7 @@ it("renames manually with the original title and workspace, without invoking a m
   await act(async () => textButton(node, "重新命名").click());
   const dialog = node.querySelector('[role="dialog"]')!;
   expect((dialog as HTMLElement).style.position).toBe("absolute");
-  expect((dialog as HTMLElement).style.width).toBe("320px");
+  expect((dialog as HTMLElement).style.width).toBe("576px");
   expect(node.querySelector('[role="menu"]')).toBeNull();
   expect(textButton(dialog, "保存").parentElement!.style.justifyContent).toBe("flex-end");
   expect(dialog.querySelector("input")!.value).toBe("会员续费");
