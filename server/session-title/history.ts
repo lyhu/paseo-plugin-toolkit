@@ -77,23 +77,3 @@ export async function readConversation(
     .digest("hex");
   return { messages, fingerprint, epoch: epoch ?? "", through };
 }
-
-/** Split even a single huge message; no text is silently truncated or sampled. */
-export function historyChunks(messages: HistoryMessage[], size = 12000): string[] {
-  const chunks: string[] = [];
-  let chunk = "";
-  for (const message of messages) {
-    const text = JSON.stringify({ role: message.role, text: message.text }) + "\n";
-    for (let offset = 0; offset < text.length; ) {
-      const count = Math.min(size - chunk.length, text.length - offset);
-      chunk += text.slice(offset, offset + count);
-      offset += count;
-      if (chunk.length === size) {
-        chunks.push(chunk);
-        chunk = "";
-      }
-    }
-  }
-  if (chunk) chunks.push(chunk);
-  return chunks;
-}
