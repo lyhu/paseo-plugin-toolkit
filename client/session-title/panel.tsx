@@ -302,7 +302,7 @@ function SessionRow({
     setMenu(false);
     setDialog(null);
   };
-  const popupWidth = dialog === "rename" ? 320 : dialog === "delete" ? 220 : 160;
+  const popupWidth = dialog === "rename" ? 576 : dialog === "delete" ? 220 : 160;
   return (
     <View
       onPointerEnter={() => hover(true)}
