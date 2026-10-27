@@ -194,6 +194,14 @@ paseo plugin enable toolkit
 - 自动将模糊、简短的草稿扩展为具备背景目标、操作范围、技术约束和验收标准的高质量 Prompt。
 - 增强完成后自动回填输入框，支持二次点击恢复原始草稿。
 
+## 编辑器高亮
+
+“设置 → 编辑器高亮”为原生编辑器补充 `.env` / `.env.*`、INI、TOML、Shell、SQL、Dockerfile 和 `.gitignore` 高亮。macOS 上每次加载 Toolkit 默认会自动检测当前 Host 的 `/Applications/Paseo.app` 并应用补丁；设置页同时提供“重新检测”“立即应用高亮”和“恢复高亮备份”。
+
+仅修改结构兼容的 Paseo 0.13.x 前端。原始文件备份保存在 `$PASEO_HOME/toolkit/editor-highlight/`，恢复前校验文件内容，不会用旧版本备份覆盖升级后的应用。如需恢复后保留原始文件，请先关闭自动修补。应用或恢复后需重新加载整个 Paseo 界面，仅重新打开文件标签无效；不重启 daemon。远程 Host 无法修改你电脑上的应用。
+
+此功能会修改 macOS 应用签名覆盖的资源，使原签名校验失败，不重新签名。应用升级可能覆盖补丁，重新加载 Toolkit 后会检测并重新修补兼容版本；无法识别的构建和写权限错误会显示在设置页。补丁仅修改编辑器语言注册，dotenv 复用 Shell 基础高亮，SQL 使用标准 SQL 语法。
+
 ## 功能设置与多语言
 
 在 Toolkit 功能设置页面中，可以对各项增强功能进行精细化开关与外观配置：
@@ -269,3 +277,4 @@ npm run test -- run
 - [LICENSE.chat-view](LICENSE.chat-view)
 - [LICENSE.compact-agent-activity](LICENSE.compact-agent-activity)
 - [LICENSE.mermaid](LICENSE.mermaid)
+- [LICENSE.editor-highlight](LICENSE.editor-highlight)

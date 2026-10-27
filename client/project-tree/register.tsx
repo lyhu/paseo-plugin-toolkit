@@ -202,11 +202,14 @@ export function registerProjectTree(client: PluginClientContext) {
         },
         viewName: tr("工作台视图"),
         projectSourceId: (id) => projected.projectSources.get(id) ?? id,
+        isFavoriteProject: (id) =>
+          model.preferences.favorites.includes(projected.projectSources.get(id) ?? id),
         groupDisplay(id) {
           const groupId = projected.groupIds.get(id),
             group = model.preferences.tabs.find((tab) => tab.id === groupId);
           if (!group) return;
           return {
+            favorite: group.kind === "favorites",
             workspacesOnly: !!group.workspacesOnly,
             disabled: !model.editable || displayPending,
             toggle() {

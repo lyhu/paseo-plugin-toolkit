@@ -194,6 +194,14 @@ Click **Enhance** above the composer or trigger `/enhance`:
 - Expands short or ambiguous drafts into clear, structured prompts with explicit objectives, scope, technical constraints, and acceptance criteria.
 - Automatically replaces the draft upon success, with a one-click restore option to revert to the original text.
 
+## Editor highlighting
+
+Settings → Editor highlighting patches the native editor for `.env` / `.env.*`, INI, TOML, Shell, SQL, Dockerfile and `.gitignore`. On macOS, Toolkit checks `/Applications/Paseo.app` on its Host whenever the plugin loads and applies the patch automatically by default. The settings page also provides Check again, Apply highlighting now, and Restore highlight backup.
+
+Only compatible Paseo 0.13.x frontend builds are modified. Backups are stored in `$PASEO_HOME/toolkit/editor-highlight/` and verified before restore; a backup from an older app cannot overwrite an upgraded app. Turn off automatic patching before restoring if you want the original files to remain. Reload the entire Paseo interface after applying or restoring; reopening a file tab is not enough. The daemon is not restarted. A remote Host cannot patch the app on your computer.
+
+This modifies resources covered by the macOS app signature and invalidates the original signature. Toolkit does not re-sign the app. Updates can replace the patch; reload Toolkit to detect and patch a compatible update again. Unrecognized builds and write permission failures are shown in settings. The patch affects only editor language registration, and uses Shell syntax for basic dotenv highlighting and standard SQL syntax for `.sql` files.
+
 ## Settings and Internationalization
 
 Toolkit **Settings** provides granular control over individual features and display options:
@@ -268,3 +276,4 @@ This project incorporates and references components under the following license 
 - [LICENSE.chat-view](LICENSE.chat-view)
 - [LICENSE.compact-agent-activity](LICENSE.compact-agent-activity)
 - [LICENSE.mermaid](LICENSE.mermaid)
+- [LICENSE.editor-highlight](LICENSE.editor-highlight)

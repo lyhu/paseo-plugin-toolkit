@@ -15,13 +15,16 @@
     "shared/",
     "LICENSE.chat-view",
     "LICENSE.compact-agent-activity",
-    "LICENSE.mermaid"
+    "LICENSE.mermaid",
+    "LICENSE.editor-highlight"
   ],
   "scripts": {
+    "build:editor-highlight": "node server/editor-highlight/build-payload.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "lint": "oxlint .",
     "format": "oxfmt .",
+    "format:files": "oxfmt",
     "format:check": "oxfmt --check ."
   },
   "dependencies": {
@@ -31,12 +34,16 @@
     "prismjs": "^1.30.0"
   },
   "devDependencies": {
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.3",
     "@getpaseo/plugin": "^0.13.0",
+    "@lezer/highlight": "^1.2.3",
     "@tanstack/react-query": "^5.90.0",
     "@types/jsdom": "21.1.7",
     "@types/node": "^22.20.5",
     "@types/prismjs": "^1.26.6",
     "@types/react": "~19.1.0",
+    "esbuild": "^0.27.3",
     "jsdom": "26.1.0",
     "oxfmt": "0.46.0",
     "oxlint": "1.61.0",
