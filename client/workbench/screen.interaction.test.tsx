@@ -464,6 +464,68 @@ it.each(["项目视图", "全域总览"])("opens native workspace tabs from %s",
   expect(props.navigation!.openAgent).not.toHaveBeenCalled();
 });
 
+it.each(["矩阵", "列表"])(
+  "shares overview favorites with the search space in %s view",
+  async (view) => {
+    const project = base.nativeProjects[0]!;
+    await mount({
+      ...base,
+      projects: [project],
+      preferences: { ...base.preferences, layout: "B" },
+    });
+    await click(view);
+    const card = document.querySelector('[data-testid^="workbench-host-project:"]')!;
+    expect(card.querySelector('[aria-label="收藏项目 · Project One"]')).toBeTruthy();
+    await click("收藏项目 · Project One");
+    const tabs = [{ id: "favorites", name: "收藏项目", kind: "favorites" }];
+    expect(savePreferences).toHaveBeenLastCalledWith({ favorites: [project.id], tabs });
+    expect(card.querySelector('[aria-label="取消收藏 · Project One"]')).toBeTruthy();
+    expect(props.navigation!.openWorkspace).not.toHaveBeenCalled();
+
+    await click("项目视图");
+    await click("收藏项目");
+    expect(
+      document.querySelector(`[data-testid='workbench-group-project:${project.id}']`),
+    ).toBeTruthy();
+
+    await click("全域总览");
+    await click("取消收藏 · Project One");
+    expect(savePreferences).toHaveBeenLastCalledWith({ favorites: [], tabs });
+    await click("项目视图");
+    expect(
+      document.querySelector(`[data-testid='workbench-group-project:${project.id}']`),
+    ).toBeNull();
+  },
+);
+
+it("keeps overview favorites unchanged and shows save failures", async () => {
+  savePreferences.mockRejectedValueOnce(new Error("Cannot save favorites"));
+  await mount({ ...base, preferences: { ...base.preferences, layout: "B" } });
+  await click("收藏项目 · Project One");
+  expect(document.body.textContent).toContain("Cannot save favorites");
+  expect(document.querySelector('[aria-label="收藏项目 · Project One"]')).toBeTruthy();
+  expect(document.querySelector('[aria-label="取消收藏 · Project One"]')).toBeNull();
+});
+
+it("disables overview favorites when preferences are read-only and hides them for system projects", async () => {
+  await mount({
+    ...base,
+    editable: false,
+    nativeProjects: [
+      base.nativeProjects[0]!,
+      { ...base.nativeProjects[0]!, id: "system", name: "System", system: true },
+    ],
+    preferences: { ...base.preferences, layout: "B" },
+  });
+  const favorite = document.querySelector<HTMLButtonElement>(
+    '[aria-label="收藏项目 · Project One"]',
+  )!;
+  expect(favorite.disabled).toBe(true);
+  expect(document.querySelector('[aria-label="收藏项目 · System"]')).toBeNull();
+  await act(async () => favorite.click());
+  expect(savePreferences).not.toHaveBeenCalled();
+});
+
 it("lists explicit workspace references immediately and opens their native Host", async () => {
   await mount({
     ...base,
