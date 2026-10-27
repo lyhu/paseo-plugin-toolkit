@@ -72,7 +72,7 @@ const english: Record<string, string> = {
   "会话操作：{0}": "Session actions: {0}",
   "更多：{0}": "More: {0}",
   关闭更多菜单: "Close session menu",
-  智能生成标题: "Generate smart title",
+  生成标题: "Generate title",
   "正在生成标题...": "Generating title...",
   复制标题: "Copy title",
   标题已复制: "Title copied",

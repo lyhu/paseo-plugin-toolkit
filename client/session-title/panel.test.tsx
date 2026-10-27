@@ -254,7 +254,7 @@ it("filters archived sessions without opening a tab or requesting naming", async
 it("starts silent naming from the trailing icon without opening a conversation or diagnostics", async () => {
   const { node, openAgent } = await mount();
   await openActions(node);
-  await act(async () => textButton(node, "智能生成标题").click());
+  await act(async () => textButton(node, "生成标题").click());
   expect(api.call).toHaveBeenCalledWith("session-title.start", { agentId: "old" });
   expect(node.querySelector('[role="menu"]')).toBeNull();
   expect(openAgent).not.toHaveBeenCalled();
@@ -313,7 +313,7 @@ it("keeps the spinner and disables repeat naming until the actual background tas
   await updatePhase("done");
   expect(button().disabled).toBe(false);
   expect(button().querySelector('[role="progressbar"]')).toBeNull();
-  expect(button().textContent).toBe("智能生成标题");
+  expect(button().textContent).toBe("生成标题");
 });
 it("shows background failures and permits retry", async () => {
   const { node } = await mount();
@@ -354,12 +354,12 @@ async function openActions(node: Element, title = "会员续费") {
 it("puts all title actions in a dropdown and dismisses it by clicking outside", async () => {
   const { node } = await mount();
   expect(node.querySelector('[role="menu"]')).toBeNull();
-  expect(node.textContent).not.toContain("智能生成标题");
+  expect(node.textContent).not.toContain("生成标题");
   expect(node.textContent).not.toContain("复制标题");
   await openActions(node);
   const menu = node.querySelector('[role="menu"]')!;
   expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
-    "智能生成标题",
+    "生成标题",
     "复制标题",
     "重新命名",
     "永久删除",

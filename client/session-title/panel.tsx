@@ -524,7 +524,7 @@ function SessionRow({
                 >
                   {busy ? <ActivityIndicator size="small" color={colors.accent} /> : null}
                   <Text style={{ color: colors.foreground, fontSize: 14 }}>
-                    {tr(busy ? stage : "智能生成标题")}
+                    {tr(busy ? stage : "生成标题")}
                   </Text>
                 </MenuItem>
                 <MenuItem

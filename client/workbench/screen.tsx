@@ -23,7 +23,7 @@ import { mountHostReorder, moveHost, orderedHosts } from "./host-order";
 import { ProjectPath } from "./project-path";
 import { NativeActions } from "./native-actions";
 import { useWorkbenchViewState } from "./view-state";
-import { projectsInGroup, reorderIds } from "./groups";
+import { projectsInGroup, reorderIds, toggleFavoriteGroup } from "./groups";
 import { mountGroupReorder } from "./reorder";
 import type {
   SearchScope,
@@ -724,7 +724,30 @@ export function WorkbenchScreen(
                           >
                             {project.name}
                           </Text>
-                          {project.system && <Badge>DEFAULT</Badge>}
+                          {project.system ? (
+                            <Badge>DEFAULT</Badge>
+                          ) : (
+                            <Action
+                              quiet
+                              compact
+                              icon="Star"
+                              label={`${tr(model.preferences.favorites.includes(project.id) ? "取消收藏" : "收藏项目")} · ${project.name}`}
+                              disabled={!model.editable || pending}
+                              selected={model.preferences.favorites.includes(project.id)}
+                              onPress={() =>
+                                run(() =>
+                                  model.savePreferences(
+                                    toggleFavoriteGroup(
+                                      model.preferences,
+                                      project.id,
+                                      model.preferences.favorites.includes(project.id),
+                                      tr(FAVORITES_GROUP_NAME),
+                                    ),
+                                  ),
+                                )
+                              }
+                            />
+                          )}
                         </View>
                         <View style={{ paddingLeft: 22, marginRight: -12, gap: 2 }}>
                           {project.instances
