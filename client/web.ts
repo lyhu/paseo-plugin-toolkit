@@ -163,6 +163,7 @@ const workspaceDirectoryLabel = (workspace: CatalogWorkspace) =>
 
 type GlyphKind =
   | "folder"
+  | "star"
   | "folderPlus"
   | "directory"
   | "session"
@@ -191,6 +192,9 @@ type GlyphKind =
 /** Lucide geometry, kept here so the web adapter renders the same icons as the native card. */
 const glyphShapes: Record<GlyphKind, Array<[string, Record<string, string>]>> = {
   folder: [["path", { d: "M3 7V5h6l2 2h10v12H3Z" }]],
+  star: [
+    ["path", { d: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z" }],
+  ],
   session: [
     [
       "path",
@@ -1410,9 +1414,12 @@ export function renderProjectSidebar(
     readOnly?: boolean;
     knowledgeSpace?: { open(): void };
     projectSourceId?(id: string): string;
+    isFavoriteProject?(id: string): boolean;
     groupDisplay?(
       id: string,
-    ): { workspacesOnly: boolean; disabled: boolean; toggle(): void } | undefined;
+    ):
+      | { favorite?: boolean; workspacesOnly: boolean; disabled: boolean; toggle(): void }
+      | undefined;
     showHidden?: boolean;
     toggleHidden?(): void;
     resetHidden?(): Promise<void>;
@@ -2584,8 +2591,9 @@ export function renderProjectSidebar(
       const chevron = icon(toggle, "chevron");
       chevron.style.transform = collapsed.has(node.id) ? "none" : "rotate(90deg)";
       chevron.style.flexShrink = "0";
+      const groupDisplay = node.kind === "folder" ? options.groupDisplay?.(node.id) : undefined;
       if (node.kind === "folder") {
-        const folder = icon(toggle, "folder");
+        const folder = icon(toggle, groupDisplay?.favorite ? "star" : "folder");
         folder.style.color = colors.accent;
       } else {
         const src = nativeRow?.querySelector("img")?.getAttribute("src");
@@ -2604,6 +2612,11 @@ export function renderProjectSidebar(
           objectFit: "contain",
         });
       }
+      if (node.kind === "project" && options.isFavoriteProject?.(node.id)) {
+        const star = icon(toggle, "star");
+        star.style.color = colors.accent;
+        star.style.flexShrink = "0";
+      }
       const title = element("span", toggle, node.name);
       Object.assign(title.style, {
         overflow: "hidden",
@@ -2619,7 +2632,6 @@ export function renderProjectSidebar(
           flexShrink: "0",
         });
       }
-      const groupDisplay = node.kind === "folder" ? options.groupDisplay?.(node.id) : undefined;
       if (groupDisplay) {
         const actions = element("div", row);
         actions.setAttribute("data-toolkit-tree-actions", "true");
@@ -2835,6 +2847,7 @@ export function renderProjectSidebar(
       const sessions = sessionsOpen ? workspaceSessions(snapshot, workspace) : [];
       const sessionCount = workspaceSessionCount(snapshot, workspace);
       const previousRule = body.lastElementChild?.getAttribute("data-toolkit-workspace-rule-edge");
+      const favorite = !!options.isFavoriteProject?.(node.id);
       const cacheId = JSON.stringify([
         ...(options.readOnly ? [node.id] : []),
         workspace.serverId,
@@ -2850,6 +2863,7 @@ export function renderProjectSidebar(
         sessionsOpen,
         sessions,
         sessionCount,
+        favorite,
         options.sessionLimits?.get(JSON.stringify([workspace.serverId, workspace.id])) ?? 5,
         previousRule === "bottom",
       ]);
@@ -3065,6 +3079,17 @@ export function renderProjectSidebar(
         }
       };
       attach(originals.get(`sidebar-workspace-row-${workspace.serverId}:${workspace.id}`));
+      if (favorite) {
+        const star = glyph(workspaceRow, "star", 12);
+        star.setAttribute("data-toolkit-workspace-favorite", "true");
+        Object.assign(star.style, {
+          position: "absolute",
+          left: `${workspaceDepth * 14 + 11}px`,
+          bottom: "12px",
+          color: colors.accent,
+          pointerEvents: "none",
+        });
+      }
       retained.binding = {
         expected: `sidebar-workspace-row-${workspace.serverId}:${workspace.id}`,
         attach,
