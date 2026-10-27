@@ -107,7 +107,6 @@ const english: Record<string, string> = {
   "无法定位当前输入框，请使用 /session-title 命名后手动输入 /clear。":
     "Cannot locate this composer. Use /session-title, then enter /clear manually.",
   已排队: "Queued",
-  生成标题: "Generating title",
   写回标题: "Saving title",
   轮次触发: "Turn completed",
   手动命名: "Manual naming",
@@ -583,6 +582,99 @@ const english: Record<string, string> = {
   "Toolkit 功能设置无法读取。": "Could not load Toolkit feature settings.",
   "当前阶段 {0}/{1} · 读取成功 {2} 个对话 · 用户提问 {3} 条 · 失败 {4} 个":
     "Stage {0}/{1} · Read {2} conversations · {3} user questions · {4} failed",
+  "Toolkit 设置": "Toolkit Settings",
+  "概览与主控": "Overview & Controls",
+  "对话交互": "Chat & Interaction",
+  "AI 与模型": "AI & Models",
+  "智能辅助": "Smart Features",
+  "系统与环境": "System & Environment",
+  "功能设置导航": "Settings Navigation",
+  "插件概览、子模块健康度与语言偏好": "Overview, module health and language preferences",
+  "紧凑活动、Mermaid、吸顶提问、只读保护": "Compact activity, Mermaid, sticky questions, readonly protection",
+  "项目多主机管理、分组视图与别名": "Cross-host projects, group tree and custom alias",
+  "Host 级默认共享模型与工作区覆盖": "Host-level shared model and workspace overrides",
+  "会话智能命名与提示词增强": "Smart session naming and prompt enhance",
+  "编辑器高亮补丁与快捷提问库": "Editor highlight patch and quick questions library",
+  "界面语言与多语言": "Language & Localization",
+  "Toolkit 语言偏好": "Toolkit Language Preference",
+  "选择 Toolkit 界面显示语言，也可跟随 Paseo 客户端默认设置。":
+    "Choose display language for Toolkit or follow Paseo client default.",
+  "跟随客户端语言": "Follow Client Language",
+  "简体中文": "Simplified Chinese",
+  "功能模块状态一览": "Module Status Overview",
+  "已启用": "Enabled",
+  "版本 v{0} · 适用 Paseo 0.13.x": "Version v{0} · For Paseo 0.13.x",
+  "当前连接主机：{0}。所有子模块配置均在此统一管理，保障全局体验一致。":
+    "Connected host: {0}. All submodules are configured here for a unified experience.",
+  "紧凑推理与活动记录": "Compact Reasoning & Activity",
+  "紧凑活动总开关": "Compact Activity Master Switch",
+  "将推理过程和工具调用归并为可展开的紧凑记录，减少滚动篇幅。":
+    "Consolidate reasoning and tool calls into compact expandable records.",
+  "活动展示模式": "Activity Display Mode",
+  "默认将推理与工具折叠或展开显示。": "Default display state for reasoning and tool calls.",
+  "折叠": "Folded",
+  "展开": "Detailed",
+  "配色方案": "Palette Scheme",
+  "活动记录边框与状态指示的主题色系。": "Theme colors for activity borders and status badges.",
+  "鲜艳": "Vivid",
+  "柔和": "Soft",
+  "高对比度": "High Contrast",
+  "推荐设置": "Recommended Settings",
+  "使用紧凑活动时，建议在 Paseo 设置中将工具调用详情设为“详细 (Detailed)”。Overview 模式会在插件收到数据前归并内容，导致细节无法恢复。":
+    "When using compact activity, setting tool details in Paseo to 'Detailed' is recommended.",
+  "对话渲染与交互增强": "Chat Rendering & Interaction Enhancements",
+  "Mermaid 交互图表": "Mermaid Interactive Diagrams",
+  "在助手回答中自动检测并渲染流程图、时序图等，支持缩放和平移。":
+    "Detect and render flowcharts, sequence diagrams in responses with zoom and pan.",
+  "吸顶提问 (Sticky Questions)": "Sticky Questions",
+  "在长会话向上滚动时，将当前回答对应的用户提问固定在视口顶部。":
+    "Pin the corresponding user question to viewport top when scrolling up.",
+  "只读消息保护": "Readonly Message Protection",
+  "在网页界面隐藏已发送消息的撤回/编辑操作，防止误触破坏会话历史。":
+    "Hide edit/recall actions for sent messages in web interface to avoid misclicks.",
+  "跨 Host 工作台总控": "Cross-Host Workbench Controls",
+  "启用工作台视图": "Enable Workbench View",
+  "提供跨 Host 工作台视图、多主机资源总览、技能与记忆知行空间。":
+    "Provide cross-host workbench view, multi-host resource overview, and knowledge space.",
+  "工作台视图外观与命名": "Workbench Appearance & Naming",
+  "左侧导航视图名称": "Sidebar Tree View Name",
+  "左侧导航树显示的视图标题名称（留空恢复默认）。": "Display title for the sidebar tree view (empty for default).",
+  "使用说明": "Usage Notes",
+  "• 建议仅在长期在线的稳定配置 Host 开启工作台，由其统筹保存分组排序与展示偏好。\n• 左侧导航支持通过「工作台视图｜原生视图」按键直接切换，点击工作区保留原生 Agent 与终端标签。\n• 视图选择跟随当前设备独立保存，分组内容在配置 Host 统一同步。":
+    "• Enable workbench on a stable online configuration Host to store grouping and preferences.\n• Switch between Workbench and Native view with sidebar buttons; workspaces retain agent/terminal tabs.\n• View mode is saved per device; groups are synced on the config Host.",
+  "AI 共享模型服务": "AI Shared Model Service",
+  "Host 默认模型与工作区覆盖": "Host Default Model & Workspace Overrides",
+  "会话智能命名和提示词增强共用此模型配置。支持 OpenAI、Claude 以及兼容端点。可为主机设置默认配置，并允许特定工作区单独覆盖。":
+    "Shared by session title and prompt enhance. Supports OpenAI, Claude, and compatible endpoints.",
+  "自动命名业务会话": "Automatically Name Business Sessions",
+  "仅对能够确认轮次的新会话生效；人工重命名后自动停止覆盖。":
+    "Applies to new sessions with recognized turns; manual renaming stops further updates.",
+  "在前几轮会话中逐步总结提炼标题。": "Progressively summarize titles during initial conversation turns.",
+  "标题最大字符数（1–100）": "Max Title Length (1–100)",
+  "自动生成标题的最大字符限制。": "Maximum character limit for automatically generated titles.",
+  "智能命名复用 Toolkit 模型服务，若需更换请前往配置":
+    "Smart naming shares Toolkit model service. Go to AI & Models tab to configure.",
+  "AI 模型配置": "AI Model Settings",
+  "提示词增强 (Prompt Enhance)": "Prompt Enhance",
+  "启用输入框提示词增强": "Enable Prompt Enhance",
+  "在输入框提供增强按钮，结合当前项目上下文扩展简短草稿。":
+    "Provide an enhance button in composer to expand short drafts with project context.",
+  "快捷提问库 (Quick Questions)": "Quick Questions Library",
+  "启用快捷提问浮层与话术库": "Enable Quick Questions Floating Layer",
+  "在输入框提供工作区话术浮层、手动维护常用提问、历史总结推荐。":
+    "Floating workspace prompt library in composer with manual edit and history recommendations.",
+  "macOS 编辑器语法高亮增强": "macOS Editor Syntax Highlighting",
+  "加载时自动检测并修补": "Check and apply automatically on load",
+  "补充 .env、TOML、Shell、SQL、Dockerfile 等文件的语法着色。升级 Paseo 后重载 Toolkit 即可自动重新修补。":
+    "Add syntax coloring for .env, TOML, Shell, SQL, Dockerfile. Reload Toolkit to re-patch after upgrade.",
+  "环境检测状态": "Environment Detection Status",
+  "检测中…": "Checking…",
+  "正在修补…": "Applying patch…",
+  "立即应用高亮补丁": "Apply Highlight Patch",
+  "恢复原始安装包": "Restore Original App",
+  "提示：此补丁直接作用于当前 Host 的 /Applications/Paseo.app；远程 Host 无法修改你本地电脑上的应用。应用后请重新加载 Paseo 界面生效。":
+    "Note: Directly patches /Applications/Paseo.app on this Host. Reload Paseo interface to take effect.",
+  "Toolkit 版本 v{0} · 全局统一配置控制台": "Toolkit Version v{0} · Unified Settings Console",
 };
 export type TranslationValues = Record<string, string | number>;
 function render(template: string, values: TranslationValues) {

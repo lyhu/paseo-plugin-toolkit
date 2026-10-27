@@ -72,4 +72,17 @@ describe("revisioned JSON store", () => {
     writeFileSync(filename, "not json");
     expect(() => store.read()).toThrow("unreadable");
   });
+  it("returns cached snapshot when underlying file mtime and size are unchanged", () => {
+    const { filename } = fixture();
+    const store = createRevisionedJsonStore({
+      filename,
+      schema,
+      create: () => ({ revision: 0, value: "default" }),
+      concurrencyError: "stale",
+      seed: true,
+    });
+    const first = store.read();
+    const second = store.read();
+    expect(first).toBe(second);
+  });
 });

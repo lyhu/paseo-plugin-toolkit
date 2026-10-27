@@ -289,14 +289,14 @@ export function createCatalog(cache?: z.infer<typeof catalogCacheSchema>) {
 
 const derived = new WeakMap<CatalogSnapshot, ReturnType<typeof indexCatalog>>();
 const workspaceKey = (workspace: { serverId: string; id: string }) =>
-  JSON.stringify([workspace.serverId, workspace.id]);
+  `${workspace.serverId}:${workspace.id}`;
 function indexCatalog(snapshot: CatalogSnapshot) {
   const members = new Map<string, CatalogWorkspace[]>();
   const nodes = new Map<string, CatalogWorkspace[]>();
   const order = new Map<CatalogWorkspace, number>();
   const placements = new Map(
     (snapshot.tree.workspacePlacements ?? []).map((entry) => [
-      JSON.stringify([entry.serverId, entry.workspaceId]),
+      `${entry.serverId}:${entry.workspaceId}`,
       entry.nodeId,
     ]),
   );
@@ -322,7 +322,7 @@ function indexCatalog(snapshot: CatalogSnapshot) {
       map.set(key, entries);
     }
     for (const session of catalog.sessions ?? []) {
-      const key = JSON.stringify([serverId, session.workspaceId]);
+      const key = workspaceKey({ serverId, id: session.workspaceId });
       const entries = sessions.get(key) ?? [];
       entries.push(session);
       sessions.set(key, entries);

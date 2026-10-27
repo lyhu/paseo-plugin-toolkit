@@ -17,12 +17,10 @@ it("runs naming silently and registers one workspace session list", async () => 
   const remove = vi.fn();
   let command!: Extract<PluginClientSlashCommandContribution, { context: "agent" }>;
   const addWorkspacePanel = vi.fn(() => remove),
-    addSettingsScreen = vi.fn(() => remove),
     addCommandCenterItem = vi.fn(() => remove);
   const dispose = registerSessionTitle({
     rpc: vi.fn().mockResolvedValue({ resumed: 0 }),
     addWorkspacePanel,
-    addSettingsScreen,
     addCommandCenterItem,
     addSlashCommand: (value: typeof command) => {
       command = value;
@@ -51,5 +49,5 @@ it("runs naming silently and registers one workspace session list", async () => 
     command.onSubmit({ ...(context as object), args: "unexpected" } as never),
   ).rejects.toThrow("无需参数");
   await dispose();
-  expect(remove).toHaveBeenCalledTimes(4);
+  expect(remove).toHaveBeenCalledTimes(3);
 });

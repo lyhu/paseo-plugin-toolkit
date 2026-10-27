@@ -9,6 +9,8 @@ import { join, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { activitySettings } from "../../shared/chat-view/settings";
 import { projectTreeSettings } from "../../shared/project-tree/contracts";
+import { sessionTitleSettings } from "../../shared/session-title/contracts";
+import { editorHighlightSettings } from "../../shared/editor-highlight/contracts";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { paseoToolLeafName } from "../../shared/chat-view/activity/paseo-tools";
 
@@ -42,7 +44,11 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     React.createElement(React.Fragment, null, children);
   const modules: Record<string, unknown> = {
     react: React,
-    "@tanstack/react-query": {},
+    "@tanstack/react-query": {
+      useQuery: () => ({ data: undefined, isPending: false, isError: false }),
+      useMutation: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+      useQueryClient: () => ({ setQueryData: vi.fn() }),
+    },
     zod,
     "@getpaseo/plugin": Plugin,
     "@getpaseo/plugin/client/ui": {
@@ -65,24 +71,46 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
     "react/jsx-runtime": JSX,
     "react-native": ReactNative,
     "@getpaseo/plugin/client": {
-      useSettings: (definition: { id: string }) =>
-        definition.id === projectTreeSettings.id
-          ? {
-              status: "ready",
-              values: projectTreeSettings.schema.parse({ enabled: false }),
-              revision: "tree-revision",
-              saving: false,
-              saveError: null,
-              save: saveProjectTree,
-            }
-          : {
-              status: "ready",
-              values: savedValues,
-              revision: "saved-revision",
-              saving: false,
-              saveError: null,
-              save,
-            },
+      useSettings: (definition: { id: string }) => {
+        if (definition.id === projectTreeSettings.id) {
+          return {
+            status: "ready",
+            values: projectTreeSettings.schema.parse({ enabled: false }),
+            revision: "tree-revision",
+            saving: false,
+            saveError: null,
+            save: saveProjectTree,
+          };
+        }
+        if (definition.id === sessionTitleSettings.id) {
+          return {
+            status: "ready",
+            values: sessionTitleSettings.schema.parse({ enabled: false }),
+            revision: "title-revision",
+            saving: false,
+            saveError: null,
+            save: vi.fn(),
+          };
+        }
+        if (definition.id === editorHighlightSettings.id) {
+          return {
+            status: "ready",
+            values: editorHighlightSettings.schema.parse({ automatic: true }),
+            revision: "highlight-revision",
+            saving: false,
+            saveError: null,
+            save: vi.fn(),
+          };
+        }
+        return {
+          status: "ready",
+          values: savedValues,
+          revision: "saved-revision",
+          saving: false,
+          saveError: null,
+          save,
+        };
+      },
       useRpc: () => async () => ({
         ok: false,
         message: "未调用",
@@ -181,68 +209,39 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   expect(
     mermaid.transform({ item: { text: "```mermaid\nflowchart TD\nA --> B\n```" } }).items[0].kind,
   ).toBe("chat-view-mermaid-diagram");
-  expect(addSettingsScreen).toHaveBeenCalledTimes(3);
-  expect(addSettingsScreen).toHaveBeenCalledWith(expect.objectContaining({ id: "session-title" }));
+  expect(addSettingsScreen).toHaveBeenCalledTimes(1);
+  expect(addSettingsScreen).toHaveBeenCalledWith(
+    expect.objectContaining({ id: "toolkit-settings", title: "Toolkit 设置", icon: "Settings" }),
+  );
   expect(clientBundle).not.toContain("对话增强");
   expect(clientBundle).not.toContain("复制回答");
-  const settingsRegistration = addSettingsScreen.mock.calls.find(
-    ([entry]) => entry.title === "功能设置",
-  )![0];
+  const settingsRegistration = addSettingsScreen.mock.calls[0]![0];
   const page = settingsRegistration.Component({});
   const SettingsPage = settingsRegistration.Component;
   const markup = renderToStaticMarkup(
     React.createElement(SettingsPage, {
       theme: { colors: { foreground: "white", foregroundMuted: "gray", statusDanger: "red" } },
+      host: { id: "host", label: "Local" },
+      layout: { compact: false },
     }),
   );
-  expect(markup).toContain("Mermaid 图表");
   expect(markup).toContain("Toolkit 版本 v0.2.1");
-  expect(markup).not.toContain("API Key");
-  expect(actions.some((entry) => entry.label === "Toolkit 模型设置")).toBe(true);
-  // 工作台不再是独立的设置页，而是“功能开关”里的第一项。
-  expect(switches.map((entry) => entry.value)).toEqual([
-    false,
-    true,
-    false,
-    false,
-    true,
-    true,
-    false,
-  ]);
-  expect(switches[0]!.label).toBe("工作台");
-  for (const [index, key] of [
-    "quickQuestionsEnabled",
-    "mermaidEnabled",
-    "compactActivityEnabled",
-    "stickyEnabled",
-    "readonlyMessagesEnabled",
-    "enhanceEnabled",
-  ].entries()) {
-    const toggle = switches[index + 1]!;
-    const next = !toggle.value;
-    toggle.onValueChange(next);
-    expect(save).toHaveBeenLastCalledWith({ ...savedValues, [key]: next }, "saved-revision");
-  }
-  switches[0]!.onValueChange(true);
-  expect(saveProjectTree).toHaveBeenLastCalledWith(
-    { enabled: true, showSessionsByDefault: false, viewName: "我的工作台" },
-    "tree-revision",
-  );
-  expect(switches.some((entry) => entry.label === "默认显示会话")).toBe(false);
-  savedValues.compactActivityEnabled = false;
-  selections.length = 0;
-  renderToStaticMarkup(
+  expect(markup).toContain("Paseo Toolkit");
+  expect(markup).toContain("概览与主控");
+  expect(markup).toContain("功能设置导航");
+
+  // 渲染对话交互 Tab
+  const chatMarkup = renderToStaticMarkup(
     React.createElement(SettingsPage, {
       theme: { colors: { foreground: "white", foregroundMuted: "gray", statusDanger: "red" } },
+      host: { id: "host", label: "Local" },
+      layout: { compact: false },
+      initialTab: "chat",
     }),
   );
-  // The two compact-activity selects are gated on the toggle; the language select never is.
-  expect(selections.map((entry) => entry.disabled)).toEqual([true, true, false]);
-  expect(selections.map((entry) => entry.label)).toEqual([
-    "展示模式 (Display mode)",
-    "配色方案 (Palette)",
-    "界面语言",
-  ]);
+  expect(chatMarkup).toContain("紧凑活动总开关");
+  expect(chatMarkup).toContain("Mermaid 交互图表");
+
   const defaults = activitySettings.schema.parse({});
   expect(defaults.language).toBe("zh-CN");
   expect(quickPills).toHaveBeenCalledTimes(1);
@@ -278,13 +277,11 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   const pillsBefore = addComposerPill.mock.calls.length;
   const commandsBefore = addSlashCommand.mock.calls.length;
   page.props.onSettingsChange({ ...enabledValues, language: "en-US" });
-  expect(addSettingsScreen).toHaveBeenCalledTimes(6);
-  expect(addSettingsScreen.mock.calls.slice(3).map(([entry]) => entry.title)).toEqual([
-    "Toolkit models",
-    "Settings",
-    "Smart session titles",
+  expect(addSettingsScreen).toHaveBeenCalledTimes(2);
+  expect(addSettingsScreen.mock.calls.slice(1).map(([entry]) => entry.title)).toEqual([
+    "Toolkit Settings",
   ]);
-  expect(removeSettings).toHaveBeenCalledTimes(3);
+  expect(removeSettings).toHaveBeenCalledTimes(1);
   expect(addComposerPill.mock.calls.slice(pillsBefore).map(([pill]) => pill.button.title)).toEqual([
     "Sticky Questions",
   ]);
@@ -298,7 +295,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   // sticky removed on disable, enhance removed on disable, sticky removed again for the new
   // language, then removed once more on cleanup.
   expect(remove).toHaveBeenCalledTimes(4);
-  expect(removeSettings).toHaveBeenCalledTimes(6);
+  expect(removeSettings).toHaveBeenCalledTimes(2);
   expect(unsubscribe).not.toHaveBeenCalled();
   expect(release).toHaveBeenCalledOnce();
 });

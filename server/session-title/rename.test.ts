@@ -24,8 +24,9 @@ vi.mock("node:util", async (original) => ({
       ),
 }));
 vi.mock("../models/storage", () => ({ paseoHome: () => "/test-home" }));
-import { renameSession } from "./rename";
+import { clearListenCache, renameSession } from "./rename";
 beforeEach(() => {
+  clearListenCache();
   state.calls.length = 0;
   state.status.home = "/test-home";
 });
@@ -51,4 +52,23 @@ it("never writes to a mismatched home", async () => {
     "写回失败",
   );
   expect(state.calls).toHaveLength(1);
+});
+
+it("reuses the cached daemon status for subsequent commands within ttl", async () => {
+  await renameSession("agent-1", "标题1", new AbortController().signal);
+  expect(state.calls).toHaveLength(2);
+  expect(state.calls[0]!.args).toEqual(["--home", "/test-home", "daemon", "status", "--json"]);
+  state.calls.length = 0;
+  await renameSession("agent-2", "标题2", new AbortController().signal);
+  expect(state.calls).toHaveLength(1);
+  expect(state.calls[0]!.args).toEqual([
+    "--host",
+    "127.0.0.1:6767",
+    "agent",
+    "update",
+    "agent-2",
+    "--name",
+    "标题2",
+    "--json",
+  ]);
 });

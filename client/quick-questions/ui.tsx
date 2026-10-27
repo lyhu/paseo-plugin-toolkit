@@ -3,6 +3,17 @@ import { Pressable, Text, TextInput, View } from "react-native";
 import type { PluginHostProps } from "@getpaseo/plugin/client";
 
 const Colors = createContext<PluginHostProps["theme"]["colors"] | null>(null);
+
+export function ThemeProvider({
+  theme,
+  children,
+}: {
+  theme: PluginHostProps["theme"];
+  children: ReactNode;
+}) {
+  return <Colors.Provider value={theme.colors}>{children}</Colors.Provider>;
+}
+
 export function Surface({
   theme,
   children,
@@ -13,11 +24,11 @@ export function Surface({
   compact?: boolean;
 }) {
   return (
-    <Colors.Provider value={theme.colors}>
+    <ThemeProvider theme={theme}>
       <View style={{ gap: 14, padding: compact ? 10 : 16, backgroundColor: theme.colors.surface0 }}>
         {children}
       </View>
-    </Colors.Provider>
+    </ThemeProvider>
   );
 }
 export function useColors() {

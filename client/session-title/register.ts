@@ -3,7 +3,6 @@ import { resumeTitles, startTitle } from "../../shared/session-title/contracts";
 import { tr } from "../i18n";
 import { subscribeLocale } from "../chat-view/locale";
 import { SessionTitlePanel } from "./panel";
-import { SessionTitleSettings } from "./settings";
 import { registerTitlePills } from "./pills";
 
 export function registerSessionTitle(client: PluginClientContext) {
@@ -12,12 +11,6 @@ export function registerSessionTitle(client: PluginClientContext) {
     .rpc(resumeTitles, {})
     .catch(() => console.error("[Toolkit] Naming recovery could not reach this host"));
   const register = () => [
-    client.addSettingsScreen({
-      id: "session-title",
-      title: tr("会话智能命名"),
-      icon: "TextCursorInput",
-      Component: SessionTitleSettings,
-    }),
     client.addWorkspacePanel({
       id: "session-title",
       title: tr("会话列表"),

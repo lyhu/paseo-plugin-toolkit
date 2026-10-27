@@ -258,8 +258,8 @@ function performAction(el){const a=el.dataset.action,id=el.dataset.id;closeMenu(
     case 'host-tab':if(!state.tabs.some(t=>t.id===id))state.tabs.push({id,name:hostById(id).name,type:'host',icon:'server'});state.tab=id;state.page='home';closeModal();render();break;
     case 'query-hosts':state.page='hosts';render();break;
     case 'query':state.query=el.dataset.value;render();document.querySelector('#search-input')?.focus();break;
-    case 'collapse':state.collapsed.has(id)?state.collapsed.delete(id):state.collapsed.add(id);render();break;
-    case 'node-open':{const n=(state.mode==='native'?nativeNodes():state.nodes).find(n=>n.id===id);if(n?.system||n?.project==='assistant'){state.page='ai';render();}else if(n?.kind==='category'){state.collapsed.has(id)?state.collapsed.delete(id):state.collapsed.add(id);render();}else if(n?.kind==='project')openProject(n.project);else if(n)openWorkspace(n.project,n.host,n.name);break;}
+    case 'collapse':if(state.collapsed.has(id)){state.collapsed.delete(id);}else{state.collapsed.add(id);}render();break;
+    case 'node-open':{const n=(state.mode==='native'?nativeNodes():state.nodes).find(n=>n.id===id);if(n?.system||n?.project==='assistant'){state.page='ai';render();}else if(n?.kind==='category'){if(state.collapsed.has(id)){state.collapsed.delete(id);}else{state.collapsed.add(id);}render();}else if(n?.kind==='project')openProject(n.project);else if(n)openWorkspace(n.project,n.host,n.name);break;}
     case 'node-menu':nodeMenu(id,el);break;
     case 'tree-menu':treeMenu(el);break;
     case 'new-folder':createFolder(id||null);break;

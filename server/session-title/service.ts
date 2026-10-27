@@ -5,7 +5,7 @@ import { validTitle, working } from "../../shared/session-title/contracts";
 import { createChatClient, type ChatClient } from "../models/chat-client";
 import type { ModelStore } from "../models/storage";
 import { analyzeConversation } from "./model";
-import { checkCanceled, readConversation } from "./history";
+import { checkCanceled, readConversation, type History } from "./history";
 import { renameSession } from "./rename";
 import type { TitleStore } from "./storage";
 
@@ -133,6 +133,7 @@ export function createTitleService(options: {
     settings: TitleSettings,
     job?: TitleJob,
     allowArchived = false,
+    existingHistory?: History,
   ) {
     const agent = await ensureIdle(paseo, id, allowArchived);
     options.store.update(id, (state) => ({
@@ -142,7 +143,8 @@ export function createTitleService(options: {
       archivedAt: agent.archivedAt ?? null,
       title: agent.title,
     }));
-    const history = await readConversation(paseo.agents.ref(id).timeline, signal);
+    const history =
+      existingHistory ?? (await readConversation(paseo.agents.ref(id).timeline, signal));
     if (job) job.phase = "summarizing";
     const analysis = await analyzeConversation({
       history,
@@ -406,7 +408,7 @@ export function createTitleService(options: {
             error: null,
           }));
           job = newJob(id, "automatic");
-          const result = await generate(paseo, id, signal, settings, job);
+          const result = await generate(paseo, id, signal, settings, job, false, history);
           checkCanceled(signal);
           if (versions.get(id) !== undefined && versions.get(id) !== version) {
             job.phase = "canceled";

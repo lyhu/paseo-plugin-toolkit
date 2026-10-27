@@ -19,7 +19,7 @@
     "LICENSE.editor-highlight"
   ],
   "scripts": {
-    "build:editor-highlight": "node server/editor-highlight/build-payload.mjs",
+    "build:editor-highlight": "node scripts/editor-highlight/build-payload.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "lint": "oxlint .",

@@ -285,9 +285,9 @@ const glyphShapes: Record<GlyphKind, Array<[string, Record<string, string>]>> = 
   ],
 };
 const dialogContainers = new WeakSet<Element>();
-const menuCleanups = new Map<Element, () => void>();
-const workspaceCleanups = new Map<Element, Array<() => void>>();
-const workspaceBindings = new Map<
+const menuCleanups = new WeakMap<Element, () => void>();
+const workspaceCleanups = new WeakMap<Element, Array<() => void>>();
+const workspaceBindings = new WeakMap<
   Element,
   Array<{ expected: string; attach(source?: Element): void }>
 >();

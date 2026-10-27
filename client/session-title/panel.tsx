@@ -50,6 +50,7 @@ export function SessionTitlePanel(props: PluginWorkspacePanelProps) {
       })),
     refetchInterval: (query) =>
       query.state.data?.some((entry) => busyPhase(entry.phase)) ? 600 : 3000,
+    refetchIntervalInBackground: false,
   });
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -60,6 +61,7 @@ export function SessionTitlePanel(props: PluginWorkspacePanelProps) {
     queryKey: ["toolkit", "workspace-sessions", props.host.id, props.workspaceId],
     queryFn: ({ signal }) => readWorkspaceSessions(paseo, props.workspaceId, signal),
     refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");

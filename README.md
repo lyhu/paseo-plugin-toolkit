@@ -155,7 +155,7 @@ Users can also customize the **Summary prompt** per workspace in the collapsible
 
 ## Shared AI Models
 
-Navigate to **Settings → Plugins → toolkit → Toolkit models**, or expand **Model settings** in the quick questions panel.
+Navigate to **Settings → Plugins → toolkit (··· menu) → Toolkit Settings → AI & Models**, or expand **Model settings** in the quick questions panel.
 
 - **Multi-level Hierarchy**: Configure a host-wide default model shared across workspaces, summaries, and prompt enhancement. Individual workspaces can override the host default when needed.
 - **OpenAI-Compatible Protocol**: Connect any standard OpenAI Chat Completions endpoint. Supports automatic model list fetching and connectivity validation.
@@ -165,13 +165,13 @@ Navigate to **Settings → Plugins → toolkit → Toolkit models**, or expand *
 
 ### Sticky Questions
 
-While scrolling through long conversation threads, the active user question stays pinned above the composer. Long inputs automatically collapse to 3 lines, with options to expand full text or copy with one click.
+While scrolling through long conversation threads, the active user question stays pinned above the composer. Long inputs automatically collapse to 3 lines, with options to expand full text or copy with one click. Configure in the **Chat & Interaction** tab.
 
 ### Compact Activity
 
 Condenses model reasoning (Thinking) and verbose tool executions into organized, expandable activity blocks.
 
-- Toggle between Folded and Detailed display modes in feature settings.
+- Toggle master switch, Folded/Detailed display modes, and visual palettes in the **Chat & Interaction** tab.
 - Choose between Vivid, Soft, and High Contrast visual themes.
 - Expand activity items to inspect tool parameters, unified diffs, search output, and subagent call traces.
 
@@ -181,6 +181,7 @@ Renders Mermaid code blocks in assistant responses as interactive SVG diagrams:
 
 - Pan and zoom (25% to 400%), fit-to-view, source code view, and full-screen modes.
 - Supports `flowchart` / `graph`, `sequenceDiagram`, and top-level subgraphs.
+- Easily toggle in the **Chat & Interaction** tab.
 
 ### Read-Only Sent Messages
 
@@ -196,19 +197,27 @@ Click **Enhance** above the composer or trigger `/enhance`:
 
 ## Editor highlighting
 
-Settings → Editor highlighting patches the native editor for `.env` / `.env.*`, INI, TOML, Shell, SQL, Dockerfile and `.gitignore`. On macOS, Toolkit checks `/Applications/Paseo.app` on its Host whenever the plugin loads and applies the patch automatically by default. The settings page also provides Check again, Apply highlighting now, and Restore highlight backup.
+Navigate to **Settings → Plugins → toolkit (··· menu) → Toolkit Settings → System & Environment**. Patches the native editor for `.env` / `.env.*`, INI, TOML, Shell, SQL, Dockerfile and `.gitignore`. On macOS, Toolkit checks `/Applications/Paseo.app` on its Host whenever the plugin loads and applies the patch automatically by default. The settings panel provides environment status detection, automatic patch toggle, Apply highlighting now, and Restore original app.
 
 Only compatible Paseo 0.13.x frontend builds are modified. Backups are stored in `$PASEO_HOME/toolkit/editor-highlight/` and verified before restore; a backup from an older app cannot overwrite an upgraded app. Turn off automatic patching before restoring if you want the original files to remain. Reload the entire Paseo interface after applying or restoring; reopening a file tab is not enough. The daemon is not restarted. A remote Host cannot patch the app on your computer.
 
 This modifies resources covered by the macOS app signature and invalidates the original signature. Toolkit does not re-sign the app. Updates can replace the patch; reload Toolkit to detect and patch a compatible update again. Unrecognized builds and write permission failures are shown in settings. The patch affects only editor language registration, and uses Shell syntax for basic dotenv highlighting and standard SQL syntax for `.sql` files.
 
-## Settings and Internationalization
+## Unified Settings Console & Internationalization
 
-Toolkit **Settings** provides granular control over individual features and display options:
+All configuration properties are now consolidated into a unified settings dashboard (**Settings → Plugins → toolkit → Toolkit Settings**), eliminating scattered menu entries and providing a professional Master-Detail two-pane console:
 
-- **Feature Toggles**: Workbench, quick questions, sticky questions, compact activity, Mermaid diagrams, read-only protection, and prompt enhancement can be toggled independently.
-- **Multi-language Support**: Supports **简体中文**, **English**, and **Auto** (browser language detection). Panels, dialogs, progress bars, and alerts switch instantly.
-- **Content Integrity**: UI language switching only affects interface labels. User question text, conversation content, and model outputs are preserved in their original languages.
+- **1. Overview & Controls**: Displays plugin version, active host, submodules status matrix with quick navigation links, and global language preference (Simplified Chinese / English / Follow Client).
+- **2. Chat & Interaction**: Master toggle for compact activity (cascading into display mode and palette options), Mermaid diagram rendering, sticky questions, and read-only message protection.
+- **3. Workbench**: Cross-host workbench master switch, custom tree view alias, and usage guidelines.
+- **4. AI & Models**: Host default shared model endpoint and API credentials, connection testing, and workspace-level overrides.
+- **5. Smart Features**: Session title automatic naming controls (master toggle, turns 1~20, max characters 1~100, quick link to model configuration) and prompt enhancement toggle.
+- **6. System & Environment**: Quick questions library switch, macOS native editor syntax highlighting status, auto-patching switch, and one-click patch/restore actions.
+- **Global Consistency Standards**:
+  - **Hierarchical Enabling**: Every module card features a top-level master switch; disabling it automatically grays out and locks all descendant settings.
+  - **Explicit Scope Badging**: Clear badges indicating `[Host]`, `[Device]`, `[Workspace]`, or `[macOS]`.
+  - **Autosave with Instant Validation**: Settings validate and persist immediately on change/blur with informative error alerts.
+  - **Content & Language Isolation**: Language preferences only affect UI labels and guides, never user prompts, conversations, or generated text.
 
 ## Data Storage and Privacy
 
