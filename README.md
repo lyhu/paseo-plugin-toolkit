@@ -9,6 +9,7 @@
 | Module             | What it does                                                                                  | Default                |
 | ------------------ | --------------------------------------------------------------------------------------------- | ---------------------- |
 | Workbench          | Project and Host views, personal AI, memory, skills, history search, and display organization | Off                    |
+| Sessions           | Automatic titles, right-side session list, and Archive & new                                  | On                     |
 | Quick questions    | Workspace question library, composer popover, manual editing, and AI history suggestions      | On                     |
 | Sticky questions   | Keeps the active user question visible above the composer while scrolling                     | On                     |
 | Compact activity   | Groups model reasoning and tool execution steps into clean, expandable rows                   | Off                    |
