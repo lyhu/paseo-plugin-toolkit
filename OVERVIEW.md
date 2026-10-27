@@ -18,6 +18,8 @@ Toolkit’s Sessions feature is enabled by default and includes automatic titles
 
 Requires Paseo 0.13.x on client and daemon. The interface supports Chinese and English. Browser behavior and React Native components are tested; simulator and physical-device acceptance remains pending. Sticky questions and sent-message protection require web or desktop. Native prompt enhancement uses a slash command and clipboard fallback. Disable overlapping timeline tools in other plugins to avoid duplicate rendering.
 
+Editor highlighting adds dotenv, INI, TOML, Shell, SQL, Dockerfile and gitignore syntax to compatible Paseo 0.13.x macOS installations. By default Toolkit checks `/Applications/Paseo.app` on its Host each time the plugin loads; Settings → Editor highlighting also offers manual apply and verified backup restore. Reload the Paseo interface afterward. This modifies signed frontend resources and invalidates the original signature; Toolkit does not re-sign the app or restart the daemon. Upgrades can replace the patch; unsupported builds are left unchanged. A remote Host cannot modify the app on your computer.
+
 ## 简体中文
 
 Toolkit 为 Paseo 提供跨 Host 工作台、个人 AI 会话、工作区快捷提问和对话展示工具。工作台包含项目与主机视图、收藏项目、场景归属、关注任务、个人记忆、技能和历史索引搜索。打开工作区保留原生 Agent 与 Terminal 标签。搜索工作台是侧栏分组和排序的统一来源；通过工作台视图与原生视图两个按钮直接切换；工作台视图平铺所有自定义分组及其项目、workspace，原生视图显示原始树。自定义分组和组内项目可拖拽排序，全部项目固定。侧栏不再提供独立的树节点编辑。
@@ -37,3 +39,5 @@ Toolkit 的会话列表功能默认开启，包含标题自动生成、右侧会
 会话列表支持标题重新命名、复制及确认后永久删除。永久删除同时清理 Paseo 会话、Toolkit 摘要和搜索索引、对应 Codex／Claude／Grok 本机原始会话历史，保留项目文件。运行中、共享原始历史或无法核实归属的会话禁止删除；Codex 需要 CLI 支持 `thread/delete`，支持 Grok 本机 ACP 接入并清理其全文索引；其他自定义启动命令和其他 Provider 暂不支持。外部导出与备份不在删除范围。
 
 客户端和守护进程需要 Paseo 0.13.x，界面支持中英文。已进行浏览器验证与 React Native 组件测试，尚待模拟器和真机验收。吸顶与已发送消息保护限网页或桌面；原生提示词增强使用斜杠命令和剪贴板降级。请关闭其他插件中的重叠时间线工具，避免重复渲染。
+
+编辑器高亮为结构兼容的 Paseo 0.13.x macOS 安装补充 dotenv、INI、TOML、Shell、SQL、Dockerfile 和 gitignore 语法。Toolkit 默认在每次加载时检测当前 Host 的 `/Applications/Paseo.app`；“设置 → 编辑器高亮”提供手动应用与校验备份恢复。应用后需重新加载 Paseo 界面。此功能修改签名覆盖的前端资源，使原签名校验失败，不重新签名或重启 daemon。升级后可重新加载 Toolkit 修补兼容版本，不兼容的构建不修改；远程 Host 无法修改你电脑上的应用。

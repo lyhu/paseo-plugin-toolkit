@@ -1,6 +1,61 @@
 import { decodeLocalizedMessage, renderMessage, type SupportedLocale } from "./chat-view/i18n";
 
 const english: Record<string, string> = {
+  编辑器高亮: "Editor highlighting",
+  "当前高亮补丁无法匹配备份，请先恢复原始安装包。":
+    "This highlight patch has no matching backup. Restore the original app first.",
+  "补充 .env、INI、TOML、Shell、SQL、Dockerfile 和 .gitignore 的语法高亮。":
+    "Add syntax highlighting for .env, INI, TOML, Shell, SQL, Dockerfile and .gitignore.",
+  "作用于当前 Host 的 /Applications/Paseo.app；远程 Host 无法修改你电脑上的应用。":
+    "Applies to /Applications/Paseo.app on this Host. A remote Host cannot modify the app on your computer.",
+  "此功能会修改应用签名覆盖的前端资源，使原签名校验失败；不重新签名，也不重启 daemon。":
+    "This modifies signed frontend resources, invalidating the original app signature. It does not re-sign the app or restart the daemon.",
+  自动修补: "Automatic patching",
+  "加载 Toolkit 时自动检测并应用": "Check and apply when Toolkit loads",
+  "升级 Paseo 后重新加载 Toolkit，可重新应用；不兼容的版本会停止修改。":
+    "Reload Toolkit after upgrading Paseo to reapply. Incompatible builds are left unchanged.",
+  "正在检测高亮补丁…": "Checking highlight patch…",
+  "当前 Host 不是 macOS，无法修改本机 Paseo 应用。":
+    "This Host is not running macOS and cannot patch a local Paseo app.",
+  "当前 Host 未找到 /Applications/Paseo.app。": "This Host has no /Applications/Paseo.app.",
+  "检测到 Paseo，可应用编辑器高亮。": "Paseo detected. Editor highlighting can be applied.",
+  "高亮补丁已应用。请重新加载 Paseo 界面后打开文件。":
+    "Highlight patch applied. Reload the Paseo interface before opening files.",
+  "已恢复原始前端文件。请重新加载 Paseo 界面。":
+    "Original frontend restored. Reload the Paseo interface.",
+  "高亮补丁操作失败，详情如下。": "Highlight patch failed. See details below.",
+  "Paseo 版本：{0}": "Paseo version: {0}",
+  "检测时间：{0}": "Checked at: {0}",
+  "备份：{0}": "Backup: {0}",
+  重新检测: "Check again",
+  "正在应用高亮…": "Applying highlighting…",
+  立即应用高亮: "Apply highlighting now",
+  "正在恢复备份…": "Restoring backup…",
+  恢复高亮备份: "Restore highlight backup",
+  "恢复后如需保留原始文件，请先关闭自动修补；仅恢复与当前文件完全匹配的备份。":
+    "Turn off automatic patching before restoring if you want to keep the original files. Only a backup matching the current file can be restored.",
+  "应用补丁后需要重新加载整个 Paseo 界面，仅关闭再打开文件标签不会生效。请先保存未保存的文件。":
+    "Reload the entire Paseo interface after applying. Reopening a file tab is not enough. Save unsaved files first.",
+  "检测到其他版本或不完整的高亮补丁，请先恢复备份。":
+    "A different or incomplete highlight patch was found. Restore its backup first.",
+  "此 Paseo 前端结构不兼容，未修改任何文件。":
+    "This Paseo frontend structure is incompatible. No files were modified.",
+  "无法确认 Paseo 的高亮注册表，未修改任何文件。":
+    "Could not identify Paseo's highlight registry. No files were modified.",
+  "Paseo 文件已变化，已取消修改，请重新检测。":
+    "The Paseo file changed. Patching was cancelled; check again.",
+  "此 Paseo 版本尚未验证，未修改任何文件。":
+    "This Paseo version has not been verified. No files were modified.",
+  "无法确认 Paseo 的前端入口，未修改任何文件。":
+    "Could not identify Paseo's frontend entry. No files were modified.",
+  "Paseo 前端入口不是安装包内的普通文件，未修改任何文件。":
+    "Paseo's frontend entry is not a regular file inside the app. No files were modified.",
+  "高亮备份校验失败，未修改任何文件。":
+    "Highlight backup verification failed. No files were modified.",
+  "当前安装包没有可恢复的高亮补丁。": "The current app has no restorable highlight patch.",
+  "安装包与高亮备份不匹配，已取消恢复。":
+    "The highlight backup does not match this app. Restore was cancelled.",
+  "高亮备份校验失败，已取消恢复。": "Highlight backup verification failed. Restore was cancelled.",
   会话列表: "Sessions",
   刷新: "Refresh",
   全部: "All",
