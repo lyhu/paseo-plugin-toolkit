@@ -380,7 +380,7 @@ it("renames manually with the original title and workspace, without invoking a m
   await act(async () => textButton(node, "重新命名").click());
   const dialog = node.querySelector('[role="dialog"]')!;
   expect((dialog as HTMLElement).style.position).toBe("absolute");
-  expect((dialog as HTMLElement).style.width).toBe("320px");
+  expect((dialog as HTMLElement).style.width).toBe("576px");
   expect(node.querySelector('[role="menu"]')).toBeNull();
   expect(textButton(dialog, "保存").parentElement!.style.justifyContent).toBe("flex-end");
   expect(dialog.querySelector("input")!.value).toBe("会员续费");
