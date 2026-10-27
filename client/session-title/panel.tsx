@@ -302,7 +302,7 @@ function SessionRow({
     setMenu(false);
     setDialog(null);
   };
-  const popupWidth = dialog === "rename" ? 320 : dialog === "delete" ? 220 : 160;
+  const popupWidth = dialog === "rename" ? 576 : dialog === "delete" ? 220 : 160;
   return (
     <View
       onPointerEnter={() => hover(true)}
@@ -340,12 +340,15 @@ function SessionRow({
             {tr(agent.archivedAt ? "已归档" : "进行中")}
           </Text>
           {busy ? (
-            <Text
+            <View
               accessibilityLiveRegion="polite"
-              style={{ color: colors.foregroundMuted, fontSize: 11 }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
             >
-              {tr(stage)}
-            </Text>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text style={{ color: colors.foregroundMuted, fontSize: 11 }}>
+                {tr("正在生成标题...")}
+              </Text>
+            </View>
           ) : null}
         </Pressable>
         <Pressable
