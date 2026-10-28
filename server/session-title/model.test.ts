@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 import { analyzeConversation } from "./model";
 import { titleLength, validTitle } from "../../shared/session-title/contracts";
 import type { History } from "./history";
+import { ProviderFailure } from "../../shared/models/failure";
 const history: History = {
   epoch: "e",
   through: 1,
@@ -53,12 +54,29 @@ it.each([1, 100, 1000])("bounds model work for %i long user turns", async (turns
   expect(request[1].content).toContain("目标0:");
   expect(request[1].content).toContain(`约束${turns - 1}`);
   expect(JSON.parse(request[1].content).previousTitle).toBe("会员业务");
-  expect(options.maxTokens).toBeLessThanOrEqual(1500);
+  expect(options.maxTokens).toBeLessThanOrEqual(4096);
   expect(options.timeoutMs).toBeLessThanOrEqual(30000);
   expect(result.changed).toBe(false);
   expect(result.summary).toContain("命名摘要（选取");
   expect(progress).toHaveBeenLastCalledWith(1, 1);
   expect(messages.map((message) => message.text)).toEqual(original);
+});
+it("allows reasoning tokens before title output in both generation and repair", async () => {
+  // The observed spark2.6 response used 1152 reasoning tokens and 87 text tokens.
+  const complete = vi.fn().mockImplementation(async (_messages, options) => {
+    if (options.maxTokens < 1239) throw new ProviderFailure("truncatedOutput", "");
+    return output(complete.mock.calls.length === 1 ? "超长标题" : "会员");
+  });
+  const result = await analyzeConversation({
+    history,
+    previousTitle: null,
+    maxLength: 2,
+    client: { complete, listModels: vi.fn() },
+    signal: new AbortController().signal,
+    progress: vi.fn(),
+  });
+  expect(result.title).toBe("会员");
+  expect(complete).toHaveBeenCalledTimes(2);
 });
 it("repairs an overlong title once, then rejects persistent invalid output", async () => {
   const one = {
