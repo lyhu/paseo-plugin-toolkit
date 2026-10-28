@@ -8,6 +8,7 @@ import { createTitleStore } from "./storage";
 import { createTitleService } from "./service";
 import { sessionTitleSettings } from "../../shared/session-title/contracts";
 import type { ChatClient } from "../models/chat-client";
+import { ProviderFailure } from "../../shared/models/failure";
 
 type Page = Awaited<ReturnType<PaseoAgentTimelineHandle["refetch"]>>;
 const cleanups: (() => void)[] = [];
@@ -121,6 +122,25 @@ function fixture() {
     },
   };
 }
+it.each(["automatic", "command"])(
+  "reports truncated output for %s naming without exposing provider details",
+  async (source) => {
+    const f = fixture();
+    f.round();
+    f.complete.mockRejectedValueOnce(
+      new ProviderFailure("truncatedOutput", "private provider detail"),
+    );
+    if (source === "automatic") await f.service.automatic(f.paseo, "a");
+    else await f.service.start(f.paseo, "a");
+    await f.service.settled("a");
+    expect(f.service.read("a").job).toMatchObject({
+      phase: "error",
+      error: "模型输出达到 token 上限，标题生成被截断，请重试。",
+    });
+    expect(f.service.read("a").error).toBe("模型输出达到 token 上限，标题生成被截断，请重试。");
+    expect(f.rename).not.toHaveBeenCalled();
+  },
+);
 it("manually renames an archived session and protects it from later automatic naming", async () => {
   const f = fixture();
   f.round();

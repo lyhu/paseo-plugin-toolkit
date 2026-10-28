@@ -192,6 +192,8 @@ const english: Record<string, string> = {
     "Could not save the title. Check the Paseo CLI and daemon connection on this Host.",
   "模型请求失败，请检查 Toolkit 模型配置后重试。":
     "Model request failed. Check the Toolkit model configuration and retry.",
+  "模型输出达到 token 上限，标题生成被截断，请重试。":
+    "Model output reached the token limit and title generation was truncated. Retry.",
   "会话不可用，请刷新后重试。": "Conversation unavailable. Refresh and retry.",
   "请等待当前会话执行完成后再总结。":
     "Wait for the current conversation turn to finish before summarizing.",

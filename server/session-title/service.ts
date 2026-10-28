@@ -8,8 +8,11 @@ import { analyzeConversation } from "./model";
 import { checkCanceled, readConversation, type History } from "./history";
 import { renameSession } from "./rename";
 import type { TitleStore } from "./storage";
+import { ProviderFailure } from "../../shared/models/failure";
 
 function safeError(error: unknown) {
+  if (error instanceof ProviderFailure && error.kind === "truncatedOutput")
+    return "模型输出达到 token 上限，标题生成被截断，请重试。";
   return error instanceof Error && /^[\u3400-\u9fff]/u.test(error.message)
     ? error.message
     : "模型请求失败，请检查 Toolkit 模型配置后重试。";
