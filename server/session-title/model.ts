@@ -35,7 +35,8 @@ export async function analyzeConversation(input: {
       ],
       {
         json: true,
-        maxTokens: repair ? 300 : 500,
+        // Reasoning models share this budget between thinking and the JSON response.
+        maxTokens: 4096,
         timeoutMs: Math.max(1, Math.min(repair ? 15000 : 30000, deadline - Date.now())),
         signal: input.signal,
       },
