@@ -20,7 +20,7 @@
 
 ## Requirements and Platform Support
 
-Supported Paseo versions: **0.13.x** (`>=0.13.0 <0.14.0`). Update both client and daemon. Built against Paseo SDK 0.13.0.
+Requires **Paseo 0.12.0 or later** (`>=0.12.0`), with no upper version limit. Both client and daemon must meet this minimum. Built against Paseo SDK 0.13.0.
 
 | Feature                            | Desktop / Browser                                          | iOS / Android                                                                    |
 | ---------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
