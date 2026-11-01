@@ -1073,9 +1073,8 @@ export function mirrorNativeWorkspace(
     ))
       time.setAttribute("data-toolkit-workspace-time", "true");
     for (const control of Array.from(
-      clone.querySelectorAll(
-        '[data-testid^="sidebar-workspace-kebab-"],[data-testid^="sidebar-workspace-archive-"]',
-      ),
+      // Paseo 0.14 moved archiving into the kebab menu, so the kebab trigger is the only test id.
+      clone.querySelectorAll('[data-testid^="sidebar-workspace-kebab-"]'),
     ))
       control.remove();
     for (const entry of [

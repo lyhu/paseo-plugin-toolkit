@@ -14,16 +14,19 @@ declare const document: Document;
  * Two rules, because the trigger has a wrapper. `rewind-menu.tsx` renders a `collapsable={false}`
  * slot around the trigger; hiding only the trigger leaves that slot's padding behind, so the
  * wrapper is hidden too and flex closes the gap on its own.
+ *
+ * Paseo 0.13 exposed the trigger as `rewind-menu-trigger`; 0.14 renamed it to `rewind-menu`, so
+ * both names are matched while 0.13 remains supported.
  */
 export function setupReadonlyStyles(): () => void {
   if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
   const style = document.createElement("style");
   style.setAttribute("data-plugin", "chat-view-readonly");
   style.textContent = `
-    [data-testid="user-message-trailing-row"] [data-testid="rewind-menu-trigger"] {
+    [data-testid="user-message-trailing-row"] :is([data-testid="rewind-menu"], [data-testid="rewind-menu-trigger"]) {
       display: none !important;
     }
-    [data-testid="user-message-trailing-row"] > *:has([data-testid="rewind-menu-trigger"]) {
+    [data-testid="user-message-trailing-row"] > *:has(:is([data-testid="rewind-menu"], [data-testid="rewind-menu-trigger"])) {
       display: none !important;
     }
   `;

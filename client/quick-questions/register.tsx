@@ -18,7 +18,6 @@ export function registerQuickQuestions(client: PluginClientContext) {
       id: "quick-questions",
       title: tr("快捷提问"),
       icon: "MessageSquareText",
-      context: "workspace",
       Component: QuickQuestionsPanel,
     });
   const addCommand = () =>

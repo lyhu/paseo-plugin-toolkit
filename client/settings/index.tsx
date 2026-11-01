@@ -175,7 +175,7 @@ export function ToolkitSettingsScreen(props: ToolkitSettingsScreenProps) {
                     Paseo Toolkit
                   </Text>
                   <Text style={{ fontSize: 12, color: props.theme.colors.foregroundMuted }}>
-                    {tr("版本 v{0} · 适用 Paseo 0.13.x", { "0": TOOLKIT_VERSION })}
+                    {tr("版本 v{0} · 适用 Paseo 0.13.0–0.14.x", { "0": TOOLKIT_VERSION })}
                   </Text>
                 </View>
               </View>

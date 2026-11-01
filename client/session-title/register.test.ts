@@ -29,7 +29,7 @@ it("runs naming silently and registers one workspace session list", async () => 
   } as unknown as PluginClientContext);
   expect(command.name).toBe("session-title");
   expect(addWorkspacePanel).toHaveBeenCalledWith(
-    expect.objectContaining({ context: "workspace", title: "会话列表", locations: ["explorer"] }),
+    expect.objectContaining({ title: "会话列表", locations: ["explorer"] }),
   );
   expect(addCommandCenterItem).toHaveBeenCalledWith(
     expect.objectContaining({ title: "会话列表", context: "workspace" }),

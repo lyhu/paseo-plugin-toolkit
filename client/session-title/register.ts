@@ -15,7 +15,6 @@ export function registerSessionTitle(client: PluginClientContext) {
       id: "session-title",
       title: tr("会话列表"),
       icon: "MessagesSquare",
-      context: "workspace",
       locations: ["explorer"],
       Component: SessionTitlePanel,
     }),

@@ -225,7 +225,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
       layout: { compact: false },
     }),
   );
-  expect(markup).toContain("Toolkit 版本 v0.2.1");
+  expect(markup).toContain("Toolkit 版本 v0.2.2");
   expect(markup).toContain("Paseo Toolkit");
   expect(markup).toContain("概览与主控");
   expect(markup).toContain("功能设置导航");

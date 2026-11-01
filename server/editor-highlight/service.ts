@@ -47,6 +47,7 @@ export function createHighlightService({
   stateDirectory?: string;
 } = {}) {
   let lastError: string | null = null;
+  let lastVersion: string | null = null;
   function base(status: HighlightState["status"]): HighlightState {
     return {
       status,
@@ -59,6 +60,7 @@ export function createHighlightService({
   }
   function inspect() {
     const state = base("ready");
+    lastVersion = null;
     if (platform !== "darwin")
       return { state: { ...state, status: "unsupported" as const }, bundle: null };
     if (!existsSync(appPath))
@@ -67,7 +69,10 @@ export function createHighlightService({
     const plist = readFileSync(join(contents, "Info.plist"), "utf8");
     state.version =
       /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1] ?? null;
-    if (!state.version?.startsWith("0.13."))
+    lastVersion = state.version;
+    // 0.13 and 0.14 ship the same editor renderer structure. Verify a later minor release before
+    // extending this list; a version mismatch is reported instead of leaving partial edits.
+    if (!state.version || !/^0\.(13|14)\./.test(state.version))
       throw new Error("此 Paseo 版本尚未验证，未修改任何文件。");
     const directory = join(contents, "Resources", "app-dist");
     const html = readFileSync(join(directory, "index.html"), "utf8");
@@ -99,7 +104,7 @@ export function createHighlightService({
   }
   function failure(error: unknown): HighlightState {
     lastError = error instanceof Error ? error.message : String(error);
-    return { ...base("error"), error: lastError };
+    return { ...base("error"), version: lastVersion, error: lastError };
   }
   function read(): HighlightState {
     try {
