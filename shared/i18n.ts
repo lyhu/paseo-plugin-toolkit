@@ -605,7 +605,7 @@ const english: Record<string, string> = {
   "简体中文": "Simplified Chinese",
   "功能模块状态一览": "Module Status Overview",
   "已启用": "Enabled",
-  "版本 v{0} · 适用 Paseo 0.13.0–0.14.x": "Version v{0} · For Paseo 0.13.0–0.14.x",
+  "版本 v{0} · 需 Paseo 0.13.0 及以上": "Version v{0} · Requires Paseo 0.13.0+",
   "当前连接主机：{0}。所有子模块配置均在此统一管理，保障全局体验一致。":
     "Connected host: {0}. All submodules are configured here for a unified experience.",
   "紧凑推理与活动记录": "Compact Reasoning & Activity",

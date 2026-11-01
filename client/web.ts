@@ -1073,8 +1073,11 @@ export function mirrorNativeWorkspace(
     ))
       time.setAttribute("data-toolkit-workspace-time", "true");
     for (const control of Array.from(
-      // Paseo 0.14 moved archiving into the kebab menu, so the kebab trigger is the only test id.
-      clone.querySelectorAll('[data-testid^="sidebar-workspace-kebab-"]'),
+      // The standalone archive control existed before archiving moved into the kebab menu; both
+      // selectors are cheap to match and keep older mirrors free of the trailing buttons.
+      clone.querySelectorAll(
+        '[data-testid^="sidebar-workspace-kebab-"],[data-testid^="sidebar-workspace-archive-"]',
+      ),
     ))
       control.remove();
     for (const entry of [

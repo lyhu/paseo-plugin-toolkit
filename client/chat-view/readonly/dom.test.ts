@@ -47,11 +47,10 @@ it("hides the rewind trigger and its wrapper, and removes them on cleanup", () =
   const styleNode = readonlyStyle(body);
   expect(styleNode).toBeDefined();
   // The trigger, plus the slot the host wraps it in — hiding the trigger alone leaves that gap.
-  // Paseo 0.14 renamed the host test id, so both names stay in the match list.
+  // Paseo renders the trigger as `${testID}-trigger`, so this id is stable across 0.13 and 0.14.
   expect(styleNode?.textContent).toContain('[data-testid="rewind-menu-trigger"]');
-  expect(styleNode?.textContent).toContain('[data-testid="rewind-menu"]');
   expect(styleNode?.textContent).toContain(
-    '[data-testid="user-message-trailing-row"] > *:has(:is([data-testid="rewind-menu"], [data-testid="rewind-menu-trigger"]))',
+    '[data-testid="user-message-trailing-row"] > *:has([data-testid="rewind-menu-trigger"])',
   );
   // Scoped to the trailing row so the copy button and timestamp are untouched.
   expect(styleNode?.textContent).toContain('[data-testid="user-message-trailing-row"]');

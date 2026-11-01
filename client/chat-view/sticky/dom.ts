@@ -25,8 +25,6 @@ export type ResolveStickyPrompt = (
 ) => StickyPrompt | undefined;
 
 const SCROLL_SELECTOR = '[data-testid="agent-chat-scroll"]';
-// `data-chat-view-hidden-row-id` exists on 0.13 rows hidden by the host; 0.14 dropped it, so the
-// selector stays for older clients and the normal row attribute carries current hosts.
 const ROW_SELECTOR = "[data-history-row-id], [data-chat-view-hidden-row-id]";
 /** Text and copy button sit side by side, so flex is the bar's visible display. */
 const SHOWN_DISPLAY = "flex";
