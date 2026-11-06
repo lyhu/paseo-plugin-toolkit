@@ -103,15 +103,36 @@ export function installStickyMessages(
     showReady = false;
   }
 
+  /** The host may wrap the text in layout views that paint nothing; the bubble is the nearest
+   * ancestor that actually has a background. */
+  function isTransparent(value: string | undefined) {
+    const color = value?.trim().toLowerCase() ?? "";
+    if (!color || color === "transparent") return true;
+    const rgba = /^rgba?\((.*)\)$/.exec(color);
+    if (!rgba) return false;
+    const parts = rgba[1]!.split(",");
+    return parts.length === 4 && Number.parseFloat(parts[3]!) === 0;
+  }
+
+  function findBubble(message: Element): Element | undefined {
+    let element: Element | null = message;
+    for (let depth = 0; element && depth < 6; depth += 1) {
+      if (!isTransparent(window.getComputedStyle(element).backgroundColor)) return element;
+      element = element.parentElement;
+    }
+    return undefined;
+  }
+
   let userAppearanceMatched = false;
   function matchUserAppearance(rows: Element[]) {
     if (userAppearanceMatched) return userAppearance;
     const message = rows
       .map((row) => row.querySelector('[data-testid="user-message"] [data-message-text="true"]'))
       .find(Boolean);
-    if (message?.parentElement) {
+    const bubbleElement = message ? findBubble(message) : undefined;
+    if (message && bubbleElement) {
       userAppearanceMatched = true;
-      const bubble = window.getComputedStyle(message.parentElement);
+      const bubble = window.getComputedStyle(bubbleElement);
       for (const key of [
         "backgroundColor",
         "borderRadius",
@@ -121,7 +142,9 @@ export function installStickyMessages(
         "paddingLeft",
         "paddingRight",
       ]) {
-        userAppearance[key] = bubble[key] ?? "";
+        // Never let a missing computed value erase the themed fallback.
+        const value = bubble[key];
+        if (value) userAppearance[key] = value;
       }
       const text = window.getComputedStyle(message);
       textLineHeight = Number.parseFloat(text.lineHeight ?? "") || 21;

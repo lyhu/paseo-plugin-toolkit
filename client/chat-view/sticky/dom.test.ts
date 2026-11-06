@@ -19,6 +19,7 @@ class Node {
   scrollTop = 0;
   scrollHeight = 1000;
   rect = { top: 0, bottom: 500, left: 0, width: 500, height: 500 };
+  computed: Record<string, string> | undefined;
   message: Node | undefined;
   rows: Node[] = [];
   events = new Map<string, () => void>();
@@ -122,7 +123,8 @@ beforeEach(() => {
       return frameId;
     },
     cancelAnimationFrame: (id: number) => frames.delete(id),
-    getComputedStyle: () => ({ paddingLeft: "0", paddingRight: "0" }),
+    getComputedStyle: (node: { computed?: Record<string, string> }) =>
+      node.computed ?? { paddingLeft: "0", paddingRight: "0" },
     addEventListener() {},
     removeEventListener() {},
   });
@@ -257,6 +259,38 @@ it("expands and collapses the question when the bar itself is clicked", () => {
   expect(text!.style.maxHeight).toBe("63px");
   expect(text!.style.overflowY).toBe("hidden");
   expect(ellipsis!.style.display).toBe("block");
+});
+
+it("takes the bar's paint from the bubble even when the host wraps the text in layout views", () => {
+  const { bar, prompt, change } = setup();
+  const bubble = new Node();
+  bubble.computed = {
+    backgroundColor: "rgb(30, 30, 30)",
+    borderRadius: "16px",
+    borderTopRightRadius: "2px",
+    paddingTop: "16px",
+    paddingBottom: "16px",
+    paddingLeft: "16px",
+    paddingRight: "16px",
+  };
+  const body = new Node();
+  bubble.appendChild(body);
+  body.appendChild(prompt.message!);
+  prompt.message!.computed = {
+    backgroundColor: "rgba(0, 0, 0, 0)",
+    lineHeight: "21px",
+    fontSize: "15px",
+    fontFamily: "Inter",
+  };
+  prompt.message!.rect = { top: -40, bottom: 0, left: 0, width: 500, height: 40 };
+  change();
+  vi.advanceTimersByTime(100);
+  flushFrame();
+  expect(bar.style.display).toBe("flex");
+  expect(bar.style.backgroundColor).toBe("rgb(30, 30, 30)");
+  expect(bar.style.paddingTop).toBe("4px");
+  expect(bar.style.paddingBottom).toBe("4px");
+  expect(bar.style.paddingLeft).toBe("16px");
 });
 
 it("relabels the bar and its copy button when the plugin language changes", () => {
