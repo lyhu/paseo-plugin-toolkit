@@ -116,15 +116,40 @@ describe("editor highlight patch lifecycle", () => {
     expect(readFileSync(bundle, "utf8")).toBe(fixtureBundle);
   });
 
-  it("rejects unverified application versions and keeps the detected version", () => {
+  it("applies to a verified 0.15.3 application", () => {
     const { service, contents, bundle } = setup();
     writeFileSync(
       join(contents, "Info.plist"),
-      "<key>CFBundleShortVersionString</key><string>0.15.0</string>",
+      "<key>CFBundleShortVersionString</key><string>0.15.3</string>",
+    );
+    const result = service.apply();
+    expect(result.status).toBe("applied");
+    expect(result.version).toBe("0.15.3");
+    expect(readFileSync(bundle, "utf8")).not.toBe(fixtureBundle);
+    expect(service.restore().status).toBe("restored");
+    expect(readFileSync(bundle, "utf8")).toBe(fixtureBundle);
+  });
+
+  it("rejects a newer minor with a version hint and keeps the detected version", () => {
+    const { service, contents, bundle } = setup();
+    writeFileSync(
+      join(contents, "Info.plist"),
+      "<key>CFBundleShortVersionString</key><string>0.16.0</string>",
+    );
+    const result = service.apply();
+    expect(result.error).toContain("比已支持的 0.15.x 更新");
+    expect(result.version).toBe("0.16.0");
+    expect(readFileSync(bundle, "utf8")).toBe(fixtureBundle);
+  });
+
+  it("rejects older unverified minors", () => {
+    const { service, contents, bundle } = setup();
+    writeFileSync(
+      join(contents, "Info.plist"),
+      "<key>CFBundleShortVersionString</key><string>0.12.1</string>",
     );
     const result = service.apply();
     expect(result.error).toContain("版本尚未验证");
-    expect(result.version).toBe("0.15.0");
     expect(readFileSync(bundle, "utf8")).toBe(fixtureBundle);
   });
 });

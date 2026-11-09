@@ -3,7 +3,7 @@
   "name": "Paseo Toolkit",
   "description": "Workspace tools for Paseo",
   "requirements": {
-    "paseo": ">=0.13.0"
+    "paseo": ">=0.15.0"
   },
   "build": [
     [

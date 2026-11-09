@@ -1,6 +1,6 @@
 {
   "name": "paseo-plugin-toolkit",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Workspace tools for Paseo",
   "license": "MIT",
   "files": [
@@ -28,15 +28,15 @@
     "format:check": "oxfmt --check ."
   },
   "dependencies": {
-    "@getpaseo/client": "^0.14.0",
-    "@getpaseo/protocol": "^0.14.0",
+    "@getpaseo/client": "^0.15.3",
+    "@getpaseo/protocol": "^0.15.3",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "prismjs": "^1.30.0"
   },
   "devDependencies": {
     "@codemirror/language": "^6.12.4",
     "@codemirror/legacy-modes": "^6.5.3",
-    "@getpaseo/plugin": "^0.14.0",
+    "@getpaseo/plugin": "^0.15.3",
     "@lezer/highlight": "^1.2.3",
     "@tanstack/react-query": "^5.90.0",
     "@types/jsdom": "21.1.7",

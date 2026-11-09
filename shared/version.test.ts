@@ -4,7 +4,7 @@ import lockfile from "../package-lock.json";
 import { TOOLKIT_VERSION } from "./version";
 
 it("keeps the displayed version in sync with the manifest", () => {
-  expect(manifest.version).toBe("0.2.2");
+  expect(manifest.version).toBe("0.3.0");
   expect(TOOLKIT_VERSION).toBe(manifest.version);
   expect(lockfile.version).toBe(manifest.version);
   expect(lockfile.packages[""].version).toBe(manifest.version);

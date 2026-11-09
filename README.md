@@ -20,7 +20,7 @@
 
 ## Requirements and Platform Support
 
-Requires **Paseo 0.13.0 or later** (`>=0.13.0`), with no upper version limit. Both client and daemon must meet this minimum. Built against Paseo SDK 0.14.0 and verified with 0.14.0.
+Requires **Paseo 0.15.0 or later** (`>=0.15.0`), with no upper version limit. Both client and daemon must meet this minimum. Built against Paseo SDK 0.15.3 and verified with 0.15.3.
 
 | Feature                            | Desktop / Browser                                          | iOS / Android                                                                    |
 | ---------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -199,7 +199,7 @@ Click **Enhance** above the composer or trigger `/enhance`:
 
 Navigate to **Settings → Plugins → toolkit (··· menu) → Toolkit Settings → System & Environment**. Patches the native editor for `.env` / `.env.*`, INI, TOML, Shell, SQL, Dockerfile and `.gitignore`. On macOS, Toolkit checks `/Applications/Paseo.app` on its Host whenever the plugin loads and applies the patch automatically by default. The settings panel provides environment status detection, automatic patch toggle, Apply highlighting now, and Restore original app.
 
-Only compatible Paseo 0.13.x and 0.14.x frontend builds are modified. Backups are stored in `$PASEO_HOME/toolkit/editor-highlight/` and verified before restore; a backup from an older app cannot overwrite an upgraded app. Turn off automatic patching before restoring if you want the original files to remain. Reload the entire Paseo interface after applying or restoring; reopening a file tab is not enough. The daemon is not restarted. A remote Host cannot patch the app on your computer.
+Only compatible Paseo 0.13.x, 0.14.x and 0.15.x frontend builds are modified. Backups are stored in `$PASEO_HOME/toolkit/editor-highlight/` and verified before restore; a backup from an older app cannot overwrite an upgraded app. Turn off automatic patching before restoring if you want the original files to remain. Reload the entire Paseo interface after applying or restoring; reopening a file tab is not enough. The daemon is not restarted. A remote Host cannot patch the app on your computer.
 
 This modifies resources covered by the macOS app signature and invalidates the original signature. Toolkit does not re-sign the app. Updates can replace the patch; reload Toolkit to detect and patch a compatible update again. Unrecognized builds and write permission failures are shown in settings. The patch affects only editor language registration, and uses Shell syntax for basic dotenv highlighting and standard SQL syntax for `.sql` files.
 

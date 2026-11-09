@@ -138,6 +138,13 @@ export const PASEO_TOOL_ROWS: Readonly<Record<string, PaseoToolRow>> = {
     family: "workspace",
     summary: [["workspaceId"]],
   },
+  // 主机目录：列出本机与已注册的远端 Host，供跨 Host 工具选择目标。
+  list_hosts: {
+    label: "List Hosts",
+    icon: "Server",
+    category: "file",
+    family: "workspace",
+  },
 
   // terminal
   list_workspace_scripts: {

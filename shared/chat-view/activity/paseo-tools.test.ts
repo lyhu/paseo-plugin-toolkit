@@ -9,7 +9,7 @@ import {
   resolvePaseoToolRow,
 } from "./paseo-tools";
 
-/** 冻结 62 个叶子的家族划分：改一个叶子属于哪个渲染模块，必须改这里。 */
+/** 冻结 63 个叶子的家族划分：改一个叶子属于哪个渲染模块，必须改这里。 */
 const FAMILY_LEAVES: Record<string, readonly string[]> = {
   agent: [
     "create_agent",
@@ -25,7 +25,13 @@ const FAMILY_LEAVES: Record<string, readonly string[]> = {
     "list_pending_permissions",
     "respond_to_permission",
   ],
-  workspace: ["create_workspace", "list_workspaces", "archive_workspace", "rename_workspace"],
+  workspace: [
+    "create_workspace",
+    "list_workspaces",
+    "archive_workspace",
+    "rename_workspace",
+    "list_hosts",
+  ],
   terminal: [
     "list_workspace_scripts",
     "start_workspace_script",

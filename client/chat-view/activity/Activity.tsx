@@ -85,7 +85,7 @@ function SubAgentProgress({
     const explicitActions = [...(detail.actions ?? [])].sort(
       (left, right) => left.index - right.index,
     );
-    return explicitActions.length > 0 ? explicitActions : parseSubAgentActionLog(detail.log);
+    return explicitActions.length > 0 ? explicitActions : parseSubAgentActionLog(detail.log ?? "");
   }, [detail.actions, detail.log]);
   const hiddenActionCount = Math.max(0, actions.length - MAX_VISIBLE_SUBAGENT_ACTIONS);
   const visibleActions = actions.slice(hiddenActionCount);

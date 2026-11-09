@@ -10,7 +10,7 @@
 
 `paseo-plugin-toolkit`（安装标识符 `toolkit`）是专为 Paseo 打造的开发者工作区与对话交互增强套件。
 
-当前插件运行要求为 Paseo `>=0.13.0`，不设版本上限；跨 Host 创建和个人 AI 基于 Paseo 0.14.0 公开 SDK 构建，并已在 0.14.0 验证。
+当前插件运行要求为 Paseo `>=0.15.0`，不设版本上限；跨 Host 创建和个人 AI 基于 Paseo 0.15.3 公开 SDK 构建，并已在 0.15.3 验证。
 
 ### 核心价值
 
@@ -249,7 +249,7 @@
   3. **工作台 (Workbench)**：跨 Host 工作台总开关、左侧导航树自定义视图名称与使用提示。
   4. **AI 与模型 (AI & Models)**：配置 Host 级共享模型端点与凭据、测试连通性，并支持针对特定工作区单独覆盖。
   5. **智能辅助 (Smart Features)**：会话智能命名参数配置（总开关、判断轮数 1~20、最大长度 1~100、模型依赖快捷入口）与输入框提示词增强。
-  6. **系统与环境 (System & Environment)**：快捷提问库总控开关、macOS 本地编辑器语法着色补丁状态检测与修补/恢复操作。着色补丁仅对结构已验证的 Paseo 0.13.x / 0.14.x 生效，更高 minor 版本只报告「尚未验证」且不写入任何文件；Paseo 升级后需重新应用并重载界面。
+  6. **系统与环境 (System & Environment)**：快捷提问库总控开关、macOS 本地编辑器语法着色补丁状态检测与修补/恢复操作。着色补丁仅对结构已验证的 Paseo 0.13.x / 0.14.x / 0.15.x 生效，更高 minor 版本只报告「尚未验证」且不写入任何文件；Paseo 升级后需重新应用并重载界面。
 
 #### 3.6.2 全局一致性规范
 - **分级启停模型 (Hierarchy of Enabling)**：每个子模块卡片顶部统一提供 Master Switch；主开关关闭时，下属子配置项统一自动置灰（Disabled）并禁止编辑，但保留既有数值。
@@ -296,6 +296,7 @@
 | `~/.paseo/plugin-settings/toolkit/project-tree.json`          | 工作台   | 配置 Host 的工作台开启状态与视图名称               | Paseo 插件设置存储 (v2)                   |
 | `~/.paseo/toolkit/models.json`                                | AI 模型  | 主机默认模型、工作区覆盖配置、API Key 凭据         | 敏感存储，文件权限 `0600`                 |
 | `~/.paseo/toolkit/quick-questions/<hash>.json`                | 快捷提问 | 工作区专属词库、采样大小、自定义总结提示词         | 工作区隔离存储，按哈希寻址                |
+| `~/.paseo/toolkit/session-title/failures.jsonl`               | 会话命名 | 命名失败原因、阶段、模型与上下文元数据（JSONL）    | 追加写入，单文件轮转，权限 `0600`         |
 | `~/.paseo/plugin-settings/toolkit/chat-view-display.json`     | 交互增强 | 各功能开关、多语言偏好、紧凑主题配色               | Paseo 插件设置存储                        |
 
 ### 5.2 隐私与安全

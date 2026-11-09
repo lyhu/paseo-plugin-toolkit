@@ -22,6 +22,20 @@ const backupSchema = z.object({
   originalHash: z.string().regex(/^[a-f0-9]{64}$/),
   patchedHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
+/** 每个 minor 都要先用 patchBundle 对真实安装包实测，通过后再追加到这里。 */
+const VERIFIED_PASEO_MINORS = [13, 14, 15] as const;
+const verifiedVersion = new RegExp(`^0\\.(?:${VERIFIED_PASEO_MINORS.join("|")})\\.`);
+const newestVerifiedMinor = Math.max(...VERIFIED_PASEO_MINORS);
+function assertVerifiedVersion(version: string | null) {
+  if (!version) throw new Error("无法读取 Paseo 版本，未修改任何文件。");
+  if (verifiedVersion.test(version)) return;
+  const minor = Number(/^0\.(\d+)\./.exec(version)?.[1]);
+  if (minor > newestVerifiedMinor)
+    throw new Error(
+      `Paseo ${version} 比已支持的 0.${newestVerifiedMinor}.x 更新，尚未验证，未修改任何文件。`,
+    );
+  throw new Error("此 Paseo 版本尚未验证，未修改任何文件。");
+}
 function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -70,10 +84,7 @@ export function createHighlightService({
     state.version =
       /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1] ?? null;
     lastVersion = state.version;
-    // 0.13 and 0.14 ship the same editor renderer structure. Verify a later minor release before
-    // extending this list; a version mismatch is reported instead of leaving partial edits.
-    if (!state.version || !/^0\.(13|14)\./.test(state.version))
-      throw new Error("此 Paseo 版本尚未验证，未修改任何文件。");
+    assertVerifiedVersion(state.version);
     const directory = join(contents, "Resources", "app-dist");
     const html = readFileSync(join(directory, "index.html"), "utf8");
     const scripts = [
