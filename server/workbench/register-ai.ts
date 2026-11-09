@@ -18,10 +18,10 @@ export function registerWorkbenchAI(
   server.handle(aiRpc.readPersonalAI, () => ai.read());
   server.handle(aiRpc.initializePersonalAI, (_, { paseo }) => ai.initialize(paseo));
   server.handle(aiRpc.setPersonalAIReference, ({ project }) => ai.setReference(project));
-  const removeCreate = server.before("agent.create", ({ request }, { paseo }) =>
+  const removeCreate = server.addHook("agent.create.before", ({ request }, { paseo }) =>
     ai.configureNative(paseo, request),
   );
-  const removeOpen = server.before("agent.session_open", ({ request }) => {
+  const removeOpen = server.addHook("agent.open.before", async ({ request }) => {
     if (request.env.TOOLKIT_WORKBENCH_CONTEXT)
       tools.bind(request.env.TOOLKIT_WORKBENCH_CONTEXT, request.agentId);
   });

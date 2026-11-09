@@ -44,21 +44,24 @@ export function registerSessionTitle(
     service.rename(paseo, agentId, workspaceId, previousTitle, title),
   );
   server.handle(deleteSession, (input, { paseo }) => removeSession(paseo, input));
-  const removeCreated = server.on("agent.created", ({ agent }) => {
+  const removeCreated = server.addHook("agent.create.after", async ({ agent }) => {
     if (!agent.parentAgentId) service.created(agent.id, agent.title, agent.workspaceId);
   });
-  const removeStarted = server.on("agent.turn_started", ({ agent }) =>
-    service.invalidate(agent.id),
-  );
-  const removeEnded = server.on("agent.turn_ended", ({ agent, outcome }, { paseo }) => {
+  const removeStarted = server.addHook("agent.turn.before", async ({ agent }) => {
+    service.invalidate(agent.id);
+  });
+  const removeEnded = server.addHook("agent.turn.after", async ({ agent, outcome }, { paseo }) => {
     if (outcome.kind === "completed" && !agent.parentAgentId)
       void service
         .automatic(paseo, agent.id)
         .catch(() => console.error("Session title analysis could not start"));
   });
-  const removeArchived = server.on("agent.archived", ({ agent, archivedAt }, { paseo }) => {
-    service.archived(agent.id, archivedAt, paseo);
-  });
+  const removeArchived = server.addHook(
+    "agent.archive.after",
+    async ({ agent, archivedAt }, { paseo }) => {
+      service.archived(agent.id, archivedAt, paseo);
+    },
+  );
   server.handle(listTitles, ({ workspaceId }) => service.list(workspaceId));
   server.handle(archiveTitle, ({ agentId }, { paseo }) => service.archive(paseo, agentId));
   server.handle(queueClearTitle, ({ agentId }, { paseo }) => service.queueClear(paseo, agentId));

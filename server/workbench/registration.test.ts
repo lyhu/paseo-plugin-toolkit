@@ -39,8 +39,7 @@ it("registers services together, limits personal context to confirmed enabled me
     workspaces: { open: async () => workspace, ref: () => workspace },
   };
   const dispose = contribute({
-    before: () => () => {},
-    on: () => () => {},
+    addHook: () => () => {},
     handle: (contract: unknown, handler: any) => handlers.set(contract, handler),
     registerSettings: () => ({ read: async () => ({ status: "ready", values: {} }) }),
   } as never);
