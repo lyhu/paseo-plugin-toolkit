@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { paseoHome } from "../models/storage";
+import { TITLE_MESSAGES, TitleFailureError } from "./errors";
 
 const execute = promisify(execFile);
 let cachedListen: { address: string; home: string; expiresAt: number } | null = null;
@@ -47,15 +48,17 @@ export async function localAgentCommand(args: string[], signal: AbortSignal) {
     }
     const result = await execute(binary, ["--host", listen, "agent", ...args, "--json"], options);
     return JSON.parse(result.stdout) as unknown;
-  } catch {
+  } catch (error) {
     cachedListen = null;
-    throw new Error("会话操作失败，请检查此 Host 的 Paseo CLI 与 daemon 连接。");
+    throw new TitleFailureError("paseo.commandFailed", TITLE_MESSAGES.commandFailed, {
+      cause: error,
+    });
   }
 }
 export async function renameSession(agentId: string, title: string, signal: AbortSignal) {
   try {
     await localAgentCommand(["update", agentId, "--name", title], signal);
-  } catch {
-    throw new Error("会话标题写回失败，请检查此 Host 的 Paseo CLI 与 daemon 连接。");
+  } catch (error) {
+    throw new TitleFailureError("paseo.writeFailed", TITLE_MESSAGES.writeFailed, { cause: error });
   }
 }

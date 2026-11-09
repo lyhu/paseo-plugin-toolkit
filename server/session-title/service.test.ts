@@ -9,6 +9,8 @@ import { createTitleService } from "./service";
 import { sessionTitleSettings } from "../../shared/session-title/contracts";
 import type { ChatClient } from "../models/chat-client";
 import { ProviderFailure } from "../../shared/models/failure";
+import type { TitleFailureEvent } from "./failure-log";
+import { InvalidTitleError } from "./errors";
 
 type Page = Awaited<ReturnType<PaseoAgentTimelineHandle["refetch"]>>;
 const cleanups: (() => void)[] = [];
@@ -83,13 +85,19 @@ function fixture() {
     agent.title = title;
   });
   const settings = sessionTitleSettings.schema.parse({});
+  const failures: TitleFailureEvent[] = [];
+  let settingsError: Error | null = null;
   const build = () =>
     createTitleService({
       store,
       models: { resolve: vi.fn() },
-      settings: async () => settings,
+      settings: async () => {
+        if (settingsError) throw settingsError;
+        return settings;
+      },
       rename,
       client: () => ({ complete, listModels: vi.fn() }),
+      onFailure: (failure) => failures.push(failure),
     });
   let service = build();
   service.created("a", null, "w");
@@ -108,6 +116,7 @@ function fixture() {
     rename,
     archive,
     settings,
+    failures,
     refetch,
     refresh,
     get service() {
@@ -119,6 +128,13 @@ function fixture() {
     },
     replaceHistory: () => {
       epoch = "replacement";
+    },
+    failPage: (field: "error" | "staleCursor" | "gap") => {
+      const original = refetch.getMockImplementation()!;
+      refetch.mockImplementationOnce(async () => ({ ...(await original()), [field]: true }));
+    },
+    setSettingsError: (error: Error | null) => {
+      settingsError = error;
     },
   };
 }
@@ -141,6 +157,149 @@ it.each(["automatic", "command"])(
     expect(f.rename).not.toHaveBeenCalled();
   },
 );
+it("records a structured failure for a rejected model call", async () => {
+  const f = fixture();
+  f.round();
+  f.complete.mockRejectedValueOnce(new ProviderFailure("timeout", "30000"));
+  await f.service.start(f.paseo, "a");
+  await f.service.settled("a");
+  expect(f.failures).toHaveLength(1);
+  expect(f.failures[0]).toMatchObject({
+    agentId: "a",
+    workspaceId: "w",
+    stage: "summarizing",
+    message: "模型请求失败，请检查 Toolkit 模型配置后重试。",
+    job: { source: "command", phase: "error", completed: 0, total: 1 },
+    settings: { enabled: true, rounds: 5, maxLength: 30 },
+    rounds: 0,
+    trace: { history: { messages: 2, through: 2 } },
+  });
+  expect(f.failures[0]!.error).toBeInstanceOf(ProviderFailure);
+});
+it("records automatic failures that happen before a naming job exists", async () => {
+  const f = fixture();
+  f.round();
+  f.agent.status = "running";
+  await f.service.automatic(f.paseo, "a");
+  await f.service.settled("a");
+  expect(f.failures).toHaveLength(1);
+  expect(f.failures[0]).toMatchObject({
+    agentId: "a",
+    stage: "automatic",
+    job: null,
+    message: "请等待当前会话执行完成后再总结。",
+  });
+});
+it("records a rejected generated title with its length and limit", async () => {
+  const f = fixture();
+  f.round();
+  const title = "标".repeat(31);
+  f.complete.mockResolvedValue({
+    content: JSON.stringify({
+      summary: "目标：修复会员权益同步。",
+      title,
+      changed: true,
+      reason: "目标已明确",
+    }),
+  });
+  await f.service.start(f.paseo, "a");
+  await f.service.settled("a");
+  expect(f.failures[0]).toMatchObject({
+    stage: "summarizing",
+    message: "推荐标题超过长度限制或格式无效，原标题已保留。",
+  });
+  expect(f.failures[0]!.error).toBeInstanceOf(InvalidTitleError);
+  expect(f.failures[0]!.error).toMatchObject({ title, limit: 30 });
+});
+it("records the underlying history read error behind the friendly message", async () => {
+  const f = fixture();
+  f.round();
+  f.refetch.mockRejectedValueOnce(new Error("timeline unavailable"));
+  await f.service.start(f.paseo, "a");
+  await f.service.settled("a");
+  expect(f.failures[0]).toMatchObject({
+    stage: "reading",
+    message: "会话历史读取失败，请在智能命名中重试。",
+    error: { message: "会话历史读取失败，请在智能命名中重试。" },
+  });
+  expect((f.failures[0]!.error as Error & { cause?: Error }).cause?.message).toBe(
+    "timeline unavailable",
+  );
+});
+it("records a silent automatic title rejection as skipped", async () => {
+  const f = fixture();
+  f.round();
+  const title = "标".repeat(31);
+  f.complete.mockResolvedValue({
+    content: JSON.stringify({
+      summary: "目标：修复会员权益同步。",
+      title,
+      changed: true,
+      reason: "目标已明确",
+    }),
+  });
+  await f.service.automatic(f.paseo, "a");
+  await f.service.settled("a");
+  expect(f.failures).toHaveLength(1);
+  expect(f.failures[0]).toMatchObject({
+    stage: "summarizing",
+    outcome: "skipped",
+    title: { source: "rejected", value: title },
+  });
+  expect(f.failures[0]!.error).toBeInstanceOf(InvalidTitleError);
+});
+it("records automatic failures before enqueue with workspace context", async () => {
+  const f = fixture();
+  f.round();
+  f.setSettingsError(new Error("设置读取失败"));
+  await expect(f.service.automatic(f.paseo, "a")).rejects.toThrow("设置读取失败");
+  expect(f.failures[0]).toMatchObject({
+    agentId: "a",
+    workspaceId: "w",
+    stage: "automatic",
+    message: "设置读取失败",
+  });
+  f.setSettingsError(null);
+});
+it("records a start failure with workspace context", async () => {
+  const f = fixture();
+  await f.service.dispose();
+  await expect(f.service.start(f.paseo, "a")).rejects.toThrow("会话总结服务已停止。");
+  expect(f.failures[0]).toMatchObject({
+    agentId: "a",
+    workspaceId: "w",
+    stage: "start",
+    message: "会话总结服务已停止。",
+  });
+});
+it("keeps structured diagnostics for an incomplete history", async () => {
+  const f = fixture();
+  f.round();
+  f.failPage("gap");
+  await f.service.start(f.paseo, "a");
+  await f.service.settled("a");
+  expect(f.failures[0]).toMatchObject({
+    stage: "reading",
+    message: "会话历史不完整，请刷新后重试；未执行改名。",
+  });
+  expect((f.failures[0]!.error as Error & { cause?: unknown }).cause).toMatchObject({
+    gap: true,
+    staleCursor: false,
+    epochChanged: false,
+  });
+});
+it("records archive failures on the naming job", async () => {
+  const f = fixture();
+  f.round();
+  f.archive.mockRejectedValueOnce(new Error("archive offline"));
+  await expect(f.service.archive(f.paseo, "a")).rejects.toThrow("会话归档未完成");
+  expect(f.failures[0]).toMatchObject({
+    stage: "archive",
+    job: { source: "archive", phase: "error" },
+    message: "会话归档未完成，请检查连接后重试。",
+  });
+});
+
 it("manually renames an archived session and protects it from later automatic naming", async () => {
   const f = fixture();
   f.round();

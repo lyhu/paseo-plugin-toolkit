@@ -15,9 +15,11 @@ import {
 } from "../../shared/session-title/contracts";
 import type { ModelStore } from "../models/storage";
 import { createTitleStore } from "./storage";
+import { createTitleFailureLog } from "./failure-log";
 import { createTitleService } from "./service";
 import { createSessionTurnCounter } from "./turns";
 import { createSessionDeletion } from "./delete";
+import { TITLE_MESSAGES, TitleFailureError } from "./errors";
 
 export function registerSessionTitle(
   server: PluginServerContext,
@@ -30,14 +32,17 @@ export function registerSessionTitle(
     countTurns(paseo, agentId, workspaceId),
   );
   const store = createTitleStore();
+  const failures = createTitleFailureLog();
   const service = createTitleService({
     store,
     models,
     settings: async () => {
       const value = await settings.read();
-      if (value.status !== "ready") throw new Error("会话命名设置不可用，请刷新后重试。");
+      if (value.status !== "ready")
+        throw new TitleFailureError("config.settings", TITLE_MESSAGES.settingsUnavailable);
       return value.values;
     },
+    onFailure: (failure) => failures.record(failure),
   });
   const removeSession = createSessionDeletion({ store, titles: service, clearSearch });
   server.handle(renameTitle, ({ agentId, workspaceId, previousTitle, title }, { paseo }) =>
@@ -52,9 +57,9 @@ export function registerSessionTitle(
   });
   const removeEnded = server.addHook("agent.turn.after", async ({ agent, outcome }, { paseo }) => {
     if (outcome.kind === "completed" && !agent.parentAgentId)
-      void service
-        .automatic(paseo, agent.id)
-        .catch(() => console.error("Session title analysis could not start"));
+      void service.automatic(paseo, agent.id).catch((error) => {
+        console.error("[Toolkit] Session title analysis could not start", error);
+      });
   });
   const removeArchived = server.addHook(
     "agent.archive.after",

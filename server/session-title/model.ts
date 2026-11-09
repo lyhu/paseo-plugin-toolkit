@@ -1,5 +1,6 @@
 import { analysisSchema, validTitle, type Analysis } from "../../shared/session-title/contracts";
 import type { ChatClient } from "../models/chat-client";
+import { InvalidTitleError, TITLE_MESSAGES, TitleFailureError } from "./errors";
 import { checkCanceled, type History } from "./history";
 import { titleContext } from "./context";
 
@@ -10,8 +11,8 @@ function parse(text: string): Analysis {
     return analysisSchema.parse(
       JSON.parse(text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")),
     );
-  } catch {
-    throw new Error("模型返回的总结格式无效，请重试。");
+  } catch (error) {
+    throw new TitleFailureError("model.invalidJson", TITLE_MESSAGES.invalidJson, { cause: error });
   }
 }
 export async function analyzeConversation(input: {
@@ -24,7 +25,8 @@ export async function analyzeConversation(input: {
 }): Promise<Analysis> {
   checkCanceled(input.signal);
   const context = titleContext(input.history.messages);
-  if (!context.messages.length) throw new Error("会话没有可总结的文本。");
+  if (!context.messages.length)
+    throw new TitleFailureError("history.empty", TITLE_MESSAGES.historyEmpty);
   const deadline = Date.now() + 45000;
   const request = async (content: string, repair = false) => {
     checkCanceled(input.signal);
@@ -69,7 +71,7 @@ export async function analyzeConversation(input: {
     analysis = { ...analysis, title: repaired.title };
   }
   if (!validTitle(analysis.title, input.maxLength))
-    throw new Error("推荐标题超过长度限制或格式无效，原标题已保留。");
+    throw new InvalidTitleError(analysis.title, input.maxLength);
   if (context.mode === "user-focused") {
     const coverage = `命名摘要（选取 ${context.messages.length}/${context.totalMessages} 条消息，其中 ${context.truncatedMessages} 条已裁剪）：\n`;
     analysis = {

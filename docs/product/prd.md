@@ -296,7 +296,7 @@
 | `~/.paseo/plugin-settings/toolkit/project-tree.json`          | 工作台   | 配置 Host 的工作台开启状态与视图名称               | Paseo 插件设置存储 (v2)                   |
 | `~/.paseo/toolkit/models.json`                                | AI 模型  | 主机默认模型、工作区覆盖配置、API Key 凭据         | 敏感存储，文件权限 `0600`                 |
 | `~/.paseo/toolkit/quick-questions/<hash>.json`                | 快捷提问 | 工作区专属词库、采样大小、自定义总结提示词         | 工作区隔离存储，按哈希寻址                |
-| `~/.paseo/toolkit/session-title/failures.jsonl`               | 会话命名 | 命名失败原因、阶段、模型与上下文元数据（JSONL）    | 追加写入，单文件轮转，权限 `0600`         |
+| `~/.paseo/toolkit/session-title/failures.jsonl`               | 会话命名 | 命名失败原因、阶段、模型与上下文元数据（JSONL，凭据脱敏） | 追加写入，单文件轮转，权限 `0600`         |
 | `~/.paseo/plugin-settings/toolkit/chat-view-display.json`     | 交互增强 | 各功能开关、多语言偏好、紧凑主题配色               | Paseo 插件设置存储                        |
 
 ### 5.2 隐私与安全

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PaseoAgentTimelineHandle, PaseoAgentTimelineRefetchOptions } from "@getpaseo/client";
+import { TITLE_MESSAGES, TitleFailureError } from "./errors";
 
 export interface HistoryMessage {
   role: "user" | "assistant";
@@ -14,7 +15,7 @@ export interface History {
   through: number;
 }
 export function checkCanceled(signal: AbortSignal) {
-  if (signal.aborted) throw new Error("已取消会话总结。");
+  if (signal.aborted) throw new TitleFailureError("canceled", TITLE_MESSAGES.canceled);
 }
 
 /** Freeze the first tail's boundary; later pages cannot accidentally include a new turn. */
@@ -37,13 +38,23 @@ export async function readConversation(
         limit: 100,
         projection: "canonical",
       })
-      .catch(() => {
+      .catch((error) => {
         checkCanceled(signal);
-        throw new Error("会话历史读取失败，请在智能命名中重试。");
+        throw new TitleFailureError("history.read", TITLE_MESSAGES.historyRead, { cause: error });
       });
     checkCanceled(signal);
-    if (page.error || page.staleCursor || page.gap || (epoch !== undefined && page.epoch !== epoch))
-      throw new Error("会话历史不完整，请刷新后重试；未执行改名。");
+    const epochChanged = epoch !== undefined && page.epoch !== epoch;
+    if (page.error || page.staleCursor || page.gap || epochChanged)
+      throw new TitleFailureError("history.incomplete", TITLE_MESSAGES.historyIncomplete, {
+        cause: {
+          pageError: page.error ?? null,
+          staleCursor: page.staleCursor,
+          gap: page.gap,
+          epochChanged,
+          expectedEpoch: epoch ?? null,
+          actualEpoch: page.epoch ?? null,
+        },
+      });
     epoch = page.epoch;
     if (through === -1) through = page.window.maxSeq;
     for (const entry of page.entries) {
@@ -67,7 +78,7 @@ export async function readConversation(
     }
     const next = page.hasOlder ? page.startCursor : null;
     if (page.hasOlder && (!next || next.seq >= olderThan || page.entries.length === 0))
-      throw new Error("会话历史分页未前进，请刷新后重试。");
+      throw new TitleFailureError("history.incomplete", TITLE_MESSAGES.historyPageStuck);
     olderThan = Math.min(olderThan, ...page.entries.map((entry) => entry.seqStart));
     cursor = next ?? undefined;
   } while (cursor);
