@@ -2,7 +2,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, expect, it, vi } from "vitest";
 const platform = vi.hoisted(() => ({ OS: "web" }));
 vi.mock("react-native", () => ({ Platform: platform }));
-import { getTitleComposer } from "../web";
+import { getFocusedComposer, getTitleComposer } from "../web";
 
 afterEach(() => vi.unstubAllGlobals());
 function fixture() {
@@ -135,4 +135,80 @@ it("ignores hidden retained textareas within the captured composer scope", async
   expect(await getTitleComposer("a")?.submitClear(new AbortController().signal)).toBe(true);
   expect(submitted).toEqual(["/clear"]);
   expect(hidden.value).toBe("");
+});
+
+/** Paseo 0.16 renders the pill track bar in the stream and the composer below it, many layers away. */
+function deepFixture() {
+  platform.OS = "web";
+  const dom = new JSDOM(`<main>
+    <div id="other-pane">
+      <span data-testid="session-title-composer-other"></span>
+      <div><textarea data-composer-input>other</textarea><button role="button" aria-label="Send message"></button></div>
+    </div>
+    <div id="pane">
+      <div class="chat"><div class="stream"><div class="dock">
+        <div class="track"><div class="track-content">
+          <span data-testid="session-title-composer-a"></span>
+        </div></div>
+      </div></div></div>
+      <div class="composer"><div class="card">
+        <div class="input"><textarea data-composer-input></textarea></div>
+        <div class="actions"><button role="button" aria-label="发送消息"></button></div>
+      </div></div>
+    </div>
+  </main>`);
+  vi.stubGlobal("document", dom.window.document);
+  vi.stubGlobal("window", dom.window);
+  vi.stubGlobal("MouseEvent", dom.window.MouseEvent);
+  for (const element of dom.window.document.querySelectorAll("span, textarea"))
+    Object.defineProperties(element, {
+      clientWidth: { value: 320 },
+      clientHeight: { value: 24 },
+    });
+  return {
+    dom,
+    input: dom.window.document.querySelector("#pane textarea")! as HTMLTextAreaElement,
+    other: dom.window.document.querySelector("#other-pane textarea")! as HTMLTextAreaElement,
+  };
+}
+
+it("finds the composer when the host renders the pill track bar far above it", () => {
+  const { input, other } = deepFixture();
+  const access = getTitleComposer("a")!;
+  expect(access.write("/clear")).toBe(true);
+  expect(input.value).toBe("/clear");
+  expect(other.value).toBe("other");
+});
+
+it("never falls through to another pane when this pill's pane has no composer", () => {
+  const { dom } = deepFixture();
+  dom.window.document.querySelector("#pane textarea")!.remove();
+  expect(getTitleComposer("a")).toBeUndefined();
+});
+
+it("submits through the send action of the pill's own composer, not another pane", async () => {
+  const { dom, input } = deepFixture();
+  const clicks: string[] = [];
+  for (const button of dom.window.document.querySelectorAll("button")) {
+    button.addEventListener("click", () => clicks.push(button.getAttribute("aria-label")!));
+  }
+  expect(await getTitleComposer("a")!.submitClear(new AbortController().signal)).toBe(true);
+  expect(clicks).toEqual(["发送消息"]);
+  expect(input.value).toBe("/clear");
+});
+
+it("targets the composer the plugin API focused", () => {
+  const { input } = deepFixture();
+  input.focus();
+  expect(getFocusedComposer()?.write("/clear")).toBe(true);
+  expect(input.value).toBe("/clear");
+});
+
+it("drops a focused composer as soon as focus leaves it", () => {
+  const { input, other } = deepFixture();
+  input.focus();
+  const focused = getFocusedComposer()!;
+  other.focus();
+  expect(focused.write("/clear")).toBe(false);
+  expect(input.value).toBe("");
 });

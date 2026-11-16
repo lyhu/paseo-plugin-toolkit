@@ -1873,3 +1873,63 @@ it("retains a node draft and displays a failed submit across catalog refreshes",
   expect(run).toHaveBeenCalledTimes(2);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
+
+/** Paseo 0.16 wraps the native list in a sidebar-view slot and a toast region; the footer moved up. */
+function wrappedSetup() {
+  const dom = new JSDOM(
+    `<aside>
+      <header>Navigation</header>
+      <div data-testid="sidebar-view-slot"><div data-testid="sidebar-toast-region" style="display:flex">
+        <section style="display:flex"><div data-testid="sidebar-project-workspace-list-scroll">Original projects</div></section>
+      </div></div>
+      <footer data-testid="sidebar-footer">Settings</footer>
+    </aside>`,
+    { url: "https://paseo.local/" },
+  );
+  vi.stubGlobal("document", dom.window.document);
+  vi.stubGlobal("MutationObserver", dom.window.MutationObserver);
+  vi.stubGlobal("window", dom.window);
+  vi.stubGlobal("KeyboardEvent", dom.window.KeyboardEvent);
+  const mount = mountProjectSidebar((container) => {
+    container.textContent = "Toolkit tree";
+  });
+  dispose = mount.dispose;
+  return { dom, mount, document: dom.window.document };
+}
+
+it("mounts the tree when the host wraps the native list in view and toast layers", () => {
+  const { document } = wrappedSetup();
+  const tree = document.querySelector("[data-toolkit-project-tree]");
+  expect(tree).not.toBeNull();
+  expect(tree!.textContent).toBe("Toolkit tree");
+  const original = document.querySelector('[data-testid="sidebar-project-workspace-list-scroll"]')!;
+  expect(original.parentElement!.style.display).toBe("none");
+});
+
+it("mounts the tree once after the wrapped sidebar repaints", async () => {
+  const { document } = wrappedSetup();
+  const list = document.querySelector('[data-testid="sidebar-project-workspace-list-scroll"]')!;
+  list.parentElement!.appendChild(document.createElement("div"));
+  await Promise.resolve();
+  expect(document.querySelectorAll("[data-toolkit-project-tree]")).toHaveLength(1);
+});
+
+it("refuses a list whose footer is too far away to identify the sidebar", () => {
+  const dom = new JSDOM(
+    `<aside><div><div><div><div><div><div><div>
+      <section><div data-testid="sidebar-project-workspace-list-scroll">Native</div></section>
+    </div></div></div></div></div></div></div><footer data-testid="sidebar-footer"></footer></aside>`,
+  );
+  vi.stubGlobal("document", dom.window.document);
+  vi.stubGlobal("MutationObserver", dom.window.MutationObserver);
+  vi.stubGlobal("window", dom.window);
+  const mount = mountProjectSidebar((container) => {
+    container.textContent = "Toolkit tree";
+  });
+  dispose = mount.dispose;
+  expect(dom.window.document.querySelector("[data-toolkit-project-tree]")).toBeNull();
+  expect(
+    dom.window.document.querySelector('[data-testid="sidebar-project-workspace-list-scroll"]')!
+      .parentElement!.style.display,
+  ).not.toBe("none");
+});

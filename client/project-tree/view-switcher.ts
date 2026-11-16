@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { Element, MutationObserverApi } from "../chat-view/dom";
+import { sidebarListSlots } from "../web";
 import { tr } from "../i18n";
 declare const document: {
   body: Element;
@@ -22,12 +23,7 @@ export function mountSidebarViewSwitcher(initial: {
         entry.bar.remove();
         bars.delete(parent);
       }
-    for (const list of Array.from(
-      document.querySelectorAll('[data-testid="sidebar-project-workspace-list-scroll"]'),
-    )) {
-      const native = list.parentElement,
-        parent = native?.parentElement;
-      if (!native || !parent?.querySelector('[data-testid="sidebar-footer"]')) continue;
+    for (const { native, parent } of sidebarListSlots()) {
       let entry = bars.get(parent);
       if (!entry) {
         const bar = document.createElement("div"),

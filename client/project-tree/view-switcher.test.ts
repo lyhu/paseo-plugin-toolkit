@@ -196,3 +196,28 @@ it("keeps repeated projects and workspaces independent across groups, refreshes 
   expect(rows()).toHaveLength(2);
   expect(preferences.tabs[1]!.workspacesOnly).toBeUndefined();
 });
+
+it("places the switcher in a sidebar the host wrapped in view and toast layers", () => {
+  dom = new JSDOM(
+    `<aside>
+      <div data-testid="sidebar-view-slot"><div data-testid="sidebar-toast-region">
+        <section id="native" style="display:flex"><div data-testid="sidebar-project-workspace-list-scroll">Native projects</div></section>
+      </div></div>
+      <footer data-testid="sidebar-footer"></footer>
+    </aside>`,
+  );
+  vi.stubGlobal("document", dom.window.document);
+  vi.stubGlobal("window", dom.window);
+  vi.stubGlobal("MutationObserver", dom.window.MutationObserver);
+  const selector = mountSidebarViewSwitcher({
+    view: "native",
+    theme: { colors: {} } as never,
+    select() {},
+  });
+  cleanup = () => selector.dispose();
+  const document = dom.window.document;
+  expect(document.querySelector("[data-toolkit-view-switcher]")).not.toBeNull();
+  expect(document.querySelector('button[aria-label="工作台视图"]')).not.toBeNull();
+  expect(document.querySelector('button[aria-label="原生视图"]')).not.toBeNull();
+  expect(document.querySelectorAll("[data-toolkit-view-switcher]")).toHaveLength(1);
+});

@@ -87,74 +87,140 @@ const compactDiffFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
 });
 
+const COMPOSER_INPUT_SELECTOR = "textarea[data-composer-input]";
+const SEND_BUTTON_SELECTOR =
+  '[role="button"][aria-label="发送消息"], [role="button"][aria-label="Send message"]';
+const TITLE_MARKER_SELECTOR = '[data-testid^="session-title-composer-"]';
+/**
+ * How far up from a title marker its pane may sit before we call the composer unreachable. Paseo
+ * 0.16 renders the pill track bar above the composer, so the two only meet a dozen-odd levels up;
+ * the cap stops a runaway climb, it is not a layout assumption.
+ */
+const PANE_SEARCH_DEPTH = 64;
+
+const visibleNode = (node: Element) =>
+  node.isConnected && node.clientWidth > 0 && node.clientHeight > 0;
+
+/**
+ * The pane a title marker belongs to: its widest ancestor that still holds no other pane's marker.
+ * The plugin contributes one marker per conversation, so the first ancestor that reaches a second
+ * marker is the container the panes share — one level above the pane itself.
+ */
+function markerPane(marker: Element): Element {
+  let pane = marker;
+  let scope = marker.parentElement;
+  for (let depth = 0; scope && depth < PANE_SEARCH_DEPTH; depth += 1) {
+    const markers = Array.from(scope.querySelectorAll(TITLE_MARKER_SELECTOR)).filter(visibleNode);
+    if (markers.length !== 1) break;
+    pane = scope;
+    scope = scope.parentElement;
+  }
+  return pane;
+}
+
+/** The one visible composer input the marker's own pane owns, never a neighbouring pane's. */
+function paneComposer(marker: Element): { input: Element; owner: Element } | undefined {
+  const pane = markerPane(marker);
+  const inputs = Array.from(pane.querySelectorAll(COMPOSER_INPUT_SELECTOR)).filter(visibleNode);
+  // Two composers in one pane is a layout this adapter does not know: refuse rather than guess.
+  return inputs.length === 1 ? { input: inputs[0]!, owner: pane } : undefined;
+}
+
+/** The card that holds this input, so its attachment tray and send action come from the same composer. */
+function composerCard(input: Element): Element | undefined {
+  let scope = input.parentElement;
+  for (let depth = 0; scope && depth < 8; depth += 1, scope = scope.parentElement) {
+    if (scope.querySelector(SEND_BUTTON_SELECTOR)) return scope;
+  }
+  return input.parentElement ?? undefined;
+}
+
+/** A composer the toolkit can read, fill and submit `/clear` through. */
+export type TitleComposer = ComposerAccess & {
+  submitClear(signal: AbortSignal): Promise<boolean>;
+};
+
+function titleComposerAccess(
+  input: Element,
+  owner: Element,
+  options: { markerId?: string; requireFocus?: boolean },
+): TitleComposer | undefined {
+  const access = createComposerAccess(input);
+  if (!access) return undefined;
+  const card = composerCard(input) ?? owner;
+  const current = () => {
+    if (!visibleNode(input)) return false;
+    if (options.requireFocus && document.activeElement !== input) return false;
+    if (options.markerId === undefined) return true;
+    const switched = Array.from(owner.querySelectorAll(TITLE_MARKER_SELECTOR)).some(
+      (node) => visibleNode(node) && node.getAttribute("data-testid") !== options.markerId,
+    );
+    return !switched;
+  };
+  const hasAttachments = () => !!card.querySelector('[data-testid="composer-attachment-tray"]');
+  return {
+    read: access.read,
+    write(text) {
+      if (!current() || hasAttachments()) return false;
+      return access.write(text);
+    },
+    async submitClear(signal) {
+      if (signal.aborted) return false;
+      if (!current()) throw new Error(tr("当前输入框已隐藏或会话已切换，请回到原会话后重试。"));
+      if (hasAttachments()) throw new Error(tr("当前输入框包含附件，请移除后重试归档新建。"));
+      if (!access.write("/clear"))
+        throw new Error(tr("无法写入 /clear，请确认当前输入框可编辑后重试。"));
+      // Let the host commit the input update before using its normal send action.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (signal.aborted || !current() || hasAttachments() || access.read() !== "/clear")
+        return false;
+      const send = card.querySelector(SEND_BUTTON_SELECTOR);
+      if (
+        !send ||
+        send.getAttribute("aria-disabled") === "true" ||
+        send.getAttribute("disabled") !== null
+      )
+        return false;
+      send.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientX: 0,
+          clientY: 0,
+        }),
+      );
+      return true;
+    },
+  };
+}
+
 /** Capture this pill's composer before awaiting naming; never fall through to another pane. */
-export function getTitleComposer(
-  agentId: string,
-): (ComposerAccess & { submitClear(signal: AbortSignal): Promise<boolean> }) | undefined {
+export function getTitleComposer(agentId: string): TitleComposer | undefined {
   if (Platform.OS !== "web" || typeof document === "undefined") return undefined;
   const markerId = `session-title-composer-${agentId}`;
-  const markers = document.body.querySelectorAll('[data-testid^="session-title-composer-"]');
-  const visible = (node: Element) =>
-    node.isConnected && node.clientWidth > 0 && node.clientHeight > 0;
-  const marker = Array.from(markers).find(
-    (node) => node.getAttribute("data-testid") === markerId && visible(node),
+  const marker = Array.from(document.body.querySelectorAll(TITLE_MARKER_SELECTOR)).find(
+    (node) => node.getAttribute("data-testid") === markerId && visibleNode(node),
   );
-  let scope = marker?.parentElement;
-  for (let depth = 0; scope && depth < 12; depth++, scope = scope.parentElement) {
-    const inputs = Array.from(scope.querySelectorAll("textarea[data-composer-input]")).filter(
-      visible,
-    );
-    if (!inputs.length) continue;
-    if (inputs.length !== 1) return undefined;
-    const input = inputs[0]!;
-    const access = createComposerAccess(input)!;
-    const owner = scope;
-    const current = () => {
-      const switched = Array.from(
-        owner.querySelectorAll('[data-testid^="session-title-composer-"]'),
-      ).some((node) => visible(node) && node.getAttribute("data-testid") !== markerId);
-      return input.isConnected && input.clientWidth > 0 && input.clientHeight > 0 && !switched;
-    };
-    const hasAttachments = () => !!owner.querySelector('[data-testid="composer-attachment-tray"]');
-    return {
-      read: access.read,
-      write(text) {
-        if (!current() || hasAttachments()) return false;
-        return access.write(text);
-      },
-      async submitClear(signal) {
-        if (signal.aborted) return false;
-        if (!current()) throw new Error(tr("当前输入框已隐藏或会话已切换，请回到原会话后重试。"));
-        if (hasAttachments()) throw new Error(tr("当前输入框包含附件，请移除后重试归档新建。"));
-        if (!access.write("/clear"))
-          throw new Error(tr("无法写入 /clear，请确认当前输入框可编辑后重试。"));
-        // Let the host commit the input update before using its normal send action.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        if (signal.aborted || !current() || hasAttachments() || access.read() !== "/clear")
-          return false;
-        const send = owner.querySelector(
-          '[role="button"][aria-label="发送消息"], [role="button"][aria-label="Send message"]',
-        );
-        if (
-          !send ||
-          send.getAttribute("aria-disabled") === "true" ||
-          send.getAttribute("disabled") !== null
-        )
-          return false;
-        send.dispatchEvent(
-          new MouseEvent("click", {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-            clientX: 0,
-            clientY: 0,
-          }),
-        );
-        return true;
-      },
-    };
-  }
-  return undefined;
+  if (!marker) return undefined;
+  const pane = paneComposer(marker);
+  if (!pane) return undefined;
+  return titleComposerAccess(pane.input, pane.owner, { markerId });
+}
+
+/**
+ * The composer the host has focused, for hosts where the pill renders outside its pane. Callers
+ * focus the agent's composer through the plugin API first, so focus — not DOM distance — proves
+ * which agent this input belongs to.
+ */
+export function getFocusedComposer(): TitleComposer | undefined {
+  if (Platform.OS !== "web" || typeof document === "undefined") return undefined;
+  const focused = document.activeElement;
+  const input = focused?.closest(COMPOSER_INPUT_SELECTOR) ?? undefined;
+  if (!input || !visibleNode(input)) return undefined;
+  const card = composerCard(input);
+  if (!card) return undefined;
+  return titleComposerAccess(input, card, { requireFocus: true });
 }
 const formatDiffCount = (value: number) => compactDiffFormatter.format(value).toLowerCase();
 /** Mirrors the native workspace card's path label, including the worktree slug when present. */
@@ -1272,6 +1338,35 @@ export function mountWorkbenchHeader(value: unknown): () => void {
   };
 }
 
+const SIDEBAR_LIST_SELECTOR = '[data-testid="sidebar-project-workspace-list-scroll"]';
+const SIDEBAR_FOOTER_SELECTOR = '[data-testid="sidebar-footer"]';
+/** How far above the native list the sidebar column that carries its footer may sit. */
+const SIDEBAR_COLUMN_DEPTH = 6;
+
+/**
+ * The native list each sidebar renders, and the column to mount the replacement tree into.
+ * Paseo 0.16 wrapped the list in a sidebar-view slot and a toast region, so the footer no longer
+ * sits one fixed level above it: climb until the column carrying the footer turns up, and refuse
+ * an unknown layout rather than mounting into an arbitrary ancestor after a host upgrade.
+ */
+export function sidebarListSlots(): Array<{ native: Element; parent: Element }> {
+  const slots: Array<{ native: Element; parent: Element }> = [];
+  for (const scroller of Array.from(document.querySelectorAll(SIDEBAR_LIST_SELECTOR))) {
+    const native = scroller.parentElement;
+    const parent = native?.parentElement;
+    if (!native || !parent) continue;
+    let column: Element | null = parent;
+    for (let depth = 0; column && depth < SIDEBAR_COLUMN_DEPTH; depth += 1) {
+      if (column.querySelector(SIDEBAR_FOOTER_SELECTOR)) {
+        slots.push({ native, parent });
+        break;
+      }
+      column = column.parentElement;
+    }
+  }
+  return slots;
+}
+
 /** Only this adapter knows Paseo's DOM boundary; the tree itself never owns host React nodes. */
 export function mountProjectSidebar(initialRender: (container: Element) => void) {
   let render = initialRender;
@@ -1313,14 +1408,8 @@ export function mountProjectSidebar(initialRender: (container: Element) => void)
     for (const { panel } of mounts.values()) workspaceRowIndexes.set(panel, originals);
     if (refresh) for (const [native, { panel }] of mounts) paint(native, panel);
     if (!enabled) return;
-    for (const scroller of Array.from(
-      document.querySelectorAll('[data-testid="sidebar-project-workspace-list-scroll"]'),
-    )) {
-      const native = scroller.parentElement;
-      const parent = native?.parentElement;
-      // Refuse unknown layouts instead of hiding an arbitrary ancestor after a host upgrade.
-      if (!native || !parent?.querySelector('[data-testid="sidebar-footer"]') || mounts.has(native))
-        continue;
+    for (const { native, parent } of sidebarListSlots()) {
+      if (mounts.has(native)) continue;
       const panel = document.createElement("section");
       panel.setAttribute("data-toolkit-project-tree", "true");
       Object.assign(panel.style, {

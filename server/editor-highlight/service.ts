@@ -23,7 +23,7 @@ const backupSchema = z.object({
   patchedHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
 /** 每个 minor 都要先用 patchBundle 对真实安装包实测，通过后再追加到这里。 */
-const VERIFIED_PASEO_MINORS = [13, 14, 15] as const;
+const VERIFIED_PASEO_MINORS = [13, 14, 15, 16] as const;
 const verifiedVersion = new RegExp(`^0\\.(?:${VERIFIED_PASEO_MINORS.join("|")})\\.`);
 const newestVerifiedMinor = Math.max(...VERIFIED_PASEO_MINORS);
 function assertVerifiedVersion(version: string | null) {

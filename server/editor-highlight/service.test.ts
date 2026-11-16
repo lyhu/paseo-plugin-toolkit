@@ -130,15 +130,29 @@ describe("editor highlight patch lifecycle", () => {
     expect(readFileSync(bundle, "utf8")).toBe(fixtureBundle);
   });
 
-  it("rejects a newer minor with a version hint and keeps the detected version", () => {
+  it("applies to a verified 0.16.0 application", () => {
     const { service, contents, bundle } = setup();
     writeFileSync(
       join(contents, "Info.plist"),
       "<key>CFBundleShortVersionString</key><string>0.16.0</string>",
     );
     const result = service.apply();
-    expect(result.error).toContain("比已支持的 0.15.x 更新");
+    expect(result.status).toBe("applied");
     expect(result.version).toBe("0.16.0");
+    expect(readFileSync(bundle, "utf8")).not.toBe(fixtureBundle);
+    expect(service.restore().status).toBe("restored");
+    expect(readFileSync(bundle, "utf8")).toBe(fixtureBundle);
+  });
+
+  it("rejects a newer minor with a version hint and keeps the detected version", () => {
+    const { service, contents, bundle } = setup();
+    writeFileSync(
+      join(contents, "Info.plist"),
+      "<key>CFBundleShortVersionString</key><string>0.17.0</string>",
+    );
+    const result = service.apply();
+    expect(result.error).toContain("比已支持的 0.16.x 更新");
+    expect(result.version).toBe("0.17.0");
     expect(readFileSync(bundle, "utf8")).toBe(fixtureBundle);
   });
 

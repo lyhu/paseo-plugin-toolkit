@@ -16,6 +16,7 @@ import { paseoToolLeafName } from "../../shared/chat-view/activity/paseo-tools";
 
 const defaultPaseoSource = resolve(fileURLToPath(new URL("../../", import.meta.url)), "../paseo");
 
+// Compiling the plugin through Paseo's own pipeline takes seconds and varies with host load.
 it("loads sticky questions, activity and Mermaid while preserving native user messages", async () => {
   const paseoSource = process.env.PASEO_SOURCE_DIR ?? defaultPaseoSource;
   const { compilePlugin } = await import(
@@ -225,7 +226,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
       layout: { compact: false },
     }),
   );
-  expect(markup).toContain("Toolkit 版本 v0.3.0");
+  expect(markup).toContain("Toolkit 版本 v0.3.1");
   expect(markup).toContain("Paseo Toolkit");
   expect(markup).toContain("概览与主控");
   expect(markup).toContain("功能设置导航");
@@ -298,7 +299,7 @@ it("loads sticky questions, activity and Mermaid while preserving native user me
   expect(removeSettings).toHaveBeenCalledTimes(2);
   expect(unsubscribe).not.toHaveBeenCalled();
   expect(release).toHaveBeenCalledOnce();
-});
+}, 30_000);
 
 it("covers every tool the host registers, or admits it by the browser family pattern", async () => {
   const paseoSource = process.env.PASEO_SOURCE_DIR ?? defaultPaseoSource;

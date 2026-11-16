@@ -1,13 +1,14 @@
 import { expect, it, vi } from "vitest";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { cancelTitle, queueClearTitle } from "../../shared/session-title/contracts";
-const state = vi.hoisted(() => ({ composer: vi.fn() }));
-vi.mock("../web", () => ({ getTitleComposer: state.composer }));
+const state = vi.hoisted(() => ({ composer: vi.fn(), focused: vi.fn() }));
+vi.mock("../web", () => ({ getTitleComposer: state.composer, getFocusedComposer: state.focused }));
 vi.mock("../i18n", () => ({ tr: (text: string) => text }));
 import { prepareClear } from "./prepare-clear";
 
 function fixture() {
   let draft = "";
+  state.focused.mockReturnValue(undefined);
   const submitClear = vi.fn().mockResolvedValue(true);
   state.composer.mockReturnValue({ read: () => draft, submitClear });
   const rpc = vi.fn().mockResolvedValue({ id: "job", phase: "queued" });
@@ -74,4 +75,36 @@ it("cancels the queued job when the composer reports a specific preflight error"
   f.submitClear.mockRejectedValue(new Error("当前输入框已隐藏"));
   await expect(f.run()).rejects.toThrow("当前输入框已隐藏");
   expect(f.rpc).toHaveBeenLastCalledWith(cancelTitle, { agentId: "a", jobId: "job" });
+});
+
+it("focuses the agent composer through the plugin API when the pill sits outside its pane", async () => {
+  const f = fixture();
+  state.composer.mockReturnValue(undefined);
+  const focus = vi.fn().mockImplementation(async () => {
+    state.focused.mockReturnValue({ read: () => "", submitClear: f.submitClear });
+  });
+  const composers = vi.fn().mockReturnValue([{ focus }]);
+  const rpc = vi.fn().mockResolvedValue({ id: "job", phase: "queued" });
+  await prepareClear(
+    { rpc, composers } as unknown as PluginClientContext,
+    "a",
+    f.controller.signal,
+  );
+  expect(composers).toHaveBeenCalledWith({ agentId: "a" });
+  expect(focus).toHaveBeenCalledOnce();
+  expect(rpc).toHaveBeenCalledWith(queueClearTitle, { agentId: "a" });
+  expect(f.submitClear).toHaveBeenCalledOnce();
+});
+
+it("reports unsupported composer access when focusing finds no composer", async () => {
+  const f = fixture();
+  state.composer.mockReturnValue(undefined);
+  const focus = vi.fn().mockResolvedValue(undefined);
+  const composers = vi.fn().mockReturnValue([{ focus }]);
+  const rpc = vi.fn();
+  await expect(
+    prepareClear({ rpc, composers } as unknown as PluginClientContext, "a", f.controller.signal),
+  ).rejects.toThrow("无法定位当前输入框");
+  expect(focus).toHaveBeenCalledOnce();
+  expect(rpc).not.toHaveBeenCalled();
 });
